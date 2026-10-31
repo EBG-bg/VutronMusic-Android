@@ -6,7 +6,7 @@ Vutron Music - Mobile 是 [VutronMusic](https://github.com/stark81/VutronMusic) 
 
 本仓库只维护 Android 客户端及构建所需的共享代码；桌面 Electron 版本请访问[上游项目](https://github.com/stark81/VutronMusic)。
 
-> **迁移状态：** 旧仓库的 `1.0.2` 是最后一个版本；本仓库从 `1.1.0` 起维护。`1.1.0` 的源码与安装包将在迁移完成后出现在 Releases。
+> **迁移状态：** 旧仓库的 `1.0.2` 已发布并归档；本仓库从 `1.1.0` 起维护。`1.1.0` 的源码与安装包将在迁移完成后出现在 Releases。
 
 ## 功能亮点
 
@@ -67,10 +67,10 @@ Vutron-Music-Mobile-1.1.0-arm64.apk.sha256
 
 ## 从旧仓库升级
 
-旧仓库 [EBG-bg/VutronMusic](https://github.com/EBG-bg/VutronMusic) 的 `1.0.2` 是最后一个版本，也是更新源切换版本；该版本发布后旧仓库归档。
+旧仓库 [EBG-bg/VutronMusic](https://github.com/EBG-bg/VutronMusic) 的 `1.0.2` 已发布并归档，是最后一个版本，也是更新源切换版本。
 
 - **1.0.0 / 1.0.1**：先从旧仓库更新到 `1.0.2`，再由 `1.0.2` 更新到 `1.1.0`；也可以直接手动下载 `1.1.0`。
-- **1.0.2**：旧仓库最后版本，更新检查指向本仓库，发布后可以直接升级到 `1.1.0`。
+- **1.0.2**：旧仓库最后版本，已发布；更新检查指向本仓库，可以直接升级到 `1.1.0`。
 - **1.1.0**：本仓库首个版本，功能与 `1.0.2` 相同，只切换独立仓库和更新源。
 - **1.1.0 以后**：只在本仓库发布和更新。
 - 1.1.0 沿用 1.0.2 的包名和签名，正常情况下可以直接覆盖安装并保留应用数据。若系统提示签名不一致，请先在设置中导出 JSON 备份，再卸载重装。
@@ -79,7 +79,7 @@ Vutron-Music-Mobile-1.1.0-arm64.apk.sha256
 旧仓库最后版本：
 
 ```text
-https://github.com/EBG-bg/VutronMusic/releases
+https://github.com/EBG-bg/VutronMusic/releases/tag/mobile-v1.0.2
 ```
 
 ## 应用内更新
@@ -194,7 +194,7 @@ Release APK 不开启 WebView 调试；CI 的 Debug artifact 只用于开发检�
 
 ## 反馈与贡献
 
-- 旧仓库将在 1.0.2 发布后归档；Issue 和 PR 请提交到[本仓库](https://github.com/EBG-bg/VutronMusic-Android/issues)。
+- 旧仓库已在 1.0.2 发布后归档；Issue 和 PR 请提交到[本仓库](https://github.com/EBG-bg/VutronMusic-Android/issues)。
 - 本项目只维护 Android 客户端；桌面 Electron 版本的问题请提交到[上游项目](https://github.com/stark81/VutronMusic)。
 - 提交问题请附：版本号、设备与 Android 版本、复现步骤、相关日志。
 - 不要公开发布账号 Cookie、签名媒体地址、本地音乐路径或设备标识。
@@ -215,6 +215,6 @@ Android 适配与维护：**EBG-bg and contributors**。
 
 Vutron Music - Mobile is an unofficial Android port of [VutronMusic](https://github.com/stark81/VutronMusic), built with Vue 3, Pinia and Capacitor.
 
-Version 1.1.0 starts in this standalone repository. The previous repository will be archived after 1.0.2. It supports NetEase playback and playlist management, track comments, local music folders, single-file CUE sheets, audio-only ZIP import, offline caching, playback queues, enhanced word-timed lyrics, playback speed/pitch and an opt-in next-track address prefetch.
+Version 1.1.0 starts in this standalone repository. The previous repository was archived after the 1.0.2 release. It supports NetEase playback and playlist management, track comments, local music folders, single-file CUE sheets, audio-only ZIP import, offline caching, playback queues, enhanced word-timed lyrics, playback speed/pitch and an opt-in next-track address prefetch.
 
 Download the ARM64 APK from [Releases](https://github.com/EBG-bg/VutronMusic-Android/releases). The project is not affiliated with or endorsed by the upstream author or any music provider. See [LICENSE](LICENSE) and [NOTICE](NOTICE) for licensing information.
