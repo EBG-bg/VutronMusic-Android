@@ -126,7 +126,7 @@ function fixture({ state = {}, supported = true, handlers = {}, edition = 'mobil
 }
 
 function availableState(changes = {}) {
-  return { currentVersion: '1.0.9', latestVersion: '1.0.10', status: 'available', ...changes }
+  return { currentVersion: '1.0.9', comparisonVersion: '1.0.9', latestVersion: '1.0.10', status: 'available', ...changes }
 }
 
 test('personal edition only displays public release information and never downloads or installs it', async () => {

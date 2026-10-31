@@ -1,8 +1,8 @@
 # Redistribution and corresponding source
 
-Product: **Vutron Music - Mobile**, migrated source baseline **1.0.2**. Maintainer: **EBG-bg and contributors**. Implementation review date: **2026-10-31**; repository references updated **2026-11-01**.
+Product: **Vutron Music - Mobile 1.1.0**, migrated source baseline **1.0.2**. Maintainer: **EBG-bg and contributors**. Implementation review date: **2026-11-01**.
 
-The Android source is migrated from commit `e09b23e51d0aeaed256a0354676d8f887096135a` in the archived EBG-bg/VutronMusic repository. The exact source matching its final published APK remains under `https://github.com/EBG-bg/VutronMusic/tree/mobile-v1.0.2`. This standalone repository at https://github.com/EBG-bg/VutronMusic-Android continues maintenance without importing the old repository's full history. Version 1.1.0 has not been published. Archiving the old repository does not remove its source, license materials or releases. See `docs/MIGRATION.md` for provenance.
+The Android source is migrated from commit `e09b23e51d0aeaed256a0354676d8f887096135a` in the archived EBG-bg/VutronMusic repository. The exact source matching its final published APK remains under `https://github.com/EBG-bg/VutronMusic/tree/mobile-v1.0.2`. This standalone repository at https://github.com/EBG-bg/VutronMusic-Android continues maintenance without importing the old repository's full history. The corresponding source for version 1.1.0 is retained at `https://github.com/EBG-bg/VutronMusic-Android/tree/mobile-v1.1.0`. Archiving the old repository does not remove its source, license materials or releases. See `docs/MIGRATION.md` for provenance.
 
 ## Project and upstream notices
 

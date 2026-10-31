@@ -1,12 +1,12 @@
 # Vutron Music - Mobile
 
-> 非官方 Android 移植版 · 当前源码基线 **1.0.2** · 计划版本 **1.1.0（尚未发布）** · ARM64
+> 非官方 Android 移植版 · 正式版本 **1.1.0** · Android 13 / HyperOS · ARM64
 
 Vutron Music - Mobile 是 [VutronMusic](https://github.com/stark81/VutronMusic) 的**非官方 Android 移植版**，面向 Android 13 / HyperOS 的 ARM64 设备。本项目与上游作者、网易云音乐及任何音乐平台均无官方隶属或背书关系。
 
 本仓库只维护 Android 客户端及构建所需的共享代码；桌面 Electron 版本请访问[上游项目](https://github.com/stark81/VutronMusic)。
 
-> **迁移状态：** 安卓源码、构建依赖、工具和许可材料已迁入本仓库，基于旧仓库最终版 `1.0.2`。本仓库尚未发布安装包；`1.1.0` 另行发布。在此之前请使用[旧仓库 1.0.2](https://github.com/EBG-bg/VutronMusic/releases/tag/mobile-v1.0.2)。
+> **下载与升级：** [下载正式版 1.1.0](https://github.com/EBG-bg/VutronMusic-Android/releases/tag/mobile-v1.1.0)。本仓库基于旧仓库最终版 `1.0.2` 继续维护 Android 客户端，沿用原包名和签名。已安装 `1.0.2` 的用户可在应用内检查更新；旧仓库保留历史版本并维持归档。
 
 ## 用前须知
 
@@ -22,6 +22,7 @@ Vutron Music - Mobile 是 [VutronMusic](https://github.com/stark81/VutronMusic) 
 - **逐字歌词**：支持网易云 YRC、增强 LRC/WRC 的真实词时间，并提供桌面悬浮歌词。
 - **评论**：支持歌曲评论的推荐/热门/最新、分页、点赞、发表、回复、删除和楼层。
 - **播放控制**：队列、下一首插队、全局倍速、高级变调、睡眠定时和 Wi-Fi 下一首地址预取。
+- **播放体验**：播放页快捷调速、实际倍率反馈、耳机断开暂停、可操作的故障提示，以及更完整的设置动效与三语文案。
 
 ## 功能
 
@@ -37,10 +38,10 @@ Vutron Music - Mobile 是 [VutronMusic](https://github.com/stark81/VutronMusic) 
 | 离线缓存 | 缓存歌曲、歌单资料与封面；支持单曲删除和容量限制。 |
 | 播放队列 | 查看队列、追加歌曲、下一首插队、循环与随机播放。 |
 | 播放设置 | 保存歌曲与歌单音量、重启恢复播放进度、睡眠定时。 |
-| 高级播放 | 全局 0.5–2.0× 倍速、可选变调；Wi-Fi 下下一首地址预取默认关闭，不预下载音频。 |
+| 高级播放 | 播放页右上角调整全局 0.5–2.0× 倍速和音高，支持精确输入、常用倍率及实际生效反馈；Wi-Fi 下下一首地址预取位于缓存设置，默认关闭，不预下载音频。 |
 | 应用内歌词 | 原文与译文同步滚动、逐曲延迟微调；支持 YRC、增强 LRC/WRC 的真实词时间。 |
 | 桌面歌词 | 悬浮歌词、颜色、透明度、阴影和位置设置。 |
-| 界面 | 简体中文、繁体中文、英文首批文案；支持主题、列表/卡片布局和每排数量调整。 |
+| 界面 | 简体中文、繁体中文、英文；设置、外观、调色盘、歌词延迟和播放错误已扩展三语，部分其他运行提示仍为中文；支持主题、列表/卡片布局和每排数量调整。 |
 | 本地模式 | 无需账号或网络即可播放本地文件与已有缓存；自动更新检查暂停。 |
 | 数据备份 | 导出设置与本地歌单资料；不包含账号、音频、封面、绝对路径和目录授权。 |
 | 检查更新 | 设置中手动检查 GitHub Releases；自动检查默认关闭。 |
@@ -58,9 +59,9 @@ CUE 目前只处理同目录、单个音频 `FILE` 的常见场景。多 `FILE`�
 
 ## 下载与安装
 
-本仓库尚未发布安装包，当前可用的正式安装包是[旧仓库 1.0.2](https://github.com/EBG-bg/VutronMusic/releases/tag/mobile-v1.0.2)。计划中的 1.1.0 发布后，安装包会在[本仓库 Releases](https://github.com/EBG-bg/VutronMusic-Android/releases) 提供。
+正式安装包在[本仓库 Releases](https://github.com/EBG-bg/VutronMusic-Android/releases) 提供。当前版本为 [1.1.0](https://github.com/EBG-bg/VutronMusic-Android/releases/tag/mobile-v1.1.0)，更新内容见[更新记录](CHANGELOG.md)。
 
-1.1.0 未来发布时的文件名为：
+1.1.0 文件名：
 
 ```text
 Vutron-Music-Mobile-1.1.0-arm64.apk
@@ -80,14 +81,14 @@ Vutron-Music-Mobile-1.1.0-arm64.apk.sha256
 
 旧仓库 [EBG-bg/VutronMusic](https://github.com/EBG-bg/VutronMusic) 的 `1.0.2` 已发布并归档，是最后一个版本，也是更新源切换版本。
 
-- **1.0.0 / 1.0.1**：先从旧仓库更新到 `1.0.2`，待本仓库发布后续版本后继续更新；也可在新版发布后手动下载。
+- **1.0.0 / 1.0.1**：可手动下载本仓库的 `1.1.0` 覆盖升级；也可先从旧仓库更新到 `1.0.2`，再通过应用内更新继续升级。
 - **1.0.2**：旧仓库最后版本，已发布；应用内只从本仓库检查和下载后续更新，不会回退旧仓库。
-- **1.1.0（计划中）**：尚未创建标签或 Release；本仓库目前迁入的是 `1.0.2` 功能源码，实际版本与发布说明另行确定。
+- **1.1.0**：本仓库的首个正式发行版，保留旧版功能并完善播放控制、设置交互、错误恢复和国际化。
 - 后续正式版本只在本仓库发布和更新。
 - 后续版本保持既有包名和签名，覆盖升级并保留应用数据。若系统提示签名不一致，请保留当前安装包和数据，先核对下载来源及证书。
 - 旧仓库历史源码和 Release 保留用于追溯；归档后不再更新，也不再接收新的 Issue 或 PR。
 
-已发布的 1.0.0 / 1.0.1 / 1.0.2 包名为 `io.github.vutronmusic.personal.webshell`。签名证书主题为 `C=US, O=Android, CN=Android Debug`，SHA-256 为 `d879659d80b689de9be73f419d3ccd01f4bee96f9725a08896b420037688d6d8`。这些安装包使用关闭应用调试的 Release 构建，证书主题与构建类型是不同的信息。
+1.1.0 与已发布的 1.0.0 / 1.0.1 / 1.0.2 保持包名 `io.github.vutronmusic.personal.webshell` 和相同签名。签名证书主题为 `C=US, O=Android, CN=Android Debug`，SHA-256 为 `d879659d80b689de9be73f419d3ccd01f4bee96f9725a08896b420037688d6d8`。这些安装包使用关闭应用调试的 Release 构建，证书主题与构建类型是不同的信息。
 
 旧仓库最后版本：
 
@@ -129,7 +130,7 @@ https://github.com/EBG-bg/VutronMusic/releases/tag/mobile-v1.0.2
 
 迁入基线、原项目版权和历史源码入口见[源码迁移说明](docs/MIGRATION.md)。
 
-当前 `package.json` 保持 `1.0.2`、Android `versionCode` 保持 `30`，用于标识迁入基线；本次没有制作 1.1.0。下次正式发布前再统一更新版本及递增版本码。详细构建和验证说明见 [Android README](apps/android-vutron/README.md)。
+当前 `package.json` 为 `1.1.0`，Android `versionCode` 为 `33`；正式安装包对应 `mobile-v1.1.0` 标签中的源码。详细构建和验证说明见 [Android README](apps/android-vutron/README.md)。
 
 ### 环境要求
 
@@ -174,7 +175,7 @@ Release APK 不开启 WebView 调试；CI 的 Debug artifact 只用于开发检�
 
 ### 后续发布约定
 
-实际发布时，Release 继续使用以下格式（下面的 1.1.0 仅作示例，尚未发布）：
+正式 Release 使用以下格式；1.1.0 的标签与资产名为：
 
 - tag：`mobile-v1.1.0`
 - 资产名：`Vutron-Music-Mobile-1.1.0-arm64.apk`

@@ -94,7 +94,7 @@ module.exports=async({page,evaluate,wait,delay,root})=>{
     else await page.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
     await delay(100);
   }
-  await evaluate("window.featureHarness.store.navigateTo('player')");await delay(250);
+  await evaluate("window.featureHarness.store.navigateTo('player')");await wait("document.querySelector('.progress-control')");await delay(350);
   await evaluate("document.querySelector('[data-settings-section=playback-volume] > summary').click()");await delay(200);
   for(const selector of ['.progress-control input[type=range]','#track-volume','#playlist-volume'])await checkRange(selector);
   await page.send('Emulation.setDeviceMetricsOverride',{width:320,height:844,deviceScaleFactor:1,mobile:true});
@@ -110,8 +110,8 @@ module.exports=async({page,evaluate,wait,delay,root})=>{
   await evaluate("document.querySelector('[data-settings-section=track-menu-volume] > summary').click()");await delay(200);
   await checkRange(selectorFor('菜单歌曲音量'));
   await key('Escape',27);await wait("!document.querySelector('.track-action-menu')");
-  await evaluate("window.featureHarness.store.navigateTo('settings')");await delay(200);
-  await evaluate("document.querySelector('[data-settings-section=lyric-colors] > summary').click()");await delay(150);
+  await evaluate("window.featureHarness.store.navigateTo('settings')");await wait("document.querySelector('[data-settings-section=lyric-colors] > summary')");await delay(300);
+  await evaluate("document.querySelector('[data-settings-section=lyric-colors] > summary').click()");await delay(350);
   for(const width of [320,360,390]){
     await page.send('Emulation.setDeviceMetricsOverride',{width,height:844,deviceScaleFactor:1,mobile:true});
     for(const selector of [selectorFor('音频缓存容量'),selectorFor('封面缓存容量'),selectorFor('歌词大小'),selectorFor('阴影模糊'),selectorFor('歌词色相'),selectorFor('歌词颜色不透明度')]){
@@ -129,7 +129,7 @@ module.exports=async({page,evaluate,wait,delay,root})=>{
   const picture=await page.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
   fs.writeFileSync(path.join(root,'mobile-slider-endpoints.png'),Buffer.from(picture.data,'base64'));
   await evaluate('window.featureReady=false');await page.send('Page.reload');await wait('window.featureReady===true');
-  await evaluate("window.featureHarness.store.navigateTo('settings')");await delay(200);
+  await evaluate("window.featureHarness.store.navigateTo('settings')");await wait("document.querySelector('[aria-label=\"封面缓存容量\"]')");await delay(350);
   assert.equal(await value(selectorFor('封面缓存容量')),'1024','Saved cache size should be restored');
   assert.equal(await value(selectorFor('歌词大小')),'34','Saved lyric font size should be restored');
   console.log('PASS: '+checked.length+' real sliders; mouse/touch thumb-only starts, endpoints, track scrolling, live offset, keyboard, disabled, persistence and 320/360/390px layout');

@@ -86,7 +86,7 @@ async function main() {
     assert.equal(await evaluate('window.offlineHarness.store.error'),'');
     await delay(1200);
     assert.equal(await evaluate("Number(getComputedStyle(document.querySelector('.page-stage')).opacity)>=.99"),true);
-    const picture=await page.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});fs.writeFileSync(path.join(tempRoot,'personal-0.3.17-library.png'),Buffer.from(picture.data,'base64'));
+    const picture=await page.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});fs.writeFileSync(path.join(tempRoot,'offline-library.png'),Buffer.from(picture.data,'base64'));
     console.log('PASS: real App cache-only deletion/restart, saved account, automatic reconnect, sticky manual mode, imported music labels and 320px layout');
   } catch (error) { failure = error; console.error('Interaction check:', error.message); }
   finally {

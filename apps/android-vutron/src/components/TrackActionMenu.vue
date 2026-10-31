@@ -171,9 +171,14 @@ html[data-motion="reduced"] .track-action-options > button, html[data-motion="re
 </style>
 
 <style>
-.track-menu-enter-active, .track-menu-leave-active { transition: opacity 125ms ease-out; }
-.track-menu-enter-active .track-action-menu, .track-menu-leave-active .track-action-menu { transition: transform 125ms ease-out; }
+.track-menu-enter-active { transition: opacity var(--motion-panel, 320ms) ease-out; }
+.track-menu-leave-active { transition: opacity var(--motion-panel-exit, 240ms) ease-in; }
+.track-menu-enter-active .track-action-menu { transition: transform var(--motion-panel, 320ms) cubic-bezier(.2,.75,.25,1); }
+.track-menu-leave-active .track-action-menu { transition: transform var(--motion-panel-exit, 240ms) ease-in-out; }
+.track-menu-enter-active .comments-sheet { transition: transform var(--motion-panel, 320ms) cubic-bezier(.2,.75,.25,1); }
+.track-menu-leave-active .comments-sheet { transition: transform var(--motion-panel-exit, 240ms) ease-in-out; }
 .track-menu-enter-from, .track-menu-leave-to { opacity: 0; }
 .track-menu-enter-from .track-action-menu, .track-menu-leave-to .track-action-menu { transform: translateY(28px); }
+.track-menu-enter-from .comments-sheet, .track-menu-leave-to .comments-sheet { transform: translateY(28px); }
 html[data-motion="reduced"] .track-menu-enter-active, html[data-motion="reduced"] .track-menu-leave-active, html[data-motion="reduced"] .track-menu-enter-active .track-action-menu, html[data-motion="reduced"] .track-menu-leave-active .track-action-menu { transition: none; }
 </style>

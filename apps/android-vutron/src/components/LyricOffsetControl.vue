@@ -13,6 +13,7 @@ const normalize = (value: number) => Math.max(-limit, Math.min(limit, Math.round
 const value = ref(normalize(props.modelValue))
 const numeric = ref(String(value.value / 1000))
 const editing = ref(false)
+const dragging = ref(false)
 const slider = ref<HTMLElement>()
 const rail = ref<HTMLElement>()
 const center = ref(value.value)
@@ -35,6 +36,7 @@ function commit() {
 function releaseCapture() {
   const pointer = drag?.pointer
   drag = undefined
+  dragging.value = false
   if (pointer !== undefined && slider.value?.hasPointerCapture(pointer)) slider.value.releasePointerCapture(pointer)
 }
 function beginDrag(event: PointerEvent) {
@@ -46,6 +48,7 @@ function beginDrag(event: PointerEvent) {
   if (width <= 0) return
   // Keep the grab position within the thumb; the rest of the rail scrolls the page.
   drag = { pointer: event.pointerId, x: event.clientX, value: value.value, scale: (upper.value - lower.value) / width }
+  dragging.value = true
   slider.value?.setPointerCapture(event.pointerId)
 }
 function moveDrag(event: PointerEvent) {
@@ -97,17 +100,17 @@ onBeforeUnmount(releaseCapture)
 
 <template>
   <div class="lyric-offset-control" :class="{ disabled }">
-    <div class="offset-heading"><span>当前歌曲歌词延迟</span><output>{{ signedSeconds(value) }} 秒</output></div>
-    <div ref="slider" class="offset-slider" role="slider" :tabindex="disabled ? -1 : 0" aria-label="歌词延迟微调" :aria-disabled="disabled" :aria-valuemin="-limit" :aria-valuemax="limit" :aria-valuenow="value" :aria-valuetext="`${signedSeconds(value)} 秒，正数晚显示`" :style="{ '--offset-position': `${percent}%` }" @pointerdown="beginDrag" @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="endDrag" @lostpointercapture="endDrag" @keydown="keyboard">
+    <div class="offset-heading"><span>{{ $t('mobile.offsetUi.title') }}</span><output>{{ $t('mobile.offsetUi.seconds', { value: signedSeconds(value) }) }}</output></div>
+    <div ref="slider" class="offset-slider" :data-dragging="dragging ? '' : undefined" role="slider" :tabindex="disabled ? -1 : 0" :aria-label="$t('mobile.offsetUi.slider')" :aria-disabled="disabled" :aria-valuemin="-limit" :aria-valuemax="limit" :aria-valuenow="value" :aria-valuetext="$t('mobile.offsetUi.sliderValue', { value: signedSeconds(value) })" :style="{ '--offset-position': `${percent}%` }" @pointerdown="beginDrag" @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="endDrag" @lostpointercapture="endDrag" @keydown="keyboard">
       <span ref="rail" class="offset-rail"><span class="offset-fill"></span><span class="offset-thumb"></span></span>
     </div>
-    <div class="offset-scale"><span>{{ signedSeconds(lower) }} 秒</span><span>拖动微调 · 每格 10 毫秒</span><span>{{ signedSeconds(upper) }} 秒</span></div>
+    <div class="offset-scale"><span>{{ $t('mobile.offsetUi.seconds', { value: signedSeconds(lower) }) }}</span><span>{{ $t('mobile.offsetUi.fine') }}</span><span>{{ $t('mobile.offsetUi.seconds', { value: signedSeconds(upper) }) }}</span></div>
     <div class="offset-actions">
-      <button class="secondary-button" type="button" :disabled="disabled" aria-label="歌词提前半秒" @click="step(-500)"><span class="offset-original-icon" :style="earlierIcon" aria-hidden="true"></span>提前 0.5 秒</button>
-      <button class="secondary-button" type="button" :disabled="disabled" @click="update(0); commit()"><OriginalIcon name="refresh" />恢复同步</button>
-      <button class="secondary-button" type="button" :disabled="disabled" aria-label="歌词延后半秒" @click="step(500)"><span class="offset-original-icon" :style="laterIcon" aria-hidden="true"></span>延后 0.5 秒</button>
+      <button class="secondary-button" type="button" :disabled="disabled" :aria-label="$t('mobile.offsetUi.earlierLabel')" @click="step(-500)"><span class="offset-original-icon" :style="earlierIcon" aria-hidden="true"></span>{{ $t('mobile.offsetUi.earlier') }}</button>
+      <button class="secondary-button" type="button" :disabled="disabled" @click="update(0); commit()"><OriginalIcon name="refresh" />{{ $t('mobile.offsetUi.reset') }}</button>
+      <button class="secondary-button" type="button" :disabled="disabled" :aria-label="$t('mobile.offsetUi.laterLabel')" @click="step(500)"><span class="offset-original-icon" :style="laterIcon" aria-hidden="true"></span>{{ $t('mobile.offsetUi.later') }}</button>
     </div>
-    <label class="offset-exact"><span>精确输入</span><input type="number" inputmode="decimal" min="-30" max="30" step="0.01" :disabled="disabled" :value="numeric" aria-label="歌词延迟秒数" @focus="editing = true" @input="inputNumber" @blur="finishNumber" @keydown.enter.prevent="finishNumber" /><span>秒 · 正数晚显示，负数早显示</span></label>
+    <label class="offset-exact"><span>{{ $t('mobile.offsetUi.exact') }}</span><input type="number" inputmode="decimal" min="-30" max="30" step="0.01" :disabled="disabled" :value="numeric" :aria-label="$t('mobile.offsetUi.exactLabel')" @focus="editing = true" @input="inputNumber" @blur="finishNumber" @keydown.enter.prevent="finishNumber" /><span>{{ $t('mobile.offsetUi.hint') }}</span></label>
   </div>
 </template>
 
@@ -120,6 +123,10 @@ onBeforeUnmount(releaseCapture)
 .offset-fill { position: absolute; inset: 0 auto 0 0; width: var(--offset-position); border-radius: inherit; background: var(--color-primary, var(--accent)); }
 .offset-thumb { position: absolute; top: 50%; left: var(--offset-position); width: 18px; height: 18px; border: 2px solid var(--color-body-bg); border-radius: 50%; background: var(--color-primary, var(--accent)); box-shadow: 0 1px 4px rgb(0 0 0 / 18%); transform: translate(-50%, -50%); touch-action: none; cursor: ew-resize; }
 .offset-slider:focus-visible .offset-thumb { outline: 2px solid var(--color-primary, var(--accent)); outline-offset: 3px; }
+.offset-fill { transition: width var(--motion-slider, 180ms) ease-out; }
+.offset-thumb { transition: left var(--motion-slider, 180ms) ease-out, transform var(--motion-feedback, 180ms) ease, box-shadow var(--motion-state, 220ms) ease; }
+.offset-slider[data-dragging] .offset-fill { transition: none; }
+.offset-slider[data-dragging] .offset-thumb { transform: translate(-50%, -50%) scale(1.1); box-shadow: 0 0 0 3px var(--accent-soft); transition: transform var(--motion-feedback, 180ms) ease, box-shadow var(--motion-state, 220ms) ease; }
 .offset-scale { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 6px; margin-top: -3px; color: var(--muted); font-size: 10px; font-variant-numeric: tabular-nums; }
 .offset-scale > span:nth-child(2) { grid-row: 2; grid-column: 1 / -1; text-align: center; }
 .offset-scale > span:last-child { text-align: right; }

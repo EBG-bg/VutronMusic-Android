@@ -3,17 +3,24 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function main(){
  const app=path.resolve(__dirname,'..'),root=path.resolve(app,'../../_analysis');
+  fs.mkdirSync(root,{recursive:true});
  const profile=fs.mkdtempSync(path.join(root,'ui-features-'));
  const {createServer}=await import('vite');
- const bridgeFixture=process.env.VUTRON_TEST_SCENARIO==='sliders'?'sliders-native.mock.js':'features-native.mock.js';
+  const bridgeFixture=['sliders','playback-ui','refinements'].includes(process.env.VUTRON_TEST_SCENARIO)?'sliders-native.mock.js':'features-native.mock.js';
  const server=await createServer({root:app,optimizeDeps:{entries:['tests/fixtures/features.html']},plugins:[{name:'feature-fixture',enforce:'pre',transform(code,id){if(id.replaceAll('\\','/').endsWith('/src/platform/vutronPlugin.ts'))return "export { vutronPlugin } from '/tests/fixtures/"+bridgeFixture+"'"}}],server:{host:'127.0.0.1',port:0},logLevel:'error'});
  await server.listen();
  const child=spawn(process.env.EDGE_PATH||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',['--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'],{windowsHide:true,stdio:'ignore'});
  let page,browser;
  async function connect(url){const ws=new WebSocket(url),pending=new Map();let sequence=0;await new Promise((yes,no)=>{ws.addEventListener('open',yes,{once:true});ws.addEventListener('error',no,{once:true})});ws.addEventListener('message',e=>{const m=JSON.parse(e.data),p=pending.get(m.id);if(!p)return;pending.delete(m.id);m.error?p.no(new Error(m.error.message)):p.yes(m.result)});return {ws,send:(method,params={})=>new Promise((yes,no)=>{const id=++sequence;pending.set(id,{yes,no});ws.send(JSON.stringify({id,method,params}))})}}
  try{
-  const portFile=path.join(profile,'DevToolsActivePort');for(let i=0;!fs.existsSync(portFile)&&i<100;i++)await delay(100);
-  const port=Number(fs.readFileSync(portFile,'utf8').split('\n')[0]),info=await(await fetch('http://127.0.0.1:'+port+'/json/version')).json();
+  const portFile=path.join(profile,'DevToolsActivePort');let port;
+  for(let i=0;i<100;i++){
+    try{port=Number(fs.readFileSync(portFile,'utf8').split('\n')[0]);if(port>0)break}
+    catch(error){if(!['ENOENT','EBUSY'].includes(error.code))throw error}
+    await delay(100);
+  }
+  if(!port)throw new Error('Browser did not publish its debugging port');
+  const info=await(await fetch('http://127.0.0.1:'+port+'/json/version')).json();
   browser=await connect(info.webSocketDebuggerUrl);
   const target=await(await fetch('http://127.0.0.1:'+port+'/json/new?about:blank',{method:'PUT'})).json();page=await connect(target.webSocketDebuggerUrl);
   const evaluate=async expression=>{const r=await page.send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value};
@@ -21,6 +28,12 @@ async function main(){
   await page.send('Page.navigate',{url:server.resolvedUrls.local[0]+'tests/fixtures/features.html'});
   const wait=async expression=>{for(let i=0;i<100;i++){if(await evaluate(expression))return;await delay(100)}throw new Error('Timed out: '+expression)};
   await wait('window.featureReady===true');
+  if(process.env.VUTRON_TEST_SCENARIO==='refinements'){
+    await require('./browser-refinements.cjs')({page,evaluate,wait,delay,root});return;
+  }
+  if(process.env.VUTRON_TEST_SCENARIO==='playback-ui'){
+    await require('./browser-playback-ui.cjs')({page,evaluate,wait,delay,root});return;
+  }
   if(process.env.VUTRON_TEST_SCENARIO==='sliders'){
     await require('./browser-sliders.cjs')({page,evaluate,wait,delay,root});return;
   }
@@ -65,15 +78,17 @@ async function main(){
   await wait("!document.querySelector('.track-action-menu')");
   await key('Escape');await wait("!document.querySelector('.comments-sheet')");
   assert.equal(await evaluate("document.activeElement===window.commentMenuTrigger"),true);
-  await evaluate("window.featureHarness.store.navigateTo('settings')");await delay(300);
-  await click('summary','播放 · 高级');await delay(300);
+  await evaluate("document.querySelector('.playback-tuning-button').click()");await wait("document.querySelector('[aria-label=\"全局倍速\"]')&&!document.querySelector('[aria-label=\"全局倍速\"]').disabled");
   assert.equal(await evaluate("document.querySelector('[aria-label=\"全局倍速\"]').value"),'1');
-  await evaluate("(()=>{const e=document.querySelector('[aria-label=\"全局倍速\"]');e.value='1.5';e.dispatchEvent(new Event('change',{bubbles:true}))})()");
+  await evaluate("(()=>{const e=document.querySelector('[aria-label=\"全局倍速\"]');e.value='1.5';e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}))})()");
   await wait('window.featureHarness.store.playback.rate===1.5');
+  await key('Escape');await wait("!document.querySelector('.tuning-sheet')");
+  await evaluate("window.featureHarness.store.navigateTo('settings')");await wait("document.querySelector('[data-settings-section=cache] > summary')");
+  await evaluate("document.querySelector('[data-settings-section=cache] > summary').click()");await wait("document.querySelector('.prefetch-setting input')&&!document.querySelector('.prefetch-setting input').disabled");
   await evaluate("(()=>{const e=Array.from(document.querySelectorAll('label')).find(e=>e.textContent.includes('Wi-Fi 下预取'));e.querySelector('input').click()})()");
   await wait("JSON.parse(localStorage.getItem('feature-tuning')).prefetchWifi===true");
-  await page.send('Page.reload');await wait('window.featureReady===true');await evaluate("window.featureHarness.store.navigateTo('settings')");await delay(400);
-  assert.equal(await evaluate("document.querySelector('[aria-label=\"全局倍速\"]').value"),'1.5');
+  await evaluate('window.featureReady=false');await page.send('Page.reload');await wait('window.featureReady===true');await evaluate("window.featureHarness.store.navigateTo('player')");await delay(500);
+  assert.equal(await evaluate("document.querySelector('.playback-tuning-button').textContent.trim()"),'1.50×');
   await evaluate("window.featureHarness.backend.setConnected(false)");await delay(300);
   const before=await evaluate('window.featureHarness.backend.counts.comments||0');
   await evaluate("window.featureHarness.store.navigateTo('player')");await delay(400);

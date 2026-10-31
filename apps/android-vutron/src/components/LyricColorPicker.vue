@@ -126,29 +126,29 @@ function presetColors(values: Partial<Record<LyricColorKey, number>>) {
 </script>
 
 <template>
-  <section class="lyric-color-picker" aria-label="歌词颜色与背景">
-    <div class="lyric-color-heading"><b>歌词颜色与背景</b><small>有效颜色自动保存</small></div>
-    <div class="lyric-color-preview checkerboard" aria-label="原文与译文颜色预览">
+  <section class="lyric-color-picker" :aria-label="$t('mobile.colorUi.title')">
+    <div class="lyric-color-heading"><b>{{ $t('mobile.colorUi.title') }}</b><small>{{ $t('mobile.colorUi.saved') }}</small></div>
+    <div class="lyric-color-preview checkerboard" :aria-label="$t('mobile.colorUi.preview')">
       <div :style="{ backgroundColor: argbCss(colors.backgroundColor), textShadow: previewShadow }">
-        <p><span :style="{ color: argbCss(colors.playedColor) }">已唱歌词</span><span :style="{ color: argbCss(colors.unplayedColor) }"> · 未唱歌词</span></p>
-        <small><span :style="{ color: argbCss(colors.playedColor) }">同步译文</span><span :style="{ color: argbCss(colors.unplayedColor) }"> · 颜色预览</span></small>
+        <p><span :style="{ color: argbCss(colors.playedColor) }">{{ $t('mobile.colorUi.played') }}</span><span :style="{ color: argbCss(colors.unplayedColor) }"> · {{ $t('mobile.colorUi.unplayed') }}</span></p>
+        <small><span :style="{ color: argbCss(colors.playedColor) }">{{ $t('mobile.colorUi.translation') }}</span><span :style="{ color: argbCss(colors.unplayedColor) }"> · {{ $t('mobile.colorUi.colorPreview') }}</span></small>
       </div>
     </div>
-    <div class="lyric-color-targets" role="group" aria-label="选择调色目标">
+    <div class="lyric-color-targets" role="group" :aria-label="$t('mobile.colorUi.target')">
       <button v-for="target in lyricColorTargets" :key="target.key" type="button" :class="{ selected: selected === target.key }" :aria-pressed="selected === target.key" @click="selectTarget(target.key)">
-        <span class="color-swatch checkerboard"><i :style="{ backgroundColor: argbCss(colors[target.key]) }"></i></span>{{ target.label }}
+        <span class="color-swatch checkerboard"><i :style="{ backgroundColor: argbCss(colors[target.key]) }"></i></span>{{ $t(`mobile.colorUi.${target.key}`) }}
       </button>
     </div>
-    <div class="sv-caption"><label :for="'lyric-sv-' + selected">饱和度 / 明度</label><small>{{ Math.round(hsv.saturation * 100) }}% / {{ Math.round(hsv.value * 100) }}%</small></div>
-    <div :id="'lyric-sv-' + selected" class="lyric-sv-surface" tabindex="0" role="slider" aria-label="饱和度与明度" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="Math.round(hsv.saturation * 100)" :aria-valuetext="'饱和度 ' + Math.round(hsv.saturation * 100) + '%，明度 ' + Math.round(hsv.value * 100) + '%。左右调整饱和度，上下调整明度。'" :style="{ backgroundColor: hueColor }" @pointerdown="startSurfaceDrag" @pointermove="moveSurfaceDrag" @pointerup="finishSurfaceDrag" @pointercancel="finishSurfaceDrag" @lostpointercapture="activePointer = undefined" @keydown="keySurface">
+    <div class="sv-caption"><label :for="'lyric-sv-' + selected">{{ $t('mobile.colorUi.sv') }}</label><small>{{ Math.round(hsv.saturation * 100) }}% / {{ Math.round(hsv.value * 100) }}%</small></div>
+    <div :id="'lyric-sv-' + selected" class="lyric-sv-surface" tabindex="0" role="slider" :aria-label="$t('mobile.colorUi.svLabel')" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="Math.round(hsv.saturation * 100)" :aria-valuetext="$t('mobile.colorUi.svValue', { saturation: Math.round(hsv.saturation * 100), value: Math.round(hsv.value * 100) })" :style="{ backgroundColor: hueColor }" @pointerdown="startSurfaceDrag" @pointermove="moveSurfaceDrag" @pointerup="finishSurfaceDrag" @pointercancel="finishSurfaceDrag" @lostpointercapture="activePointer = undefined" @keydown="keySurface">
       <span class="sv-thumb" :style="{ left: hsv.saturation * 100 + '%', top: (1 - hsv.value) * 100 + '%', backgroundColor: opaqueColor }"></span>
     </div>
-    <label class="lyric-channel"><span>色相 <small>{{ Math.round(hsv.hue) }}°</small></span><ThumbRange variant="color" min="0" max="360" step="1" :value="hsv.hue" class="hue-channel" aria-label="歌词色相" @input="rangeInput('hue', $event)" @change="emit('commit')" /></label>
-    <label class="lyric-channel"><span>不透明度 <small>{{ alphaPercent }}%</small></span><span class="alpha-channel checkerboard"><i :style="{ background: 'linear-gradient(to right, transparent, ' + opaqueColor + ')' }"></i><ThumbRange variant="color" min="0" max="255" step="1" :value="hsv.alpha" :aria-valuetext="alphaPercent + '%'" aria-label="歌词颜色不透明度" @input="rangeInput('alpha', $event)" @change="emit('commit')" /></span></label>
-    <label class="lyric-hex-field"><span>{{ lyricColorTargets.find(target => target.key === selected)?.label }}颜色值</span><input v-model="hexInput" type="text" inputmode="text" autocomplete="off" spellcheck="false" maxlength="9" aria-label="歌词十六进制颜色" :aria-invalid="Boolean(hexError)" @focus="hexFocused = true" @input="editHex" @blur="finishHex" @keydown.enter.prevent="finishHex" /></label>
-    <Transition name="lyric-color-feedback"><p v-if="hexError" class="lyric-color-error" role="alert">{{ hexError }}</p></Transition>
-    <p class="lyric-color-help">#AARRGGBB 开头两位控制不透明度：00 透明，FF 不透明。键盘方向键微调，Shift 加大步长。</p>
-    <div class="lyric-color-presets"><button v-for="preset in lyricColorPresets" :key="preset.name" type="button" @click="presetColors(preset.values)">{{ preset.name }}</button></div>
+    <label class="lyric-channel"><span>{{ $t('mobile.colorUi.hue') }} <small>{{ Math.round(hsv.hue) }}°</small></span><ThumbRange variant="color" min="0" max="360" step="1" :value="hsv.hue" class="hue-channel" :aria-label="$t('mobile.colorUi.hueLabel')" @input="rangeInput('hue', $event)" @change="emit('commit')" /></label>
+    <label class="lyric-channel"><span>{{ $t('mobile.colorUi.opacity') }} <small>{{ alphaPercent }}%</small></span><span class="alpha-channel checkerboard"><i :style="{ background: 'linear-gradient(to right, transparent, ' + opaqueColor + ')' }"></i><ThumbRange variant="color" min="0" max="255" step="1" :value="hsv.alpha" :aria-valuetext="alphaPercent + '%'" :aria-label="$t('mobile.colorUi.opacityLabel')" @input="rangeInput('alpha', $event)" @change="emit('commit')" /></span></label>
+    <label class="lyric-hex-field"><span>{{ $t('mobile.colorUi.hexValue', { target: $t(`mobile.colorUi.${selected}`) }) }}</span><input v-model="hexInput" type="text" inputmode="text" autocomplete="off" spellcheck="false" maxlength="9" :aria-label="$t('mobile.colorUi.hexLabel')" :aria-invalid="Boolean(hexError)" @focus="hexFocused = true" @input="editHex" @blur="finishHex" @keydown.enter.prevent="finishHex" /></label>
+    <Transition name="lyric-color-feedback"><p v-if="hexError" class="lyric-color-error" role="alert">{{ $t('mobile.colorUi.invalidHex') }}</p></Transition>
+    <p class="lyric-color-help">{{ $t('mobile.colorUi.hint') }}</p>
+    <div class="lyric-color-presets"><button v-for="preset in lyricColorPresets" :key="preset.id" type="button" @click="presetColors(preset.values)">{{ $t(`mobile.colorUi.${preset.id}`) }}</button></div>
   </section>
 </template>
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref } from 'vue'
 import OriginalIcon from './OriginalIcon.vue'
-import { isMotionReduced } from '../platform/motion'
+import { settingsMotionDuration } from '../platform/motion'
 
 const props = withDefaults(defineProps<{
   sectionId: string
@@ -40,15 +40,15 @@ async function setExpanded(open: boolean) {
   el.inert = !open
   const endHeight = open ? el.scrollHeight : 0
   const endCardHeight = (card.value?.getBoundingClientRect().height ?? 0) - el.getBoundingClientRect().height + endHeight
-  const duration = isMotionReduced() ? 0 : 100
+  const duration = settingsMotionDuration(Math.max(startHeight, endHeight), open)
   animation = el.animate([
     { height: startHeight + 'px', opacity: startOpacity },
     { height: endHeight + 'px', opacity: open ? 1 : 0 }
-  ], { duration, easing: 'ease', fill: 'both' })
+  ], { duration, easing: open ? 'cubic-bezier(.2,.75,.25,1)' : 'ease-in-out', fill: 'both' })
   cardAnimation = card.value?.animate([
     { height: startCardHeight + 'px' },
     { height: endCardHeight + 'px' }
-  ], { duration, easing: 'ease', fill: 'both' })
+  ], { duration, easing: open ? 'cubic-bezier(.2,.75,.25,1)' : 'ease-in-out', fill: 'both' })
   try { await animation.finished } catch { return }
   if (token !== revision) return
   animation.cancel()
@@ -90,7 +90,7 @@ onBeforeUnmount(() => { ++revision; animation?.cancel(); cardAnimation?.cancel()
 .settings-collapse > summary::-webkit-details-marker { display: none; }
 .settings-collapse > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
 .settings-collapse > summary .settings-title { flex: 1; min-width: 0; margin: 0; }
-.settings-chevron { flex-shrink: 0; font-size: 15px; color: var(--muted); transition: transform .1s ease; }
+.settings-chevron { flex-shrink: 0; font-size: 15px; color: var(--muted); transition: transform var(--motion-state, 220ms) ease; }
 .settings-collapse > summary[aria-expanded='true'] .settings-chevron { transform: rotate(180deg); }
 .settings-collapse-content { overflow: hidden; }
 .settings-collapse-inner { padding-top: 12px; }

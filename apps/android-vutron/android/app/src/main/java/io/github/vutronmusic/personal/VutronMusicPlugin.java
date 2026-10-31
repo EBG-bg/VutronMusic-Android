@@ -673,6 +673,7 @@ public final class VutronMusicPlugin extends Plugin {
         JSObject track = call.getObject("track");
         if (track == null || track.optLong("id") <= 0) { call.reject("歌曲信息无效"); return; }
         final long epoch;
+        final long routeEpoch = AndroidPlaybackService.routeEpoch();
         final String cookie=SessionStore.load(getContext());
         synchronized(playbackCommandLock) { epoch=++playbackCommandEpoch; }
         playbackWorker.execute(() -> {
@@ -688,7 +689,8 @@ public final class VutronMusicPlugin extends Plugin {
                     if(epoch!=playbackCommandEpoch || !cookie.equals(SessionStore.load(getContext()))) throw new java.io.IOException("播放请求已被取消或账号已变化");
                     PlaybackQueue.Snapshot queue = PlaybackQueue.replace(getContext(), songs, index);
                     ContextCompat.startForegroundService(getContext(), new Intent(getContext(), AndroidPlaybackService.class)
-                            .setAction(AndroidPlaybackService.ACTION_QUEUE).putExtra("queueToken", queue.token));
+                            .setAction(AndroidPlaybackService.ACTION_QUEUE).putExtra("queueToken", queue.token)
+                            .putExtra(AndroidPlaybackService.ROUTE_EPOCH, routeEpoch));
                 }
                 call.resolve();
             } catch (Exception error) { call.reject(message(error, "启动播放失败")); }
@@ -1379,11 +1381,19 @@ public final class VutronMusicPlugin extends Plugin {
         }
         String error = state.getString("error", "");
         if (trackId > 0 && error != null && !error.isEmpty()) playing = false;
+        position = (int)Math.min(Integer.MAX_VALUE, LyricFrameClock.project(position,
+                state.getLong("positionElapsedRealtime", -1L), playing && AndroidPlaybackService.isActive()
+                        && !state.getBoolean("buffering", false) && !state.getBoolean("loading", false),
+                duration, android.os.SystemClock.elapsedRealtime(), state.getFloat("playbackRate", 1f)));
         JSONObject current = currentTrack(getContext());
         JSObject snapshot = new JSObject().put("playing", playing).put("trackId", trackId)
+                .put("loading", state.getBoolean("loading", false) && AndroidPlaybackService.isActive())
+                .put("tuningApplied", state.getBoolean("tuningApplied", false) && AndroidPlaybackService.isActive())
                 .put("buffering", state.getBoolean("buffering", false))
                 .put("title", title).put("artist", artist).put("duration", duration)
                 .put("position", position).put("error", error)
+                .put("errorCode", error == null || error.isEmpty() ? "" : state.getString("errorCode", ""))
+                .put("errorDetail", error == null || error.isEmpty() ? "" : state.getString("errorDetail", ""))
                 .put("rate",state.getFloat("playbackRate",1f)).put("pitch",state.getFloat("playbackPitch",1f))
                 .put("tuningWarning",state.getString("tuningWarning",""))
                 .put("queueToken", state.getString("queueToken", ""))
@@ -1452,7 +1462,8 @@ public final class VutronMusicPlugin extends Plugin {
             return;
         }
         ContextCompat.startForegroundService(context,
-                new Intent(context, AndroidPlaybackService.class).setAction(AndroidPlaybackService.ACTION_RESUME));
+                new Intent(context, AndroidPlaybackService.class).setAction(AndroidPlaybackService.ACTION_RESUME)
+                        .putExtra(AndroidPlaybackService.ROUTE_EPOCH, AndroidPlaybackService.routeEpoch()));
         call.resolve();
     }
 

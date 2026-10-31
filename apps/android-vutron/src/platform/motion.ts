@@ -9,6 +9,11 @@ export const motionPreference = ref<MotionPreference>(saved === 'system' || save
 export const reducedMotion = computed(() => motionPreference.value === 'reduced'
   || motionPreference.value === 'system' && systemReducesMotion.value)
 export function isMotionReduced() { return reducedMotion.value }
+// Larger settings blocks need longer travel; closing remains a little quicker.
+export function settingsMotionDuration(height: number, opening: boolean) {
+  if (isMotionReduced()) return 0
+  return Math.round(opening ? Math.min(340, 220 + height * .12) : Math.min(260, 180 + height * .08))
+}
 const onSystemChange = (event: MediaQueryListEvent) => { systemReducesMotion.value = event.matches }
 system.addEventListener('change', onSystemChange)
 watch([motionPreference, reducedMotion], () => {

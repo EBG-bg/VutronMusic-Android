@@ -15,6 +15,7 @@ const input = ref<HTMLInputElement>()
 const path = ref<HTMLElement>()
 const thumb = ref<HTMLElement>()
 const current = ref(Number(props.value))
+const dragging = ref(false)
 const percent = computed(() => {
   const span = Number(props.max) - Number(props.min)
   return span > 0 ? Math.max(0, Math.min(100, (current.value - Number(props.min)) / span * 100)) : 0
@@ -32,6 +33,7 @@ function beginDrag(event: PointerEvent) {
   event.preventDefault()
   input.value.focus({ preventScroll: true })
   drag = { pointer: event.pointerId, x: event.clientX, value: input.value.valueAsNumber, scale: (Number(props.max) - Number(props.min)) / width, changed: false }
+  dragging.value = true
   thumb.value?.setPointerCapture(event.pointerId)
 }
 function moveDrag(event: PointerEvent) {
@@ -45,6 +47,7 @@ function moveDrag(event: PointerEvent) {
 function release(commit: boolean) {
   const previous = drag
   drag = undefined
+  dragging.value = false
   if (previous && thumb.value?.hasPointerCapture(previous.pointer)) thumb.value.releasePointerCapture(previous.pointer)
   if (commit && previous?.changed) input.value?.dispatchEvent(new Event('change', { bubbles: true }))
 }
@@ -59,7 +62,7 @@ onBeforeUnmount(() => release(false))
 </script>
 
 <template>
-  <span class="thumb-range" :class="[$attrs.class, { 'thumb-range-color': variant === 'color', 'thumb-range-disabled': disabled }]" :style="[$attrs.style as StyleValue, { '--range-position': `${percent}%` }]" @click.prevent>
+  <span class="thumb-range" :data-dragging="dragging ? '' : undefined" :class="[$attrs.class, { 'thumb-range-color': variant === 'color', 'thumb-range-disabled': disabled }]" :style="[$attrs.style as StyleValue, { '--range-position': `${percent}%` }]" @click.prevent>
     <input v-bind="$attrs" ref="input" class="thumb-range-input" type="range" :min="min" :max="max" :step="step" :value="current" :disabled="disabled" @input="inputValue" @change="emit('change', $event)" />
     <span ref="path" class="thumb-range-path" aria-hidden="true">
       <span class="thumb-range-rail"><span class="thumb-range-fill"></span></span>
@@ -73,12 +76,16 @@ onBeforeUnmount(() => release(false))
 .thumb-range > .thumb-range-input { position: absolute; inset: 0; display: block; width: 100%; height: 100%; min-width: 0; margin: 0; padding: 0; border: 0; opacity: 0; pointer-events: none; }
 .thumb-range-path { position: absolute; top: 50%; left: calc(var(--range-thumb-width) / 2 + 4px); right: calc(var(--range-thumb-width) / 2 + 4px); height: 0; pointer-events: none; }
 .thumb-range-rail { position: absolute; top: -2px; left: 0; right: 0; height: 4px; border-radius: 2px; background: var(--line); }
-.thumb-range-fill { display: block; width: var(--range-position); height: 100%; border-radius: inherit; background: var(--accent); }
-.thumb-range-thumb { position: absolute; top: 0; left: var(--range-position); width: var(--range-thumb-width); height: 18px; border: 2px solid var(--color-body-bg); border-radius: 50%; background: var(--accent); box-shadow: 0 1px 3px rgb(0 0 0 / 20%); transform: translate(-50%, -50%); pointer-events: auto; touch-action: none; cursor: ew-resize; transition: box-shadow .12s ease; }
+.thumb-range-fill { display: block; width: var(--range-position); height: 100%; border-radius: inherit; background: var(--accent); transition: width var(--motion-slider, 180ms) ease-out; }
+.thumb-range-thumb { position: absolute; top: 0; left: var(--range-position); width: var(--range-thumb-width); height: 18px; border: 2px solid var(--color-body-bg); border-radius: 50%; background: var(--accent); box-shadow: 0 1px 3px rgb(0 0 0 / 20%); transform: translate(-50%, -50%); pointer-events: auto; touch-action: none; cursor: ew-resize; transition: left var(--motion-slider, 180ms) ease-out, transform var(--motion-feedback, 180ms) ease, box-shadow var(--motion-state, 220ms) ease; }
+.thumb-range[data-dragging] .thumb-range-fill { transition: none; }
+.thumb-range[data-dragging] .thumb-range-thumb { transform: translate(-50%, -50%) scale(1.1); box-shadow: 0 0 0 3px var(--accent-soft), 0 2px 4px rgb(0 0 0 / 18%); transition: transform var(--motion-feedback, 180ms) ease, box-shadow var(--motion-state, 220ms) ease; }
+@media (hover: hover) { .thumb-range-thumb:hover { box-shadow: 0 0 0 3px var(--accent-soft), 0 2px 4px rgb(0 0 0 / 18%); } }
 .thumb-range-input:focus-visible ~ .thumb-range-path .thumb-range-thumb { outline: 2px solid var(--accent); outline-offset: 2px; }
 .thumb-range-color { --range-thumb-width: 12px; height: 34px; }
 .thumb-range-color .thumb-range-rail { display: none; }
 .thumb-range-color .thumb-range-thumb { height: 28px; border-color: #fff; border-radius: 5px; background: transparent; box-shadow: 0 0 0 1px #0009; }
+.thumb-range-color[data-dragging] .thumb-range-thumb { transform: translate(-50%, -50%) scale(1.06); box-shadow: 0 0 0 2px #0009; }
 .thumb-range-disabled { opacity: .5; }
 .thumb-range-disabled .thumb-range-thumb { pointer-events: none; cursor: default; }
 </style>

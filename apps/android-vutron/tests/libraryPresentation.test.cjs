@@ -79,6 +79,7 @@ test('the actual queue component renders at most eighty playlist and eighty inse
       if (name === '../stores/androidShell') return { useAndroidShellStore: () => store }
       if (name === '../composables/libraryPresentation') return libraryHelpers()
       if (name === '../platform/actionDialog') return { actionDialog: vue.shallowRef() }
+      if (name === '../platform/motion') return { reducedMotion: vue.ref(false) }
       if (name === '../composables/modalFocus') {
         const helper = { exports: {} }
         const source = ts.transpileModule(fs.readFileSync(path.resolve(__dirname, '../src/composables/modalFocus.ts'), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText

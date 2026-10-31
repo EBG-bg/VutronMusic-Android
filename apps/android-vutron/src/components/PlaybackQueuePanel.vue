@@ -7,6 +7,7 @@ import type { VutronTrack } from '../platform/vutronPlugin'
 import OriginalIcon from './OriginalIcon.vue'
 import TrackListPager from './TrackListPager.vue'
 import { useProgressiveTracks } from '../composables/libraryPresentation'
+import { reducedMotion } from '../platform/motion'
 const store = useAndroidShellStore()
 const panel = ref<HTMLElement>()
 useModalFocus(panel, { close: () => { store.queueOpen = false }, open: () => store.queueOpen, enabled: () => !actionDialog.value })
@@ -25,7 +26,7 @@ const { visible: visibleInsertedTracks, hasMore: moreInsertedTracks, showMore: s
 const { visible: visiblePlaylistTracks, hasMore: morePlaylistTracks, showMore: showMorePlaylistTracks } = useProgressiveTracks(playlistTracks, () => store.queueOpen)
 </script>
 <template>
-  <Transition name="queue-sheet" :duration="250">
+  <Transition name="queue-sheet" :duration="reducedMotion ? 0 : { enter: 320, leave: 240 }">
     <div v-if="store.queueOpen" class="queue-layer" @click.self="store.queueOpen = false">
       <section ref="panel" class="queue-panel" role="dialog" aria-modal="true" :aria-label="$t('mobile.player.queue')" tabindex="-1" :inert="Boolean(actionDialog)">
         <header><div><h2>{{ $t('mobile.player.queue') }}</h2><small>{{ $t('mobile.common.tracks', { count: store.playbackQueue.tracks.length }) }} · {{ [$t('mobile.player.listLoop'), $t('mobile.player.singleLoop'), $t('mobile.player.shuffle')][store.playbackQueue.mode] }}</small></div><button class="icon-button" type="button" :aria-label="$t('mobile.player.closeQueue')" @click="store.queueOpen = false"><OriginalIcon name="close" /></button></header>
@@ -56,7 +57,7 @@ const { visible: visiblePlaylistTracks, hasMore: morePlaylistTracks, showMore: s
 <style scoped>
 /* ContextMenu.vue uses 125ms opacity/transform; retain rows until leave completes. */
 .queue-items { position: relative; }
-.queue-row.queue-item-move, .queue-row.queue-item-enter-active, .queue-row.queue-item-leave-active { transition: opacity 125ms ease-out, transform 125ms ease-out, background-color 125ms ease-out, color 125ms ease-out; }
+.queue-row.queue-item-move, .queue-row.queue-item-enter-active, .queue-row.queue-item-leave-active { transition: opacity 200ms ease-out, transform 240ms ease-out, background-color 180ms ease-out, color 180ms ease-out; }
 .queue-item-enter-from, .queue-item-leave-to { opacity: 0; transform: translateX(16px); }
 .queue-item-leave-active { position: absolute; left: 0; right: 0; pointer-events: none; }
 .queue-section-enter-active, .queue-section-leave-active, .queue-current-enter-active, .queue-current-leave-active { transition: opacity 125ms ease-out, transform 125ms ease-out; }

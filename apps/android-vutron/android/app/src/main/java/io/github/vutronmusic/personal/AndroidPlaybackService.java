@@ -6,7 +6,9 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
+import android.content.BroadcastReceiver;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
@@ -61,6 +63,19 @@ public final class AndroidPlaybackService extends Service {
     private static final long MAX_SLEEP_TIMER_MS = 24L * 60 * 60 * 1000;
     private static final int NOTIFICATION_ID = 1201;
     private static volatile AndroidPlaybackService activeInstance;
+    private static final PlaybackRouteGuard routeGuard = new PlaybackRouteGuard();
+    static final String ROUTE_EPOCH = "routeEpoch";
+    static long routeEpoch() { return routeGuard.capture(); }
+    private boolean noisyReceiverRegistered;
+    private final BroadcastReceiver noisyReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            if (destroyed || !AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction())) return;
+            routeGuard.disconnected();
+            // pause() clears focus-resume intent and pending URL/preparation playback.
+            // Reconnecting an output never resumes; the next play action is explicit.
+            pause();
+        }
+    };
 
     private MediaPlayer player;
     private MusicConnectivity connectivity;
@@ -110,13 +125,15 @@ public final class AndroidPlaybackService extends Service {
     private Handler progressHandler;
     private final ExecutorService urlWorker = Executors.newFixedThreadPool(2);
     private final ExecutorService artworkWorker = Executors.newSingleThreadExecutor();
+    private final PlaybackPublication publication = new PlaybackPublication();
     private final Runnable progressTicker = new Runnable() {
         @Override public void run() {
             if (destroyed) return;
-            persistPosition();
             checkSleepTimer();
             AndroidLyricOverlayService.recoverIfEnabled(AndroidPlaybackService.this);
-            if (playing || player != null) publish();
+            if (publication.checkpointDue(SystemClock.elapsedRealtime(), playing && playerPrepared && !buffering && !seeking)) {
+                persistPosition(); publish();
+            }
             maybePrefetch();
             if (progressHandler != null) progressHandler.postDelayed(this, 1000L);
         }
@@ -176,8 +193,10 @@ public final class AndroidPlaybackService extends Service {
 
     /** Serialize queue edits with native completion/skip callbacks on the media thread. */
     static void editQueue(Context context, String operation, int index, boolean upNext, JSONObject track, QueueResult result) {
+        final long requestRoute = routeEpoch();
         new Handler(Looper.getMainLooper()).post(() -> {
             try {
+                if ("select".equals(operation) && !routeGuard.accepts(requestRoute)) throw new java.io.IOException("播放请求已在耳机断开后取消");
                 PlaybackQueue.Snapshot current = PlaybackQueue.load(context);
                 AndroidPlaybackService service = activeInstance;
                 boolean active = service != null && !service.destroyed;
@@ -220,7 +239,8 @@ public final class AndroidPlaybackService extends Service {
                         service.selectQueueTrack(false, autoPlay);
                     } else if ("select".equals(operation)) {
                         ContextCompat.startForegroundService(context, new Intent(context, AndroidPlaybackService.class)
-                                .setAction(ACTION_QUEUE).putExtra("queueToken", updated.token).putExtra("restorePosition", false));
+                                .setAction(ACTION_QUEUE).putExtra("queueToken", updated.token).putExtra("restorePosition", false)
+                                .putExtra(ROUTE_EPOCH, requestRoute));
                     } else {
                         context.getSharedPreferences(PLAYBACK_PREFS, MODE_PRIVATE).edit()
                                 .putString("current_track", updated.current().toString())
@@ -470,6 +490,8 @@ public final class AndroidPlaybackService extends Service {
         catch (Exception failure) { Log.w("VutronPlayback", "Could not restore the playback queue", failure); }
         progressHandler.post(progressTicker);
         audio = getSystemService(AudioManager.class);
+        ContextCompat.registerReceiver(this, noisyReceiver, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), ContextCompat.RECEIVER_NOT_EXPORTED);
+        noisyReceiverRegistered = true;
         NotificationManager notifications = getSystemService(NotificationManager.class);
         if (Build.VERSION.SDK_INT >= 26) notifications.createNotificationChannel(new NotificationChannel(CHANNEL, BuildConfig.APP_DISPLAY_NAME + " 播放", NotificationManager.IMPORTANCE_LOW));
         AudioAttributes attributes = new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
@@ -491,6 +513,10 @@ public final class AndroidPlaybackService extends Service {
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? null : intent.getAction();
         if (!ACTION_STOP.equals(action)) startForeground(NOTIFICATION_ID, notification());
+        if (intent != null && intent.hasExtra(ROUTE_EPOCH) && !routeGuard.accepts(intent.getLongExtra(ROUTE_EPOCH, -1))) {
+            if (!playing && !desiredPlayback) pause();
+            return START_NOT_STICKY;
+        }
         if (ACTION_QUEUE.equals(action)) {
             try {
                 PlaybackQueue.Snapshot requested = PlaybackQueue.load(this);
@@ -572,7 +598,7 @@ public final class AndroidPlaybackService extends Service {
         saved.edit().putString("current_track", selected.toString()).putLong(LAST_TRACK_ID, id)
                 .putInt(LAST_POSITION, position).putInt("position", position).putLong(LAST_DURATION, duration)
                 .putString(LAST_TITLE, title).putString(LAST_ARTIST, artist).putBoolean(LAST_PLAYING, autoPlay)
-                .remove("error").apply();
+                .remove("error").remove("errorCode").remove("errorDetail").apply();
         loadArtwork(rememberedArtwork());
         publish();
         urlTask = urlWorker.submit(() -> {
@@ -590,7 +616,7 @@ public final class AndroidPlaybackService extends Service {
                     if (destroyed || token != generation) return;
                     urlLookupPending = false;
                     urlTask = null;
-                    publishError(failure.getMessage() == null ? "获取播放地址失败" : failure.getMessage());
+                    publishError(PlaybackFailure.from(failure, "resolve", true, MusicConnectivity.available(this)));
                 });
             }
         });
@@ -632,7 +658,7 @@ public final class AndroidPlaybackService extends Service {
         String url = intent.getStringExtra("url");
         boolean remote = url != null && (url.startsWith("http://") || url.startsWith("https://"));
         if (remote && LocalOnlyMode.enabled(this)) {
-            publishError("本地模式下仅可播放本地文件和已完成缓存"); return;
+            publishError(PlaybackFailure.of("offline")); return;
         }
         if (!isSupportedSource(url)) {
             publishError("播放地址无效"); stopPlayback(); return;
@@ -649,7 +675,7 @@ public final class AndroidPlaybackService extends Service {
 
         // A previous decode/network failure must not remain visible after the
         // user starts a different track.
-        saved.edit().remove("error").apply();
+        saved.edit().remove("error").remove("errorCode").remove("errorDetail").apply();
         releasePlayer();
         playing = false;
         int token = ++generation;
@@ -675,7 +701,7 @@ public final class AndroidPlaybackService extends Service {
             candidate.setOnPreparedListener(prepared -> {
                 if (destroyed || player != prepared || token != generation) return;
                 if (remotePlayback && LocalOnlyMode.enabled(this)) {
-                    publishError("已切换为本地模式"); return;
+                    publishError(PlaybackFailure.of("offline")); return;
                 }
                 playerPrepared = true;
                 try {
@@ -685,7 +711,7 @@ public final class AndroidPlaybackService extends Service {
                     else finishPreparedPlayback(token);
                 } catch (RuntimeException invalid) {
                     if (!retryPrefetchedSource(intent,token))
-                        publishError(invalid.getMessage() == null ? "分轨准备失败" : invalid.getMessage());
+                        publishError(PlaybackFailure.from(invalid, "prepare", remotePlayback, MusicConnectivity.available(this)));
                 }
             });
             candidate.setOnSeekCompleteListener(seeked -> {
@@ -698,7 +724,7 @@ public final class AndroidPlaybackService extends Service {
                     }
                     seeking = false;
                     finishPreparedPlayback(token);
-                } catch (IllegalArgumentException | IllegalStateException invalid) { seeking = false; publishError("定位播放进度失败"); }
+                } catch (IllegalArgumentException | IllegalStateException invalid) { seeking = false; publishError(PlaybackFailure.of("seek")); }
             });
             candidate.setOnCompletionListener(completed -> {
                 if (!destroyed && player == completed && token == generation) {
@@ -716,7 +742,8 @@ public final class AndroidPlaybackService extends Service {
             });
             candidate.setOnErrorListener((failed, what, extra) -> {
                 if (player != failed || token != generation || destroyed) return true;
-                if (!retryPrefetchedSource(intent, token)) publishError("音频解码或网络播放失败");
+                if (!retryPrefetchedSource(intent, token))
+                    publishError(PlaybackFailure.media(what, extra, remotePlayback, MusicConnectivity.available(this)));
                 return true;
             });
             if (url.startsWith("content://") || url.startsWith("file://")) {
@@ -731,7 +758,8 @@ public final class AndroidPlaybackService extends Service {
             candidate.prepareAsync();
         } catch (Exception error) {
             Log.w("VutronPlayback", "Could not prepare the selected media: " + error.getClass().getSimpleName());
-            if (!retryPrefetchedSource(intent, token)) publishError("歌曲准备失败");
+            if (!retryPrefetchedSource(intent, token))
+                publishError(PlaybackFailure.from(error, "prepare", remotePlayback, MusicConnectivity.available(this)));
         }
     }
 
@@ -751,7 +779,8 @@ public final class AndroidPlaybackService extends Service {
         cancelUrlTask(); invalidatePrefetch(); releasePlayer();
         final int retryToken = ++generation;
         playing = false; urlLookupPending = true;
-        saved.edit().putInt(LAST_POSITION,resumePosition).putInt("position",resumePosition).remove("error").apply();
+        saved.edit().putInt(LAST_POSITION,resumePosition).putInt("position",resumePosition)
+                .remove("error").remove("errorCode").remove("errorDetail").apply();
         publish();
         urlTask = urlWorker.submit(() -> {
             try {
@@ -770,7 +799,7 @@ public final class AndroidPlaybackService extends Service {
                 progressHandler.post(() -> {
                     if (destroyed || generation != retryToken) return;
                     urlLookupPending = false; urlTask = null;
-                    publishError("预取音源失效，重新解析播放地址仍失败，请重新播放");
+                    publishError(PlaybackFailure.from(failure, "resolve", true, MusicConnectivity.available(this)));
                 });
             }
         });
@@ -791,7 +820,7 @@ public final class AndroidPlaybackService extends Service {
             persistPosition(); publish();
         } catch (IllegalArgumentException | IllegalStateException invalid) {
             seeking = false;
-            publishError("定位播放进度失败");
+            publishError(PlaybackFailure.of("seek"));
         }
     }
 
@@ -799,7 +828,7 @@ public final class AndroidPlaybackService extends Service {
         if (destroyed || token != generation || player == null || !playerPrepared || seeking) return;
         if (!applyEffectiveVolume()) return;
         if (!desiredPlayback) { playing = false; persistPosition(); publish(); return; }
-        if (!requestFocus()) { publishError("系统暂不允许音频播放"); return; }
+        if (!requestFocus()) { publishError(PlaybackFailure.of("audio_focus")); return; }
         applyTuning();
         player.start(); playing = true; enqueueStartedAudio(token);
         armSegmentWatchdog(token); persistPosition(); publish();
@@ -983,8 +1012,7 @@ public final class AndroidPlaybackService extends Service {
                     if (destroyed || token != generation) return;
                     urlLookupPending = false;
                     urlTask = null;
-                    publishError(error.getMessage() == null
-                            ? "恢复播放失败" : error.getMessage());
+                    publishError(PlaybackFailure.from(error, "resolve", true, MusicConnectivity.available(this)));
                 });
             }
         });
@@ -1037,30 +1065,37 @@ public final class AndroidPlaybackService extends Service {
     }
 
     private void publishError(String message) {
+        publishError(PlaybackFailure.legacy(message));
+    }
+
+    private void publishError(PlaybackFailure failure) {
         playing = false;
         desiredPlayback = false;
         persistPosition();
         releasePlayer();
-        getSharedPreferences(PLAYBACK_PREFS, MODE_PRIVATE).edit().putString("error", message).apply();
+        getSharedPreferences(PLAYBACK_PREFS, MODE_PRIVATE).edit().putString("error", failure.message)
+                .putString("errorCode", failure.code).putString("errorDetail", failure.diagnostic).apply();
         publish();
     }
 
     /** Persist the current media position without requiring a UI event. */
     private void persistPosition() {
         android.content.SharedPreferences preferences = getSharedPreferences(PLAYBACK_PREFS, MODE_PRIVATE);
-        int position = 0;
+        android.content.SharedPreferences.Editor saved = preferences.edit();
+        int position = trackId == preferences.getLong(LAST_TRACK_ID, 0L) ? preferences.getInt(LAST_POSITION, 0) : 0;
         if (player != null && playerPrepared) {
             try { position = relativePosition(); } catch (IllegalStateException ignored) { }
         } else if (trackId == preferences.getLong(LAST_TRACK_ID, 0L)) {
             position = preferences.getInt(LAST_POSITION, 0);
         }
         if (trackId > 0) {
-            preferences.edit().putLong(LAST_TRACK_ID, trackId).putInt(LAST_POSITION, position)
+            saved.putLong(LAST_TRACK_ID, trackId).putInt(LAST_POSITION, position)
                     .putLong(LAST_DURATION, duration).putString(LAST_TITLE, title)
-                    .putString(LAST_ARTIST, artist).putBoolean(LAST_PLAYING, desiredPlayback).apply();
+                    .putString(LAST_ARTIST, artist).putBoolean(LAST_PLAYING, desiredPlayback);
         }
-        preferences.edit().putInt("position", position)
-                .putLong("positionElapsedRealtime", SystemClock.elapsedRealtime()).apply();
+        long now = SystemClock.elapsedRealtime();
+        saved.putInt("position", position).putLong("positionElapsedRealtime", now).apply();
+        publication.checkpointSaved(now);
     }
 
     private void clearResumePosition() {
@@ -1086,14 +1121,17 @@ public final class AndroidPlaybackService extends Service {
         } else if (trackId > 0) {
             position = getSharedPreferences(PLAYBACK_PREFS, MODE_PRIVATE).getInt(LAST_POSITION, 0);
         }
+        boolean metadataChanged = publication.metadataChanged(trackId, title, artist, duration, artwork);
         if (session != null) {
-            MediaMetadata.Builder metadata = new MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE, title)
-                    .putString(MediaMetadata.METADATA_KEY_ARTIST, artist).putLong(MediaMetadata.METADATA_KEY_DURATION, duration);
-            if (artwork != null && !artwork.isRecycled()) {
-                metadata.putBitmap(MediaMetadata.METADATA_KEY_ART, artwork);
-                metadata.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, artwork);
+            if (metadataChanged) {
+                MediaMetadata.Builder metadata = new MediaMetadata.Builder().putString(MediaMetadata.METADATA_KEY_TITLE, title)
+                        .putString(MediaMetadata.METADATA_KEY_ARTIST, artist).putLong(MediaMetadata.METADATA_KEY_DURATION, duration);
+                if (artwork != null && !artwork.isRecycled()) {
+                    metadata.putBitmap(MediaMetadata.METADATA_KEY_ART, artwork);
+                    metadata.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, artwork);
+                }
+                session.setMetadata(metadata.build());
             }
-            session.setMetadata(metadata.build());
             int state = urlLookupPending || buffering || seeking ? PlaybackState.STATE_BUFFERING : playing ? PlaybackState.STATE_PLAYING
                     : trackId > 0 ? PlaybackState.STATE_PAUSED : PlaybackState.STATE_STOPPED;
             session.setPlaybackState(new PlaybackState.Builder().setActions(PlaybackState.ACTION_PLAY | PlaybackState.ACTION_PAUSE
@@ -1103,6 +1141,7 @@ public final class AndroidPlaybackService extends Service {
         }
         getSharedPreferences(PLAYBACK_PREFS, MODE_PRIVATE).edit().putBoolean("playing", playing)
                 .putFloat("playbackRate", actualSpeed).putFloat("playbackPitch",actualPitch).putString("tuningWarning",tuningWarning)
+                .putBoolean("tuningApplied", playerPrepared)
                 .putBoolean("loading", urlLookupPending || player != null && !playerPrepared && desiredPlayback)
                 .putBoolean("buffering", buffering && playing)
                 .putLong("trackId", trackId).putString("title", title).putString("artist", artist)
@@ -1111,7 +1150,9 @@ public final class AndroidPlaybackService extends Service {
                 .putString("playbackQuality", PlaybackQuality.describe(trackMetadata))
                 .putInt("trackVolumePercent", PlaybackVolume.trackPercent(this, trackMetadata))
                 .putInt("playlistVolumePercent", PlaybackVolume.playlistPercent(this, trackMetadata)).apply();
-        if (playing || player != null || urlLookupPending) getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, notification());
+        if ((trackId > 0 || playing || player != null || urlLookupPending)
+                && publication.notificationChanged(playing || urlLookupPending, playing || desiredPlayback))
+            getSystemService(NotificationManager.class).notify(NOTIFICATION_ID, notification());
     }
 
     private Notification notification() {
@@ -1237,6 +1278,7 @@ public final class AndroidPlaybackService extends Service {
     }
 
     @Override public void onDestroy() {
+        if (noisyReceiverRegistered) { unregisterReceiver(noisyReceiver); noisyReceiverRegistered = false; }
         invalidatePrefetch(); prefetchWorker.shutdownNow();
         destroyed = true;
         if (connectivity != null) try { connectivity.close(); } catch (RuntimeException ignored) { }

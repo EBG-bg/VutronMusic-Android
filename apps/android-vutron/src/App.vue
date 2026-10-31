@@ -31,6 +31,10 @@ import { playlistView, playlistColumns } from './platform/libraryLayout'
 import PlaybackQueuePanel from './components/PlaybackQueuePanel.vue'
 import TrackActionMenu from './components/TrackActionMenu.vue'
 import CommentSheet from './components/CommentSheet.vue'
+import PlaybackTuningSheet from './components/PlaybackTuningSheet.vue'
+import PlaybackErrorNotice from './components/PlaybackErrorNotice.vue'
+import { usePlaybackTuning } from './composables/playbackTuning'
+import { reducedMotion } from './platform/motion'
 import { onlineTrackId } from './stores/domains/neteaseLibrary'
 import TrackMenuButton from './components/TrackMenuButton.vue'
 import { useTrackActionMenu } from './composables/trackActionMenu'
@@ -45,6 +49,8 @@ const { trackAction, openTrackMenu, closeTrackMenu, vTrackMenu, trackMenuReturnF
 const cookie = ref('')
 const commentTrack = ref<VutronTrack>()
 const commentReturnFocus = ref<HTMLElement>()
+const tuningOpen = ref(false)
+const { settings: playbackTuning, load: loadPlaybackTuning } = usePlaybackTuning()
 function openComments(track: VutronTrack, trigger?: HTMLElement) {
   commentReturnFocus.value = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined)
   commentTrack.value = track
@@ -152,6 +158,7 @@ watch(() => store.queueNotice, text => {
 })
 
 watch(() => store.activeTab, tab => {
+  if (tab === 'player') void loadPlaybackTuning()
   if (tab === 'home' && store.onlineAvailable) {
     if (!store.homeData.banners.length && !store.homeData.playlists.length) void store.loadHomeData()
     startHeroRotation()
@@ -266,6 +273,7 @@ function activateHero(offset: -1 | 0 | 1) {
 }
 
 function handleBack(): boolean {
+  if (tuningOpen.value) { tuningOpen.value = false; return true }
   if (actionDialog.value) { settleAction('cancel'); return true }
   if (commentTrack.value) { commentTrack.value = undefined; return true }
   if (store.onlinePlaylistDialog) { store.closeOnlinePlaylistDialog(); return true }
@@ -351,7 +359,7 @@ function previewSeek(event: Event) {
 </script>
 
 <template>
-  <main class="app-shell" :inert="Boolean(commentTrack) || store.queueOpen" :class="`playlist-layout-${playlistView}`" :style="{ '--playlist-columns': playlistColumns }">
+  <main class="app-shell" :inert="Boolean(commentTrack) || store.queueOpen || tuningOpen" :class="[`playlist-layout-${playlistView}`, { 'settings-surface': ['settings', 'about'].includes(store.activeTab) }]" :style="{ '--playlist-columns': playlistColumns }">
     <header class="app-header">
       <button v-if="store.hasAccess && !store.loginVisible" class="icon-button sidebar-toggle" type="button" :aria-label="$t('mobile.library.openSidebar')" :aria-expanded="sidebarOpen" @click="sidebarOpen = !sidebarOpen"><OriginalIcon name="list" /></button>
       <button v-if="store.canNavigateBack" class="icon-button header-back" type="button" :aria-label="$t('mobile.common.back')" @click="handleBack"><OriginalIcon name="back" /></button>
@@ -361,6 +369,7 @@ function previewSeek(event: Event) {
         <p>{{ store.localOnly ? $t(store.manualLocalOnly ? 'mobile.network.manualOffline' : !store.networkConnected ? 'mobile.network.automaticOffline' : 'mobile.network.localGuest') : store.profile?.nickname || $t('mobile.common.mobilePlayer') }}</p>
       </div>
       <button v-if="headerRefreshLabel" class="icon-button header-refresh" :class="{ 'is-refreshing': headerRefreshing }" type="button" :aria-label="headerRefreshing ? $t('mobile.home.refreshing') : headerRefreshLabel" :title="headerRefreshLabel" :aria-busy="headerRefreshing" :disabled="headerRefreshing" @click="refreshCurrentView"><OriginalIcon name="refresh" /></button>
+      <button v-if="store.hasAccess && store.activeTab === 'player'" class="secondary-button playback-tuning-button" type="button" :aria-label="$t('mobile.advancedPlayback.quickTitle')" aria-haspopup="dialog" :aria-expanded="tuningOpen" @click="tuningOpen = true; loadPlaybackTuning()">{{ playbackTuning.speed.toFixed(2) }}×</button>
     </header>
 
     <section v-if="store.loginVisible" class="login-view">
@@ -395,8 +404,8 @@ function previewSeek(event: Event) {
 
     <template v-else>
       <Teleport to="body"><PlaybackQueuePanel /></Teleport>
-      <Teleport to="body"><Transition name="track-menu"><TrackActionMenu v-if="trackAction" :track="trackAction" :suspended="Boolean(commentTrack)" @close="closeTrackMenu" @comments="openComments($event, trackMenuReturnFocus())" /></Transition></Teleport>
-      <Teleport to="body"><Transition name="track-menu"><CommentSheet v-if="commentTrack" :track="commentTrack" :return-focus="commentReturnFocus" @close="commentTrack = undefined" /></Transition></Teleport>
+      <Teleport to="body"><Transition name="track-menu" :duration="reducedMotion ? 0 : { enter: 320, leave: 240 }"><TrackActionMenu v-if="trackAction" :track="trackAction" :suspended="Boolean(commentTrack)" @close="closeTrackMenu" @comments="openComments($event, trackMenuReturnFocus())" /></Transition></Teleport>
+      <Teleport to="body"><Transition name="track-menu" :duration="reducedMotion ? 0 : { enter: 320, leave: 240 }"><CommentSheet v-if="commentTrack" :track="commentTrack" :return-focus="commentReturnFocus" @close="commentTrack = undefined" /></Transition></Teleport>
       <Transition name="sidebar">
         <div v-if="sidebarOpen" class="sidebar-layer" @click.self="sidebarOpen = false">
           <aside class="library-sidebar" role="dialog" aria-modal="true" :aria-label="$t('mobile.library.sidebar')">
@@ -595,7 +604,7 @@ function previewSeek(event: Event) {
           <button class="icon-button transport-small" type="button" :aria-label="$t('player.next')" @click="playAdjacent(1)"><OriginalIcon name="next" /></button>
           <button class="icon-button cache-current" type="button" aria-label="缓存当前歌曲" @click="store.cacheCurrent"><OriginalIcon name="down" /></button>
         </div>
-        <p v-if="store.playback.error" class="inline-error">{{ store.playback.error }}</p>
+        <PlaybackErrorNotice @login="requestOnlineLogin" @offline="openLibrarySection('offline')" />
         <button class="wide-outline-button playback-queue-button" type="button" @click="store.showPlaybackQueue()"><OriginalIcon name="list" />播放队列 · {{ store.playback.queueCount ?? 0 }} 首{{ store.playback.upNextCount ? ` · 插队 ${store.playback.upNextCount}` : '' }}</button>
         <button v-if="store.onlineAvailable && onlineTrackId(currentTrack) > 0" class="wide-outline-button" type="button" @click="openComments(currentTrack, $event.currentTarget as HTMLElement)"><OriginalIcon name="list" />{{ $t('mobile.comments.title') }}</button>
         <p v-if="store.playback.rate && store.playback.rate !== 1" class="setting-note">{{ store.playback.rate }}×</p>
@@ -629,7 +638,7 @@ function previewSeek(event: Event) {
       <Transition name="notice-fade"><div v-if="store.error" class="toast-error" role="alert"><span>{{ store.error }}</span><button type="button" :aria-label="$t('mobile.common.close')" @click="store.error = ''"><OriginalIcon name="close" /></button></div></Transition>
       <Transition name="notice-fade"><div v-if="store.queueNotice" class="queue-notice" role="status">{{ store.queueNotice }}</div></Transition>
       <Transition name="mini-player">
-      <div v-if="store.playback.trackId && store.activeTab !== 'player'" class="mini-player" role="button" tabindex="0" aria-label="打开正在播放" @click="store.navigateTo('player')" @keydown.enter.prevent="store.navigateTo('player')" @keydown.space.prevent="store.navigateTo('player')">
+      <div v-if="store.playback.trackId && !['player', 'settings', 'about'].includes(store.activeTab)" class="mini-player" role="button" tabindex="0" aria-label="打开正在播放" @click="store.navigateTo('player')" @keydown.enter.prevent="store.navigateTo('player')" @keydown.space.prevent="store.navigateTo('player')">
         <CoverImage v-if="currentCover" :src="currentCover" :remote-src="currentTrack.picUrl" loading="eager" alt="" /><span v-else class="mini-cover-fallback"><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span>
         <span class="mini-copy"><b>{{ currentTrack.name }}</b><small>{{ currentTrack.artists?.join(' / ') || store.playback.artist }}</small></span>
         <button class="mini-action" type="button" :aria-label="store.playback.playing ? $t('player.pause') : $t('contextMenu.play')" @click.stop="store.playback.playing ? store.pause() : store.resume()" @keydown.enter.stop @keydown.space.stop><OriginalIcon :name="store.playback.playing ? 'pause' : 'play'" /></button>
@@ -644,6 +653,7 @@ function previewSeek(event: Event) {
       </nav>
     </template>
     <AppUpdateNotice />
+    <Teleport to="body"><Transition name="tuning-sheet" :duration="reducedMotion ? 0 : { enter: 320, leave: 240 }"><PlaybackTuningSheet v-if="tuningOpen" @close="tuningOpen = false" /></Transition></Teleport>
     <Teleport to="body"><ActionDialog /></Teleport>
     <OnlinePlaylistDialog />
     <LibraryTaskProgress />

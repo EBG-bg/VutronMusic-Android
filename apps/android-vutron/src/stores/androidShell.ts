@@ -1,6 +1,7 @@
 import { computed, ref, shallowRef } from 'vue'
 import { defineStore } from 'pinia'
 import { createLiveSettingWriter } from '../platform/liveSettingWrites'
+import { flushRegisteredLiveSettings } from '../platform/liveSettingsLifecycle'
 import { createAuthSession } from './domains/authSession'
 import { createLocalLibrary } from './domains/localLibrary'
 import { createNeteaseLibrary } from './domains/neteaseLibrary'
@@ -753,7 +754,7 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
   }
 
   async function flushLiveSettings() {
-    await Promise.all([overlayWriter.flush(), ...[...offsetWriters.values(), ...trackVolumeWriters.values(), ...playlistVolumeWriters.values()].map(writer => writer.flush())])
+    await Promise.all([flushRegisteredLiveSettings(), overlayWriter.flush(), ...[...offsetWriters.values(), ...trackVolumeWriters.values(), ...playlistVolumeWriters.values()].map(writer => writer.flush())])
   }
 
   async function openLocalCollection(collection: VutronLocalCollection) {

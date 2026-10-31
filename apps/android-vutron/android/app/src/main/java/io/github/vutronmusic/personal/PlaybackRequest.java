@@ -89,7 +89,7 @@ final class PlaybackRequest {
     }
 
     private static String localSource(JSONObject song) throws IOException {
-        if (song.optBoolean("missingLocal")) throw new IOException("备份未包含音频，请重新授权音乐文件夹或导入原歌单包后播放");
+        if (song.optBoolean("missingLocal")) throw new PlaybackFailure.Reported("local_missing", "备份未包含音频，请重新授权音乐文件夹或导入原歌单包后播放");
         String value = first(song, "localUri", "localPath");
         if (value.isEmpty()) return "";
         if (value.startsWith("content://")) return value;
@@ -99,7 +99,7 @@ final class PlaybackRequest {
         // Resolve the online identity again; never treat a missing local
         // user's recording as an unrelated online song with a generated id.
         if (song.optBoolean("cached") || "cache".equals(song.optString("source"))) return "";
-        throw new IOException("本地音频不存在，请重新扫描音乐文件夹");
+        throw new PlaybackFailure.Reported("local_missing", "本地音频不存在，请重新扫描音乐文件夹");
     }
 
     static String artistText(JSONObject song) {

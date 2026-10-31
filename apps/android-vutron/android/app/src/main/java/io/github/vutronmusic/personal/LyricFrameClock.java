@@ -32,7 +32,14 @@ final class LyricFrameClock {
     }
 
     long positionAt(long elapsed) {
-        long position = anchorPosition + (playing ? Math.round(Math.max(0, elapsed - anchorElapsed) * (double)rate) : 0);
-        return duration > 0 ? Math.min(duration, position) : position;
+        return project(anchorPosition, anchorElapsed, playing, duration, elapsed, rate);
+    }
+
+    /** Shared by the UI bridge and overlay; persisted timestamps never advance a stopped process. */
+    static long project(long position, long sampledAt, boolean advancing, long duration, long now, float rate) {
+        double speed = Float.isFinite(rate) && rate > 0 ? rate : 1f;
+        long elapsed = sampledAt >= 0 && sampledAt <= now ? now - sampledAt : 0;
+        long projected = Math.max(0, position) + (advancing ? Math.round(elapsed * speed) : 0);
+        return duration > 0 ? Math.min(duration, projected) : projected;
     }
 }

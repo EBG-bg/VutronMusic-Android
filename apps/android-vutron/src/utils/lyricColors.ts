@@ -19,10 +19,10 @@ export const lyricColorTargets: { key: LyricColorKey; label: string }[] = [
 ]
 
 // Values from the original personal edition's MainActivity.lyricColorSettings.
-export const lyricColorPresets: { name: string; values: Partial<Record<LyricColorKey, number>> }[] = [
-  { name: '原版绿', values: { playedColor: 0xff37cf88, unplayedColor: 0xffd2d2d2, backgroundColor: 0xb6181920 } },
-  { name: '暖金', values: { playedColor: 0xffffdb7a, unplayedColor: 0xffe6e6e9 } },
-  { name: '透明背景', values: { backgroundColor: 0x00181920 } }
+export const lyricColorPresets: { id: string; name: string; values: Partial<Record<LyricColorKey, number>> }[] = [
+  { id: 'green', name: '原版绿', values: { playedColor: 0xff37cf88, unplayedColor: 0xffd2d2d2, backgroundColor: 0xb6181920 } },
+  { id: 'gold', name: '暖金', values: { playedColor: 0xffffdb7a, unplayedColor: 0xffe6e6e9 } },
+  { id: 'transparent', name: '透明背景', values: { backgroundColor: 0x00181920 } }
 ]
 
 export function clampUnit(value: number): number { return Math.max(0, Math.min(1, value)) }

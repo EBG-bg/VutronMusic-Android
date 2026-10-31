@@ -104,6 +104,8 @@ export interface VutronLyricOverlaySettings {
   temporaryHiddenRemainingMs?: number
 }
 export interface VutronPlaybackState {
+  loading?: boolean
+  tuningApplied?: boolean
   rate?: number
   pitch?: number
   tuningWarning?: string
@@ -115,6 +117,8 @@ export interface VutronPlaybackState {
   duration: number
   position: number
   error: string
+  errorCode?: string
+  errorDetail?: string
   track?: VutronTrack
   quality?: string
   trackVolumePercent?: number
