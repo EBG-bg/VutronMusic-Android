@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 桌面版 VutronMusic
+    url: https://github.com/stark81/VutronMusic/issues
+    about: 原桌面版的问题请到上游仓库反馈。

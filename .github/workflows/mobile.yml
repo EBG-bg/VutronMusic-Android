@@ -1,0 +1,69 @@
+name: Mobile Android
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/android-vutron/**'
+      - 'packages/**'
+      - 'android/shared/**'
+      - 'vendor/android-runtime/**'
+      - 'vendor/java-compat/**'
+      - 'scripts/build-mobile.*'
+      - 'scripts/mobile-build.cjs'
+      - 'src/renderer/assets/**'
+      - 'src/renderer/locales/**'
+      - 'tools/**'
+      - 'legal/**'
+      - 'LICENSE'
+      - 'NOTICE'
+      - 'THIRD_PARTY_NOTICES.md'
+      - '.github/workflows/mobile.yml'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+          cache: npm
+          cache-dependency-path: apps/android-vutron/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install Android platform
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Check shared core
+        working-directory: packages/core
+        run: node --experimental-strip-types --test
+      - name: Desktop export checks
+        run: python -m unittest discover -s tools/tests -p 'test_export*.py'
+      - name: Media gateway checks
+        run: node --test vendor/android-runtime/tests/*.test.cjs
+      - name: Check Vue SFC types and build Mobile
+        run: sh scripts/build-mobile.sh Debug
+      - name: Mobile behavior checks
+        working-directory: apps/android-vutron
+        run: node --test tests/*.test.cjs
+      - name: Android unit checks
+        working-directory: apps/android-vutron/android
+        run: sh ./gradlew :app:testDebugUnitTest --console=plain
+      - name: Upload CI test package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vutron-Music-Mobile-ci
+          path: apps/android-vutron/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
