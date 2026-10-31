@@ -2,7 +2,7 @@
 
 > 非官方 Android 移植版 · 正式版本 **1.1.0** · Android 13 / HyperOS · ARM64
 
-Vutron Music - Mobile 是 [VutronMusic](https://github.com/stark81/VutronMusic) 的**非官方 Android 移植版**，面向 Android 13 / HyperOS 的 ARM64 设备。本项目与上游作者、网易云音乐及任何音乐平台均无官方隶属或背书关系。
+Vutron Music - Mobile 是 [VutronMusic](https://github.com/stark81/VutronMusic) 的**非官方 Android 移植版**，面向 Android 13 / HyperOS 的 ARM64 设备。本项目与上游作者、网易云音乐及任何音乐平台均无官方隶属或背书关系。"面向"指作者仅有该环境进行实际测试，如有其它安卓设备不兼容情况欢迎提交issue。
 
 本仓库只维护 Android 客户端及构建所需的共享代码；桌面 Electron 版本请访问[上游项目](https://github.com/stark81/VutronMusic)。
 
@@ -106,6 +106,14 @@ https://github.com/EBG-bg/VutronMusic/releases/tag/mobile-v1.0.2
 - 更新请求只连接 GitHub，不发送网易云账号 Cookie。
 - 仅本地模式会暂停自动检查；主动点击“检查更新”仍会连接 GitHub。
 - 本仓库尚无可验证的稳定 ARM64 包时，应用显示暂无可用安装包；网络失败会另行报错，不会查询旧仓库。
+
+## 反馈与贡献
+
+- 旧仓库已在 1.0.2 发布后归档；Issue 和 PR 请提交到[本仓库](https://github.com/EBG-bg/VutronMusic-Android/issues)。
+- 本项目只维护 Android 客户端；桌面 Electron 版本的问题请提交到[上游项目](https://github.com/stark81/VutronMusic)。
+- 提交问题请附：版本号、设备与 Android 版本、复现步骤、相关日志。(或其中几项即可)
+- 不要公开发布账号 Cookie、签名媒体地址、本地音乐路径或设备标识。
+- 安全问题请通过 GitHub Security Advisory 私下报告。
 
 ## 暂未支持
 
@@ -215,14 +223,6 @@ CI 在 `main` 的 push / PR 中执行安卓构建和测试，只生成开发检�
 本项目不附带账号、Cookie、音乐文件、歌词库或平台授权，也不承诺提供受限内容。播放能力取决于各来源的可用性及用户账号权限。
 
 本项目是非官方移植，不代表上游作者或音乐平台。
-
-## 反馈与贡献
-
-- 旧仓库已在 1.0.2 发布后归档；Issue 和 PR 请提交到[本仓库](https://github.com/EBG-bg/VutronMusic-Android/issues)。
-- 本项目只维护 Android 客户端；桌面 Electron 版本的问题请提交到[上游项目](https://github.com/stark81/VutronMusic)。
-- 提交问题请附：版本号、设备与 Android 版本、复现步骤、相关日志。
-- 不要公开发布账号 Cookie、签名媒体地址、本地音乐路径或设备标识。
-- 安全问题请通过 GitHub Security Advisory 私下报告。
 
 ## 致谢
 
