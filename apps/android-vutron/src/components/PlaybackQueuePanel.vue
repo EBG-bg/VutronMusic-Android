@@ -8,9 +8,12 @@ import OriginalIcon from './OriginalIcon.vue'
 import TrackListPager from './TrackListPager.vue'
 import { useProgressiveTracks } from '../composables/libraryPresentation'
 import { reducedMotion } from '../platform/motion'
+import { useSheetDrag } from '../composables/sheetDrag'
+import SheetDragHandle from './SheetDragHandle.vue'
 const store = useAndroidShellStore()
 const panel = ref<HTMLElement>()
 useModalFocus(panel, { close: () => { store.queueOpen = false }, open: () => store.queueOpen, enabled: () => !actionDialog.value })
+useSheetDrag(panel, { close: () => { store.queueOpen = false }, enabled: () => store.queueOpen && !actionDialog.value })
 function keyedTracks(tracks: VutronTrack[]) {
   const occurrences = new Map<string, number>()
   return tracks.map((track, index) => {
@@ -29,7 +32,8 @@ const { visible: visiblePlaylistTracks, hasMore: morePlaylistTracks, showMore: s
   <Transition name="queue-sheet" :duration="reducedMotion ? 0 : { enter: 320, leave: 240 }">
     <div v-if="store.queueOpen" class="queue-layer" @click.self="store.queueOpen = false">
       <section ref="panel" class="queue-panel" role="dialog" aria-modal="true" :aria-label="$t('mobile.player.queue')" tabindex="-1" :inert="Boolean(actionDialog)">
-        <header><div><h2>{{ $t('mobile.player.queue') }}</h2><small>{{ $t('mobile.common.tracks', { count: store.playbackQueue.tracks.length }) }} · {{ [$t('mobile.player.listLoop'), $t('mobile.player.singleLoop'), $t('mobile.player.shuffle')][store.playbackQueue.mode] }}</small></div><button class="icon-button" type="button" :aria-label="$t('mobile.player.closeQueue')" @click="store.queueOpen = false"><OriginalIcon name="close" /></button></header>
+        <SheetDragHandle @close="store.queueOpen = false" />
+        <header data-sheet-drag-handle><div><h2>{{ $t('mobile.player.queue') }}</h2><small>{{ $t('mobile.common.tracks', { count: store.playbackQueue.tracks.length }) }} · {{ [$t('mobile.player.listLoop'), $t('mobile.player.singleLoop'), $t('mobile.player.shuffle')][store.playbackQueue.mode] }}</small></div><button class="icon-button" type="button" :aria-label="$t('mobile.player.closeQueue')" @click="store.queueOpen = false"><OriginalIcon name="close" /></button></header>
         <div class="queue-scroll">
           <h3>{{ $t('mobile.common.playing') }}</h3>
           <Transition name="queue-current" mode="out-in"><p :key="store.playback.trackId" class="queue-current">{{ store.playback.title || $t('mobile.common.notPlaying') }}</p></Transition>

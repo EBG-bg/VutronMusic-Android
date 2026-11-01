@@ -10,7 +10,7 @@ const store = useAndroidShellStore()
 <template>
 <CollapsibleSettingsCard section-id="lyrics" :title="$t('settings.nav.osdLyric')">
           <template #heading><span class="settings-icon coral"><OriginalIcon name="lyrics" /></span><div><h3>{{ $t('settings.nav.osdLyric') }}</h3><p>{{ $t('mobile.settingsUi.overlaySubtitle') }}</p></div></template>
-          <div class="settings-detail"><span>{{ $t('mobile.settingsUi.showOverlay') }}</span><button class="switch" :class="{ on: store.overlayEnabled }" type="button" role="switch" :aria-checked="store.overlayEnabled" @click="store.toggleLyricOverlay()"><i></i></button></div>
+          <div class="settings-detail"><span>{{ $t('mobile.settingsUi.showOverlay') }}</span><button class="switch" :class="{ on: store.overlayEnabled }" type="button" role="switch" :aria-checked="store.overlayEnabled" :aria-label="$t('mobile.settingsUi.showOverlay')" @click="store.toggleLyricOverlay()"><i></i></button></div>
           <p class="setting-note">{{ $t('mobile.settingsUi.overlayPermission') }}</p>
           <div class="timer-actions"><button class="secondary-button" type="button" :disabled="!store.overlayEnabled" @click="store.temporarilyHideOverlay()">{{ $t('mobile.settingsUi.hideOverlay') }}</button><button class="secondary-button" type="button" :disabled="!store.overlayEnabled" @click="store.restoreOverlay()">{{ $t('mobile.settingsUi.restoreOverlay') }}</button></div>
           <label class="settings-detail"><span>{{ $t('mobile.settingsUi.validateLyrics') }}</span><input type="checkbox" :checked="store.overlaySettings.wifiValidation" @change="store.updateOverlayField('wifiValidation', ($event.target as HTMLInputElement).checked)" /></label>

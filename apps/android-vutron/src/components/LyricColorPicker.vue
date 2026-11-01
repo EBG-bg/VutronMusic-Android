@@ -155,16 +155,16 @@ function presetColors(values: Partial<Record<LyricColorKey, number>>) {
 <style scoped>
 .lyric-color-picker { min-width: 0; display: grid; gap: 10px; color: var(--color-text); }
 .lyric-color-heading, .sv-caption, .lyric-channel > span:first-child { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.lyric-color-heading b { font-size: 13px; font-weight: 600; }
-.lyric-color-heading small, .sv-caption, .lyric-channel > span:first-child, .lyric-hex-field { font-size: 12px; }
+.lyric-color-heading b { font-size: calc(13px * var(--ui-font-scale, 1)); font-weight: 600; }
+.lyric-color-heading small, .sv-caption, .lyric-channel > span:first-child, .lyric-hex-field { font-size: calc(12px * var(--ui-font-scale, 1)); }
 .lyric-color-heading small, .sv-caption small, .lyric-channel small, .lyric-color-help { color: var(--color-secondary); }
 .checkerboard { background-color: #fff; background-image: linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%); background-size: 12px 12px; background-position: 0 0, 0 6px, 6px -6px, -6px 0; }
 .lyric-color-preview { overflow: hidden; border: 1px solid var(--line); border-radius: 10px; }
 .lyric-color-preview > div { min-height: 72px; padding: 14px 8px; text-align: center; }
-.lyric-color-preview p { margin: 0 0 5px; font-size: 18px; font-weight: 600; line-height: 1.4; }
-.lyric-color-preview small { font-size: 12px; }
+.lyric-color-preview p { margin: 0 0 5px; font-size: calc(18px * var(--ui-font-scale, 1)); font-weight: 600; line-height: 1.4; }
+.lyric-color-preview small { font-size: calc(12px * var(--ui-font-scale, 1)); }
 .lyric-color-targets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
-.lyric-color-targets button { min-width: 0; min-height: 36px; display: flex; justify-content: center; align-items: center; gap: 5px; padding: 6px 4px; border: 1px solid transparent; border-radius: 8px; background: var(--color-secondary-bg); color: var(--color-text); font: inherit; font-size: 12px; }
+.lyric-color-targets button { min-width: 0; min-height: 36px; display: flex; justify-content: center; align-items: center; gap: 5px; padding: 6px 4px; border: 1px solid transparent; border-radius: 8px; background: var(--color-secondary-bg); color: var(--color-text); font: inherit; font-size: calc(12px * var(--ui-font-scale, 1)); }
 .lyric-color-targets button.selected { border-color: var(--color-primary); color: var(--color-primary); background: var(--accent-soft); }
 .lyric-color-targets button, .lyric-color-presets button { transition: background-color 125ms ease-out, color 125ms ease-out, border-color 125ms ease-out, transform .2s ease; }
 .lyric-color-feedback-enter-active, .lyric-color-feedback-leave-active { transition: opacity 125ms ease-out, transform 125ms ease-out; }
@@ -181,12 +181,12 @@ function presetColors(values: Partial<Record<LyricColorKey, number>>) {
 .lyric-hex-field { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .lyric-hex-field input { min-width: 0; width: 132px; height: 36px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--color-text); background: var(--color-secondary-bg); font: inherit; font-family: ui-monospace, monospace; }
 .lyric-hex-field input[aria-invalid='true'] { border-color: #c94953; }
-.lyric-color-error { margin: 0; color: #c94953; font-size: 11px; }
-.lyric-color-help { margin: 0; font-size: 10px; line-height: 1.6; overflow-wrap: anywhere; }
+.lyric-color-error { margin: 0; color: #c94953; font-size: calc(11px * var(--ui-font-scale, 1)); }
+.lyric-color-help { margin: 0; font-size: calc(10px * var(--ui-font-scale, 1)); line-height: 1.6; overflow-wrap: anywhere; }
 .lyric-color-presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-.lyric-color-presets button { min-width: 0; min-height: 34px; padding: 6px 3px; border: 0; border-radius: 8px; background: var(--color-secondary-bg); color: var(--color-text); font: inherit; font-size: 12px; }
+.lyric-color-presets button { min-width: 0; min-height: 34px; padding: 6px 3px; border: 0; border-radius: 8px; background: var(--color-secondary-bg); color: var(--color-text); font: inherit; font-size: calc(12px * var(--ui-font-scale, 1)); }
 .lyric-color-picker button:focus-visible, .lyric-color-picker input:focus-visible, .lyric-sv-surface:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .lyric-color-picker button:active { transform: scale(.97); }
-@media (max-width: 340px) { .lyric-color-heading { align-items: start; flex-direction: column; gap: 3px; } .lyric-color-targets button { gap: 3px; font-size: 11px; } }
+@media (max-width: 340px) { .lyric-color-heading { align-items: start; flex-direction: column; gap: 3px; } .lyric-color-targets button { gap: 3px; font-size: calc(11px * var(--ui-font-scale, 1)); } }
 html[data-motion="reduced"] .lyric-color-targets button, html[data-motion="reduced"] .lyric-color-presets button, html[data-motion="reduced"] .lyric-color-feedback-enter-active, html[data-motion="reduced"] .lyric-color-feedback-leave-active { transition: none; }
 </style>

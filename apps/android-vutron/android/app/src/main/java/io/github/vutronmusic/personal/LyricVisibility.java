@@ -3,6 +3,7 @@ package io.github.vutronmusic.personal;
 /** Pure visibility policy shared by the renderer ticker and independent window watchdog. */
 final class LyricVisibility {
     static final long PAUSE_GRACE_MS = 3000L;
+    static final long TEMPORARY_HIDE_MS = 30_000L;
     private long pausedAt = -1L;
     private long previewUntil;
 

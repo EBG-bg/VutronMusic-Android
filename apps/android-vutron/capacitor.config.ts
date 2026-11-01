@@ -6,7 +6,10 @@ const config: CapacitorConfig = {
   appName: mobileBuild.displayName,
   webDir: 'dist',
   android: {
-    backgroundColor: '#ffffff'
+    backgroundColor: '#ffffff',
+    // Let Capacitor consume system bar / cutout insets on Android 15+.
+    // Older Android versions retain their existing, non-edge-to-edge layout.
+    adjustMarginsForEdgeToEdge: 'auto'
   }
 }
 

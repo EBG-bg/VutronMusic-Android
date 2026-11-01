@@ -1,4 +1,6 @@
 import { computed, ref, shallowRef } from 'vue'
+import { timerDeadline, timerRemaining, timerLabel } from '../utils/sleepTimer'
+import { recordPlaylistPlayback } from '../composables/playlistOrdering'
 import { defineStore } from 'pinia'
 import { createLiveSettingWriter } from '../platform/liveSettingWrites'
 import { flushRegisteredLiveSettings } from '../platform/liveSettingsLifecycle'
@@ -125,7 +127,18 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
   const searchLoading = ref(false)
   let searchRequestId = 0
   const homeLoading = ref(false)
-  const sleepTimerRemainingMs = ref(0)
+  const sleepTimerDeadline = ref(0), sleepTimerNow = ref(Date.now()), sleepTimerBusy = ref(false)
+  const sleepTimerRemainingMs = computed(() => timerRemaining(sleepTimerDeadline.value, sleepTimerNow.value))
+  let sleepTimerRevision = 0, sleepClock: ReturnType<typeof setInterval> | undefined
+  function stopSleepClock() { if (sleepClock !== undefined) clearInterval(sleepClock); sleepClock = undefined }
+  function startSleepClock() {
+    if (sleepClock !== undefined || sleepTimerDeadline.value <= Date.now() || document.visibilityState === 'hidden') return
+    sleepClock = setInterval(() => { sleepTimerNow.value = Date.now(); if (!sleepTimerRemainingMs.value) stopSleepClock() }, 250)
+  }
+  function syncSleepTimer(sample: { remainingMs: number; deadlineMs?: number }) {
+    sleepTimerNow.value = Date.now(); sleepTimerDeadline.value = timerDeadline(sample, sleepTimerNow.value)
+    if (sleepTimerDeadline.value > sleepTimerNow.value) startSleepClock(); else stopSleepClock()
+  }
   const sleepTimerMinutes = ref(30)
   const cacheAllPlaylistsLoading = ref(false)
   const cacheAllPlaylistsResult = ref('')
@@ -465,6 +478,8 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     const fromLocalCollection = activeTab.value === 'localCollection' ? selectedLocalCollection.value : undefined
     const context = {
       playlistVolumeKey: playlistKey ?? (fromPlaylist ? `netease:${selectedPlaylist.value!.id}` : fromLocalCollection?.id ?? ''),
+      playlistOrderScope: fromPlaylist ? 'netease:' + (selectedPlaylist.value!.cacheOwnerId || profile.value?.userId || 0) : fromLocalCollection ? 'local:device' : playlistKey ? undefined : track.playlistOrderScope,
+      playlistOrderKey: fromPlaylist ? String(selectedPlaylist.value!.cacheOwnerId || profile.value?.userId || 0) + ':' + selectedPlaylist.value!.id : fromLocalCollection?.id || (playlistKey ? undefined : track.playlistOrderKey),
       playlistVolumeName: fromPlaylist ? selectedPlaylist.value!.name : fromLocalCollection?.name ?? (playlistKey === 'local:folder' ? '本地音乐' : playlistKey === 'cache:all' ? '离线歌曲' : '')
     }
     const sourceQueue = suppliedQueue ?? (fromPlaylist || activeTab.value === 'entity' || fromLocalCollection ? tracks.value
@@ -508,11 +523,15 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
   async function pause() { try { await vutronPlugin.pause(); await refreshPlaybackState() } catch (cause) { error.value = errorMessage(cause, '暂停失败') } }
   async function resume() { try { await vutronPlugin.resume(); await refreshPlaybackState() } catch (cause) { error.value = errorMessage(cause, '继续播放失败') } }
   async function stop() { try { await vutronPlugin.stop(); await refreshPlaybackState() } catch (cause) { error.value = errorMessage(cause, '停止播放失败') } }
-  async function cyclePlaybackMode() {
-    if (!vutronPlugin.setPlaybackMode) return
-    try { playback.value.mode = (await vutronPlugin.setPlaybackMode({ mode: ((playback.value.mode ?? 0) + 1) % 3 })).mode }
+  const playbackModeBusy = ref(false)
+  async function setPlaybackMode(mode: number) {
+    if (!vutronPlugin.setPlaybackMode || playbackModeBusy.value || ![0,1,2].includes(mode)) return
+    playbackModeBusy.value = true
+    try { playback.value.mode = (await vutronPlugin.setPlaybackMode({ mode })).mode }
     catch (cause) { error.value = errorMessage(cause, '播放模式保存失败') }
+    finally { playbackModeBusy.value = false }
   }
+  async function cyclePlaybackMode() { await setPlaybackMode(((playback.value.mode ?? 0) + 1) % 3) }
   async function seek(position: number) {
     if (!vutronPlugin.seek) return
     try { await vutronPlugin.seek({ position }); await refreshPlaybackState() }
@@ -540,13 +559,19 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
         if (pendingPlaylistVolumes.has(playlistKey) || playlistVolumeWriters.get(playlistKey)?.pending() || playlistDraft.revision > volumeReadRevision || next.playlistVolumePercent !== playlistDraft.value) next.playlistVolumePercent = playlistDraft.value
         else playlistVolumeDrafts.delete(playlistKey)
       }
+      const startedPlaying = next.playing && (!playback.value.playing || previousTrackKey !== nextKey)
       playback.value = next
+      if (startedPlaying && next.track?.playlistOrderScope && next.track.playlistOrderKey) {
+        try { recordPlaylistPlayback(next.track.playlistOrderScope, next.track.playlistOrderKey) }
+        catch (cause) { console.warn('Playlist history save failed', cause) }
+      }
       const nextTrackKey = playbackTrackKey()
       if (nextTrackKey !== previousTrackKey) overlaySettings.value.currentLyricOffsetMs = offsetDrafts.get(nextTrackKey)?.value ?? 0
       if (next.trackId && nextTrackKey !== overlayTrackKey) await loadOverlaySettings()
       if (queueOpen.value && queueStateKey(next) !== queueReadKey) await loadPlaybackQueue()
       if (vutronPlugin.getSleepTimer) {
-        try { sleepTimerRemainingMs.value = (await vutronPlugin.getSleepTimer()).remainingMs }
+        const revision = sleepTimerRevision
+        try { const sample = await vutronPlugin.getSleepTimer(); if (revision === sleepTimerRevision && !sleepTimerBusy.value) syncSleepTimer(sample) }
         catch { /* Timer support was added after the earliest WebShell build. */ }
       }
       if (next.trackId && next.trackId !== lyricTrackId) await loadLyrics(next.trackId)
@@ -584,7 +609,9 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     const key = playlistKey ?? track.playlistVolumeKey ?? (fromPlaylist ? `netease:${fromPlaylist.id}` : fromLocal?.id ?? '')
     const name = track.playlistVolumeName || (fromPlaylist && key === `netease:${fromPlaylist.id}` ? fromPlaylist.name
       : fromLocal && key === fromLocal.id ? fromLocal.name : key === 'local:folder' ? '本地音乐' : key === 'cache:all' ? '离线歌曲' : '')
-    return { ...track, artists: track.artists?.slice(), playlistVolumeKey: key, playlistVolumeName: name }
+    return { ...track, artists: track.artists?.slice(), playlistVolumeKey: key, playlistVolumeName: name,
+      playlistOrderScope: fromPlaylist ? 'netease:' + (fromPlaylist.cacheOwnerId || profile.value?.userId || 0) : fromLocal ? 'local:device' : playlistKey ? undefined : track.playlistOrderScope,
+      playlistOrderKey: fromPlaylist ? String(fromPlaylist.cacheOwnerId || profile.value?.userId || 0) + ':' + fromPlaylist.id : fromLocal?.id || (playlistKey ? undefined : track.playlistOrderKey) }
   }
   async function queueTrackNext(track: VutronTrack) {
     if (!vutronPlugin.addToPlayNext) { error.value = '当前原生版本尚未支持插队播放'; return false }
@@ -820,24 +847,29 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
   }
 
   async function setSleepTimer(minutes: number) {
-    if (!vutronPlugin.setSleepTimer || !Number.isFinite(minutes) || minutes < 1 || minutes > 1440) return
-    try { sleepTimerRemainingMs.value = (await vutronPlugin.setSleepTimer({ durationMs: Math.round(minutes * 60_000) })).remainingMs }
+    await setSleepTimerSeconds(minutes * 60)
+  }
+  async function setSleepTimerSeconds(seconds: number) {
+    if (sleepTimerBusy.value || !vutronPlugin.setSleepTimer || !Number.isFinite(seconds) || seconds < 1 || seconds > 18000) return
+    sleepTimerBusy.value = true; ++sleepTimerRevision; error.value = ''
+    try { syncSleepTimer(await vutronPlugin.setSleepTimer({ durationMs: Math.round(seconds * 1000) })) }
     catch (cause) { error.value = errorMessage(cause, '睡眠定时设置失败') }
+    finally { sleepTimerBusy.value = false }
   }
 
   async function clearSleepTimer() {
-    if (!vutronPlugin.clearSleepTimer) return
-    try { sleepTimerRemainingMs.value = (await vutronPlugin.clearSleepTimer()).remainingMs }
+    if (sleepTimerBusy.value || !vutronPlugin.clearSleepTimer) return
+    sleepTimerBusy.value = true; ++sleepTimerRevision
+    try { syncSleepTimer(await vutronPlugin.clearSleepTimer()) }
     catch (cause) { error.value = errorMessage(cause, '睡眠定时取消失败') }
+    finally { sleepTimerBusy.value = false }
   }
 
-  const sleepTimerLabel = computed(() => {
-    const seconds = Math.max(0, Math.ceil(sleepTimerRemainingMs.value / 1000))
-    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
-  })
+  const sleepTimerLabel = computed(() => timerLabel(sleepTimerRemainingMs.value))
 
   function startPlaybackPolling(intervalMs = 2000) {
     stopPlaybackPolling(); void refreshPlaybackState()
+    startSleepClock()
     playbackTimer = setInterval(() => {
       if (document.visibilityState === 'hidden') return
       void refreshPlaybackState()
@@ -846,7 +878,7 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
       if (now - cachePollAt >= 5000) { cachePollAt = now; void loadCacheStatus(false) }
     }, intervalMs)
   }
-  function stopPlaybackPolling() { if (playbackTimer !== undefined) clearInterval(playbackTimer); playbackTimer = undefined }
+  function stopPlaybackPolling() { if (playbackTimer !== undefined) clearInterval(playbackTimer); playbackTimer = undefined; stopSleepClock() }
   return {
     ...onlineLibrary,
     profile, playlists, playlistsLoading, cachedPlaylists, removeCachedPlaylistView, tracks, selectedPlaylist, selectedEntity, localTracks, cachedTracks, folderName, cacheStatus, cacheCapacityMb,
@@ -858,9 +890,9 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     canNavigateBack, navigationDirection, navigationScrollY, navigateTo, navigateBack,
     qrLoginKey, qrLoginImage, qrLoginStatus, qrLoginLoading,
     restore, login, createQrLogin, checkQrLogin, cancelQrLogin, loadPlaylists, loadOfflinePlaylists, loadHomeData, openPlaylist, cachePlaylist, cacheAllPlaylists, openCachedPlaylist, openEntityTracks,
-    runSearch, loadMoreSearch, openMv, play, reorderLocalPlayback, playAdjacent, pause, resume, stop, seek, cyclePlaybackMode, refreshPlaybackState, loadLyrics,
+    runSearch, loadMoreSearch, openMv, play, reorderLocalPlayback, playAdjacent, pause, resume, stop, seek, cyclePlaybackMode, setPlaybackMode, playbackModeBusy, refreshPlaybackState, loadLyrics,
     pickMusicFolder, loadLocalMusic, loadCacheStatus, setCacheCapacity, setArtworkCacheCapacity, artworkCacheCapacityMb, cacheCurrent, clearCache,
-    setSleepTimer, clearSleepTimer, setAutomaticCache, temporarilyHideOverlay, restoreOverlay,
+    setSleepTimer, setSleepTimerSeconds, sleepTimerBusy, clearSleepTimer, setAutomaticCache, temporarilyHideOverlay, restoreOverlay,
     autoMatchSources, loadSourceSettings, setAutoMatchSources, setCurrentTrackVolume, setCurrentPlaylistVolume,
     overlaySettings, overlayEnabled, overlayPlayedColor, overlayUnplayedColor, overlayShadowColor, overlayBackgroundOpacity,
     loadOverlaySettings, toggleLyricOverlay, updateOverlayField, updateOverlayColor,

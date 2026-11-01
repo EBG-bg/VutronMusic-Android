@@ -1,12 +1,12 @@
 # Vutron Music - Mobile
 
-> 非官方 Android 移植版 · 正式版本 **1.1.0** · Android 13 / HyperOS · ARM64
+> 非官方 Android 移植版 · 正式版本 **1.2.0** · Android 13 / HyperOS · ARM64
 
-Vutron Music - Mobile 是 [VutronMusic](https://github.com/stark81/VutronMusic) 的**非官方 Android 移植版**，面向 Android 13 / HyperOS 的 ARM64 设备。本项目与上游作者、网易云音乐及任何音乐平台均无官方隶属或背书关系。“面向”指作者仅有该环境进行实际测试，如有其他安卓设备不兼容情况，欢迎提交 Issue。
+Vutron Music - Mobile 是 [VutronMusic](https://github.com/stark81/VutronMusic) 的**非官方 Android 移植版**，主要面向 Android 13 / HyperOS 的 ARM64 设备，并完成 Android 15 平板模拟器的定向检查。本项目与上游作者、网易云音乐及任何音乐平台均无官方隶属或背书关系。其他安卓设备的兼容问题欢迎提交 Issue。
 
 本仓库只维护 Android 客户端及构建所需的共享代码；桌面 Electron 版本请访问[上游项目](https://github.com/stark81/VutronMusic)。
 
-> **下载：** [正式版 1.1.0](https://github.com/EBG-bg/VutronMusic-Android/releases/tag/mobile-v1.1.0) · [更新记录](CHANGELOG.md) · [旧仓库最终版 1.0.2](https://github.com/EBG-bg/VutronMusic/releases/tag/mobile-v1.0.2)
+> **下载：** [正式版 1.2.0](https://github.com/EBG-bg/VutronMusic-Android/releases/tag/mobile-v1.2.0) · [更新记录](CHANGELOG.md) · [旧仓库最终版 1.0.2](https://github.com/EBG-bg/VutronMusic/releases/tag/mobile-v1.0.2)
 
 ## 用前须知
 
@@ -24,14 +24,16 @@ Vutron Music - Mobile 是 [VutronMusic](https://github.com/stark81/VutronMusic) 
 | 本地音乐 | 授权文件夹、扫描音频、纯音频 ZIP、CUE 分轨；支持取消读取和恢复排除项。 |
 | 桌面歌单导出 | Windows GUI / CLI，可导出本地及已登录网易云账号的歌单。 |
 | 离线缓存 | 缓存歌曲、歌单资料和封面；支持单曲删除和容量限制。 |
-| 播放队列 | 队列、下一首插队、播放模式、歌曲与歌单音量、重启恢复进度。 |
+| 播放队列 | 队列、下一首插队、循环 / 单曲循环 / 随机按钮、歌曲与歌单音量、重启恢复进度。 |
+| 歌单排序 | 按名称、创建时间、最近播放或自定义排序；支持列表手柄与卡片长按拖动。 |
 | 高级播放 | 播放页右上角调整 0.5–2.0× 倍速和音高；Wi-Fi 下一首地址预取默认关闭。 |
-| 应用内歌词 | 原文与译文同步、逐曲延迟微调；支持 YRC、增强 LRC/WRC 词时间。 |
+| 应用内歌词 | 点击切换封面 / 歌词，原文与译文同步、逐曲延迟微调；支持 YRC、增强 LRC/WRC 词时间。 |
 | 桌面歌词 | 悬浮歌词的颜色、透明度、阴影和位置设置。 |
 | 本地模式 | 无需账号或网络即可播放本地文件和已有缓存。 |
 | 数据备份 | 导出设置与本地歌单资料，不包含账号、音频、封面和目录授权。 |
 | 检查更新 | 手动检查 GitHub Releases；自动检查默认关闭。 |
-| 界面 | 简中、繁中、英文；支持主题、列表/卡片布局和每排数量。 |
+| 睡眠定时 | 最长 300 分钟，双滚轮与精确输入，秒数跨分钟连续调整。 |
+| 界面 | 简中、繁中、英文；主题、100–150% 字号、强调色、列表/卡片布局及每排数量。 |
 
 补充说明：
 
@@ -46,25 +48,26 @@ Vutron Music - Mobile 是 [VutronMusic](https://github.com/stark81/VutronMusic) 
 从[本仓库 Releases](https://github.com/EBG-bg/VutronMusic-Android/releases) 下载：
 
 ```text
-Vutron-Music-Mobile-1.1.0-arm64.apk
-Vutron-Music-Mobile-1.1.0-arm64.apk.sha256
+Vutron-Music-Mobile-1.2.0-arm64.apk
+Vutron-Music-Mobile-1.2.0-arm64.apk.sha256
 ```
 
 `.sha256` 用于校验安装包；GitHub 的 `Source code` 压缩包不是安装包。
 
-要求：Android 13 / HyperOS、ARM64；其他 Android 版本尚未完整验证。手动安装可能需要“安装未知应用”权限，悬浮歌词需要悬浮窗权限。
+主要目标：Android 13 / HyperOS、ARM64；Android 15 平板模拟器已完成横竖屏、系统栏和部分播放交互检查，其他设备尚未完整验证。手动安装可能需要“安装未知应用”权限，悬浮歌词需要悬浮窗权限。
 
 ## 从旧仓库升级
 
 旧仓库 [EBG-bg/VutronMusic](https://github.com/EBG-bg/VutronMusic) 的 `1.0.2` 已发布并归档，是最后一个版本，也是更新源切换版本。
 
-- **1.0.0 / 1.0.1**：可手动安装本仓库的 `1.1.0`；也可先更新到 `1.0.2`，再通过应用内更新升级。
+- **1.0.0 / 1.0.1**：可手动安装本仓库的 `1.2.0`；也可先更新到 `1.0.2`，再通过应用内更新升级。
 - **1.0.2**：应用内只从本仓库检查和下载后续版本，不会回退旧仓库。
 - **1.1.0**：本仓库首个正式版，保留旧版功能并完善播放控制、设置交互、错误恢复和国际化。
+- **1.2.0**：增加字号、歌单排序、定时滚轮和头像同步，完善主题控件、弹层手势及 Android 15 系统栏适配；可直接覆盖升级。
 - **1.1.0 以后**：只在本仓库发布和更新；继续沿用原包名和签名，覆盖升级保留应用数据。
 - 若系统提示签名不一致，请保留当前安装包和数据，先核对下载来源及证书。
 
-1.1.0 与 1.0.0 / 1.0.1 / 1.0.2 保持包名 `io.github.vutronmusic.personal.webshell` 和相同签名。为兼容旧版覆盖升级，正式版沿用初始证书主题 `C=US, O=Android, CN=Android Debug`，证书 SHA-256 为 `d879659d80b689de9be73f419d3ccd01f4bee96f9725a08896b420037688d6d8`。私钥独立保管，安装包均为关闭调试的 Release 构建。
+1.2.0 与 1.1.0、1.0.0 / 1.0.1 / 1.0.2 保持包名 `io.github.vutronmusic.personal.webshell` 和相同签名。为兼容旧版覆盖升级，正式版沿用初始证书主题 `C=US, O=Android, CN=Android Debug`，证书 SHA-256 为 `d879659d80b689de9be73f419d3ccd01f4bee96f9725a08896b420037688d6d8`。私钥独立保管，安装包均为关闭调试的 Release 构建。
 
 ## 应用内更新
 
@@ -126,9 +129,9 @@ VUTRON_RELEASE_KEY_PASSWORD
 
 未提供签名配置时生成 unsigned APK，需要自行签名；仓库不附带签名私钥。
 
-当前 `package.json` 为 `1.1.0`，Android `versionCode` 为 `33`；详细构建和验证见 [Android README](apps/android-vutron/README.md)。
+当前 `package.json` 为 `1.2.0`，Android `versionCode` 为 `41`；详细构建和验证见 [Android README](apps/android-vutron/README.md)。
 
-发布继续使用 `mobile-v*` 标签和固定资产名，例如 `mobile-v1.1.0` / `Vutron-Music-Mobile-1.1.0-arm64.apk`；更新器依赖这两个格式，不要改成普通 `v1.1.0`。
+发布继续使用 `mobile-v*` 标签和固定资产名，例如 `mobile-v1.2.0` / `Vutron-Music-Mobile-1.2.0-arm64.apk`；更新器依赖这两个格式，不要改成普通 `v1.2.0`。
 
 ## 项目与许可
 
@@ -153,4 +156,4 @@ Android 适配与维护：**EBG-bg and contributors**。
 
 Vutron Music - Mobile is an unofficial Android port of [VutronMusic](https://github.com/stark81/VutronMusic), built with Vue 3, Pinia and Capacitor. It supports NetEase playback and playlist management, comments, local music and single-file CUE sheets, audio-only ZIP import, offline caching, queues, word-timed lyrics, playback speed/pitch and an opt-in next-track address prefetch.
 
-The current official release is **1.1.0** (`versionCode 33`). Download the ARM64 APK from [Releases](https://github.com/EBG-bg/VutronMusic-Android/releases/tag/mobile-v1.1.0); users on the archived `1.0.2` can upgrade in-app. This project is not affiliated with the upstream author or any music provider. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+The current official release is **1.2.0** (`versionCode 41`). Download the ARM64 APK from [Releases](https://github.com/EBG-bg/VutronMusic-Android/releases/tag/mobile-v1.2.0); users on `1.0.2` or `1.1.0` can upgrade in-app. This release adds interface font sizing, playlist ordering, continuous sleep-timer wheels, themed pickers and Android 15 tablet adaptations. This project is not affiliated with the upstream author or any music provider. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

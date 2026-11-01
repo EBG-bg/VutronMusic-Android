@@ -19,8 +19,8 @@ const actionLabel = computed(() => appUpdateActionLabel(update))
 
 <style scoped>
 .app-update-notice { position: fixed; z-index: 190; left: 16px; right: 16px; bottom: calc(112px + env(safe-area-inset-bottom)); max-width: 440px; margin-inline: auto; padding: 14px; border: 1px solid var(--surface); border-radius: 16px; color: var(--ink); background: var(--color-body-bg); box-shadow: 0 6px 24px rgb(0 0 0 / 18%); }
-.app-update-notice b { font-size: 13px; }
-.app-update-notice p { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.app-update-notice b { font-size: calc(13px * var(--ui-font-scale, 1)); }
+.app-update-notice p { margin: 6px 0 0; color: var(--muted); font-size: calc(11px * var(--ui-font-scale, 1)); line-height: 1.5; overflow-wrap: anywhere; }
 .app-update-notice progress { width: 100%; height: 6px; margin-top: 10px; accent-color: var(--accent); }
 .app-update-notice-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 10px; }
 </style>

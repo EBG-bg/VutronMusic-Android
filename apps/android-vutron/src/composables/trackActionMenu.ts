@@ -1,4 +1,4 @@
-import { shallowRef, type ObjectDirective } from 'vue'
+import { nextTick, shallowRef, type ObjectDirective } from 'vue'
 import type { VutronTrack } from '../platform/vutronPlugin'
 import { useAndroidShellStore } from '../stores/androidShell'
 
@@ -6,9 +6,14 @@ const trackAction = shallowRef<VutronTrack>()
 let returnFocus: HTMLElement | undefined
 
 function closeTrackMenu() {
+  const previous = returnFocus
   trackAction.value = undefined
-  if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true })
   returnFocus = undefined
+  // Restore after the menu's focus trap has been disposed. A nested sheet owns
+  // focus while the application behind it is inert.
+  void nextTick(() => {
+    if (!trackAction.value && previous?.isConnected && !previous.closest('[inert]')) previous.focus({ preventScroll: true })
+  })
 }
 
 type MenuTrigger = () => void

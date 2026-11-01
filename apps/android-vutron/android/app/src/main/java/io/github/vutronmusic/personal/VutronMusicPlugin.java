@@ -60,6 +60,15 @@ public final class VutronMusicPlugin extends Plugin {
     private PlaylistImportController playlistImports;
     private MusicConnectivity connectivity;
     private volatile String lastNetworkSnapshot = "";
+    @PluginMethod
+    public void setSystemAppearance(PluginCall call) {
+        Boolean dark = call.getBoolean("dark");
+        if (dark == null) { call.reject("缺少界面主题"); return; }
+        getActivity().runOnUiThread(() -> {
+            ((MainActivity) getActivity()).setSystemAppearance(dark);
+            call.resolve();
+        });
+    }
     @Override public void load() {
         try { connectivity = new MusicConnectivity(getContext(), this::networkChanged); networkChanged(); }
         catch (RuntimeException failure) { android.util.Log.w("VutronNetwork", "Connectivity observer unavailable", failure); }
@@ -604,9 +613,15 @@ public final class VutronMusicPlugin extends Plugin {
         });
     }
 
+    private JSObject sleepTimerSnapshot() {
+        long remaining = AndroidPlaybackService.sleepTimerRemainingMs(getContext());
+        long deadline = getContext().getSharedPreferences("vutron_playback", Context.MODE_PRIVATE).getLong("sleepTimerDeadlineEpochMs", 0L);
+        return new JSObject().put("remainingMs", remaining).put("deadlineMs", remaining > 0 ? deadline : 0L);
+    }
+
     @PluginMethod
     public void getSleepTimer(PluginCall call) {
-        call.resolve(new JSObject().put("remainingMs", AndroidPlaybackService.sleepTimerRemainingMs(getContext())));
+        call.resolve(sleepTimerSnapshot());
     }
 
     @PluginMethod
@@ -614,7 +629,7 @@ public final class VutronMusicPlugin extends Plugin {
         long durationMs = longArg(call, "durationMs", 0L);
         try {
             AndroidPlaybackService.setSleepTimer(getContext(), durationMs);
-            call.resolve(new JSObject().put("remainingMs", AndroidPlaybackService.sleepTimerRemainingMs(getContext())));
+            call.resolve(sleepTimerSnapshot());
         } catch (Exception error) { call.reject(message(error, "睡眠定时设置失败")); }
     }
 
@@ -838,6 +853,7 @@ public final class VutronMusicPlugin extends Plugin {
                 playlists.put(new JSObject().put("id", value.optString("id"))
                         .put("name", value.optString("name"))
                         .put("description", value.optString("description"))
+                        .put("createTime", value.optLong("createTime", 0))
                         .put("trackCount", value.optInt("trackCount"))
                         .put("isLocalBundle", true));
             }
@@ -1521,7 +1537,7 @@ public final class VutronMusicPlugin extends Plugin {
                 .put("creatorUserId", value.optLong("creatorUserId", value.optJSONObject("creator") == null ? 0 : value.optJSONObject("creator").optLong("userId")))
                 .put("subscribed", value.optBoolean("subscribed", false)).put("privacy", value.optInt("privacy", 0))
                 .put("description", value.optString("description", "")).put("tags", value.optJSONArray("tags") == null ? new JSONArray() : value.optJSONArray("tags"))
-                .put("specialType", value.optInt("specialType", 0));
+                .put("specialType", value.optInt("specialType", 0)).put("createTime", value.optLong("createTime", 0));
     }
 
     private static JSObject track(JSONObject value) { return track(value, null); }
@@ -1548,7 +1564,7 @@ public final class VutronMusicPlugin extends Plugin {
                 .put("artists", names)
                 .put("album", album == null ? value.optString("album", "") : album.optString("name", ""));
         if (!LocalLibraryIds.uri(value).isEmpty() || !value.optString("localEntryKey").isEmpty()) result.put("localKey", LocalLibraryIds.key(value));
-        for (String key : new String[]{"localUri", "localPath", "source", "trackVolumeKey", "playlistVolumeKey", "playlistVolumeName",
+        for (String key : new String[]{"localUri", "localPath", "source", "trackVolumeKey", "playlistVolumeKey", "playlistVolumeName", "playlistOrderScope", "playlistOrderKey",
                 "metadataTitle", "localFileName", "localFolderId", "localPlaylistId", "localEntryKey", "cacheSource", "cacheFormat",
                 "cueUri", "cueTitle", "cuePerformer", "cueAlbum", "cueWarning"}) {
             if (value.has(key)) result.put(key, value.optString(key, ""));

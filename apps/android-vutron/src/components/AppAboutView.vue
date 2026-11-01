@@ -16,5 +16,5 @@ const documents = ['privacy', 'usage', 'license', 'notice', 'thirdParty'] as con
 </template>
 
 <style scoped>
-.about-identity { text-align:center; }.about-identity img { display:block; margin:2px auto 14px; border-radius:18px; }.about-identity h2 { font-size:19px; overflow-wrap:anywhere; }.about-identity p,.about-project p { color:var(--muted); font-size:12px; line-height:1.7; }.about-project h3 { margin-top:0; font-size:15px; }.about-links { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }.about-links a { display:inline-flex; align-items:center; text-decoration:none; }.about-page { padding-bottom:180px; }
+.about-identity { text-align:center; }.about-identity img { display:block; margin:2px auto 14px; border-radius:18px; }.about-identity h2 { font-size: calc(19px * var(--ui-font-scale, 1)); overflow-wrap:anywhere; }.about-identity p,.about-project p { color:var(--muted); font-size: calc(12px * var(--ui-font-scale, 1)); line-height:1.7; }.about-project h3 { margin-top:0; font-size: calc(15px * var(--ui-font-scale, 1)); }.about-links { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }.about-links a { display:inline-flex; align-items:center; text-decoration:none; }.about-page { padding-bottom:180px; }
 </style>

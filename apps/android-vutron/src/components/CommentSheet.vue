@@ -7,6 +7,8 @@ import type { VutronTrack } from '../platform/vutronPlugin'
 import type { VutronComment, VutronCommentTarget } from '../platform/commentTypes'
 import { actionDialog, askAction } from '../platform/actionDialog'
 import { useModalFocus } from '../composables/modalFocus'
+import { useSheetDrag } from '../composables/sheetDrag'
+import SheetDragHandle from './SheetDragHandle.vue'
 import OriginalIcon from './OriginalIcon.vue'
 import { useI18n } from 'vue-i18n'
 const { t } = useI18n()
@@ -29,6 +31,7 @@ async function remove(row: VutronComment) {
     await thread.submit('delete', '', row)
 }
 useModalFocus(sheet, { close: () => emit('close'), enabled: () => !actionDialog.value, returnFocus: () => props.returnFocus })
+useSheetDrag(sheet, { close: () => emit('close'), enabled: () => !actionDialog.value })
 onMounted(() => {
   observer = new IntersectionObserver(entries => {
     if (entries[0]?.isIntersecting && comments.value.length > 0 && comments.value.length < MAX_AUTO_COMMENTS && !error.value)
@@ -41,7 +44,8 @@ onUnmounted(() => { observer?.disconnect() })
 <template>
   <div class="comments-layer" :inert="Boolean(actionDialog)" @click.self="emit('close')">
     <section ref="sheet" class="comments-sheet" role="dialog" aria-modal="true" :aria-label="$t('mobile.comments.title')" tabindex="-1">
-      <header><div><h2>{{ $t('mobile.comments.title') }} <small>{{ total }}</small></h2><p>{{ track.name }}</p></div><button class="icon-button" :aria-label="$t('mobile.common.close')" @click="emit('close')"><OriginalIcon name="close" /></button></header>
+      <SheetDragHandle @close="emit('close')" />
+      <header data-sheet-drag-handle><div><h2>{{ $t('mobile.comments.title') }} <small>{{ total }}</small></h2><p>{{ track.name }}</p></div><button class="icon-button" :aria-label="$t('mobile.common.close')" @click="emit('close')"><OriginalIcon name="close" /></button></header>
       <div class="comment-sort"><button v-for="item in [{ value: 99, label: 'recommended' }, { value: 2, label: 'hot' }, { value: 3, label: 'latest' }]" :key="item.value" :class="{ selected: sort === item.value }" :disabled="busy" @click="sort = item.value as 99 | 2 | 3; thread.load(true)">{{ $t('mobile.comments.' + item.label) }}</button></div>
       <p v-if="!enabled" class="setting-note">{{ $t('mobile.comments.offline') }}</p>
       <p v-if="error" class="inline-error" role="alert">{{ error }} <button v-if="!expired" class="text-button" :disabled="loading" @click="thread.load()">{{ $t('mobile.comments.retry') }}</button></p>
@@ -75,20 +79,20 @@ onUnmounted(() => { observer?.disconnect() })
 <style scoped>
 .comments-layer { position:fixed; inset:0; z-index:125; background:rgb(0 0 0 / 38%); display:flex; align-items:flex-end; justify-content:center; }
 .comments-sheet { width:min(100%,640px); max-height:90dvh; overflow:auto; overscroll-behavior:contain; background:var(--color-body-bg); color:var(--color-text); border-radius:20px 20px 0 0; padding:16px 16px max(12px,env(safe-area-inset-bottom)); box-shadow:0 -8px 32px rgb(0 0 0 / 18%); }
-header { display:flex; align-items:center; gap:12px; } header>div { flex:1;min-width:0; } h2 { margin:0;font-size:18px; } header p { margin:6px 0;color:var(--muted);overflow-wrap:anywhere; } small { color:var(--muted);font-size:12px; }
+header { display:flex; align-items:center; gap:12px; } header>div { flex:1;min-width:0; } h2 { margin:0;font-size: calc(18px * var(--ui-font-scale, 1)); } header p { margin:6px 0;color:var(--muted);overflow-wrap:anywhere; } small { color:var(--muted);font-size: calc(12px * var(--ui-font-scale, 1)); }
 .comment-sort,.comment-actions { display:flex; gap:6px; flex-wrap:wrap; } .comment-sort { position:sticky;top:-16px;background:var(--color-body-bg);padding:10px 0;z-index:1; }
 .comment-sort button,.comment-actions button { border:0;background:transparent;color:inherit;border-radius:9px;padding:8px 10px;transition:background-color 125ms ease,color 125ms ease;display:inline-flex;gap:5px;align-items:center; }
 button:is(:focus-visible,[data-original-feedback]),.comment-sort .selected { background:var(--accent-soft); } button[aria-pressed=true] { color:var(--color-primary); } button:disabled { opacity:.45; }
 @media(hover:hover) { .comment-actions button:hover,.comment-sort button:hover { background:var(--accent-soft); } }
-.comment-row { padding:14px 0;border-bottom:1px solid var(--line); } .comment-author { display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13px; }
+.comment-row { padding:14px 0;border-bottom:1px solid var(--line); } .comment-author { display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size: calc(13px * var(--ui-font-scale, 1)); }
 .comment-row { content-visibility:auto;contain-intrinsic-size:auto 160px; }
 .comment-floor article { content-visibility:auto;contain-intrinsic-size:auto 96px; }
-.comment-count { color:var(--muted);font-size:12px;line-height:1.5; }
-.comment-content { white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;line-height:1.65;font-size:14px;margin:8px 0; }
-blockquote { margin:8px 0;padding:8px 10px;border-radius:9px;background:var(--color-secondary-bg);white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px; }
-.comment-actions { font-size:12px;color:var(--muted); } .comment-floor { background:var(--color-secondary-bg);border-radius:12px;padding:10px 12px;margin-top:8px; } .comment-floor article+article { margin-top:12px;border-top:1px solid var(--line);padding-top:10px; }
-.comment-more { min-height:44px;display:grid;place-items:center;font-size:12px;color:var(--muted); }
+.comment-count { color:var(--muted);font-size: calc(12px * var(--ui-font-scale, 1));line-height:1.5; }
+.comment-content { white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;line-height:1.65;font-size: calc(14px * var(--ui-font-scale, 1));margin:8px 0; }
+blockquote { margin:8px 0;padding:8px 10px;border-radius:9px;background:var(--color-secondary-bg);white-space:pre-wrap;overflow-wrap:anywhere;font-size: calc(12px * var(--ui-font-scale, 1)); }
+.comment-actions { font-size: calc(12px * var(--ui-font-scale, 1));color:var(--muted); } .comment-floor { background:var(--color-secondary-bg);border-radius:12px;padding:10px 12px;margin-top:8px; } .comment-floor article+article { margin-top:12px;border-top:1px solid var(--line);padding-top:10px; }
+.comment-more { min-height:44px;display:grid;place-items:center;font-size: calc(12px * var(--ui-font-scale, 1));color:var(--muted); }
 .comment-composer { position:sticky;bottom:0;background:var(--color-body-bg);padding-top:10px;border-top:1px solid var(--line); }
-textarea { box-sizing:border-box;width:100%;resize:vertical;max-height:150px;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--color-secondary-bg);color:inherit;font:inherit;font-size:14px;user-select:text; }
+textarea { box-sizing:border-box;width:100%;resize:vertical;max-height:150px;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--color-secondary-bg);color:inherit;font:inherit;font-size: calc(14px * var(--ui-font-scale, 1));user-select:text; }
 .comment-composer>div { display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:6px; }.reply-target { margin-bottom:6px;max-width:100%;overflow-wrap:anywhere; }
 </style>

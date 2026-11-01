@@ -25,7 +25,7 @@ const hasWords = computed(() => props.family.original.some(line => line.words.le
 const estimated = computed(() => props.displaySettings?.estimatedWordTiming === true)
 const hasEstimates = computed(() => estimated.value && props.family.original.some(line => !line.words.length && line.text))
 const displayLines = computed(() => lyricDisplayLines(props.family.original, estimated.value, props.duration))
-const displayStyle = computed(() => lyricDisplayStyle(props.displaySettings))
+const displayStyle = computed(() => lyricDisplayStyle(props.displaySettings, 'theme'))
 let anchor: LyricPlaybackAnchor = { position: props.position, monotonicTime: performance.now(), playing: props.playing, rate: props.rate }
 let frame = 0
 let mounted = false
@@ -283,9 +283,9 @@ onUnmounted(() => {
 <style scoped>
 .original-lyrics-view { width: 100%; min-width: 0; color: var(--color-text); }
 .original-lyrics-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 36px; margin: 0 3px 8px; }
-.original-lyrics-heading b { font-size: 17px; font-weight: 600; }
-.original-lyrics-source { font-size: 10px; color: var(--color-secondary); padding: 4px 6px; border-radius: 6px; background: var(--color-secondary-bg); }
-.return-current-lyric { margin-left: auto; min-height: 32px; padding: 6px 9px; border: 0; border-radius: 8px; color: var(--color-primary); background: var(--color-secondary-bg); font: inherit; font-size: 11px; }
+.original-lyrics-heading b { font-size: calc(17px * var(--ui-font-scale, 1)); font-weight: 600; }
+.original-lyrics-source { font-size: calc(10px * var(--ui-font-scale, 1)); color: var(--color-secondary); padding: 4px 6px; border-radius: 6px; background: var(--color-secondary-bg); }
+.return-current-lyric { margin-left: auto; min-height: 36px; padding: 6px 9px; border: 0; border-radius: 8px; color: var(--color-primary); background: var(--color-secondary-bg); font: inherit; font-size: calc(11px * var(--ui-font-scale, 1)); }
 .original-lyrics-scroll { position: relative; min-width: 0; height: clamp(260px, 50dvh, 420px); border-radius: 12px; background: var(--lyric-background, transparent); overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: auto; touch-action: pan-y; scrollbar-width: none; scroll-padding-block: 20%; }
 .original-lyrics-scroll::-webkit-scrollbar { display: none; }
 .original-lyrics-scroll::before, .original-lyrics-scroll::after { content: ''; display: block; height: var(--lyric-edge-space, 130px); pointer-events: none; }
@@ -298,7 +298,7 @@ onUnmounted(() => {
 .original-lyric-translation { --lyric-progress: 0%; display: block; width: fit-content; max-width: 100%; margin: 5px 0 0; font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; filter: var(--lyric-shadow, none); background-image: linear-gradient(to right, var(--lyric-played, var(--color-wbw-text)) var(--lyric-progress), var(--lyric-unplayed, var(--color-wbw-text-unplay)) var(--lyric-progress)); background-clip: text; -webkit-background-clip: text; color: transparent; }
 .original-lyric-row:not(.active) .original-lyric-translation { background-image: none; color: var(--lyric-unplayed, var(--color-full-text-unplay)); }
 .original-lyric-row:focus-visible, .return-current-lyric:focus-visible, .original-lyrics-scroll:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
-.original-lyrics-empty { padding: 30px 8px; color: var(--color-secondary); text-align: center; font-size: 13px; }
+.original-lyrics-empty { padding: 30px 8px; color: var(--color-secondary); text-align: center; font-size: calc(13px * var(--ui-font-scale, 1)); }
 @media (max-width: 340px) { .original-lyric-text { font-size: 19px; } .original-lyric-translation { font-size: 13px; } .original-lyric-row { padding-inline: 8px; } }
 html[data-motion="reduced"] .original-lyric-text { transition: none; }
 </style>

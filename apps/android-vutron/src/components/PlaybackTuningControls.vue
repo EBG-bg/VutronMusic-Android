@@ -52,18 +52,18 @@ onBeforeUnmount(() => { void flush() })
 <style scoped>
 .playback-tuning-controls { display: grid; gap: 14px; min-width: 0; }
 .tuning-control-block { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--color-body-bg); }
-.tuning-control-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; font-weight: 650; }
-.tuning-control-heading output { font-size: 18px; color: var(--accent); font-variant-numeric: tabular-nums; }
+.tuning-control-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: calc(13px * var(--ui-font-scale, 1)); font-weight: 650; }
+.tuning-control-heading output { font-size: calc(18px * var(--ui-font-scale, 1)); color: var(--accent); font-variant-numeric: tabular-nums; }
 .tuning-presets { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; margin: 5px 0 10px; }
-.tuning-presets button { min-width: 0; min-height: 34px; padding: 5px 2px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.tuning-presets button { min-width: 0; min-height: 34px; padding: 5px 2px; font-size: calc(12px * var(--ui-font-scale, 1)); font-variant-numeric: tabular-nums; }
 .tuning-presets button.selected { color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
-.tuning-exact { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 12px; }
+.tuning-exact { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--muted); font-size: calc(12px * var(--ui-font-scale, 1)); }
 .tuning-exact > span:last-child { display: inline-flex; align-items: center; gap: 5px; }
 .tuning-exact input { width: 70px; min-width: 0; padding: 6px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: var(--surface); text-align: center; font-variant-numeric: tabular-nums; }
 .tuning-pitch-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.tuning-pitch-actions button { font-size: 12px; }
+.tuning-pitch-actions button { font-size: calc(12px * var(--ui-font-scale, 1)); }
 .tuning-footer { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-.tuning-footer small { min-width: 0; text-align: right; color: var(--muted); font-size: 11px; }
+.tuning-footer small { min-width: 0; text-align: right; color: var(--muted); font-size: calc(11px * var(--ui-font-scale, 1)); }
 .tuning-footer > button { min-width: 0; white-space: normal; }
 .setting-note { margin: 9px 0 0; line-height: 1.65; }
 </style>

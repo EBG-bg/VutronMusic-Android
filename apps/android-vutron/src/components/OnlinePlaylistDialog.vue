@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAndroidShellStore } from '../stores/androidShell'
 import OriginalIcon from './OriginalIcon.vue'
+import AppSelect from './AppSelect.vue'
 
 const store = useAndroidShellStore(), { t } = useI18n()
 const dialog = ref<HTMLElement>(), name = ref(''), description = ref(''), tags = ref(''), privacy = ref(0)
@@ -47,7 +48,7 @@ onBeforeUnmount(() => document.removeEventListener('keydown', keyboard))
         <form v-else @submit.prevent="save">
           <fieldset :disabled="disabled"><label><span>{{ $t('mobile.netease.name') }}</span><input v-model="name" type="text" required maxlength="40" autocomplete="off" /></label>
             <template v-if="state.kind === 'edit'"><label><span>{{ $t('mobile.netease.description') }}</span><textarea v-model="description" rows="4" maxlength="10000"></textarea></label><label><span>{{ $t('mobile.netease.tags') }}</span><input v-model="tags" type="text" maxlength="194" /><small>{{ $t('mobile.netease.tagsHint') }}</small></label></template>
-            <label v-else><span>{{ $t('mobile.netease.visibility') }}</span><select v-model.number="privacy"><option :value="0">{{ $t('mobile.netease.public') }}</option><option :value="10">{{ $t('mobile.netease.private') }}</option></select></label>
+            <div v-else class="playlist-visibility"><span>{{ $t('mobile.netease.visibility') }}</span><AppSelect v-model="privacy" :disabled="disabled" :label="$t('mobile.netease.visibility')" :options="[{ value: 0, label: $t('mobile.netease.public') }, { value: 10, label: $t('mobile.netease.private') }]" /></div>
           </fieldset>
           <footer><button class="text-button" type="button" @click="store.closeOnlinePlaylistDialog">{{ $t('mobile.management.cancel') }}</button><button class="primary-button" type="submit" :disabled="disabled || !name.trim()">{{ $t('mobile.netease.save') }}</button></footer>
         </form>
@@ -59,13 +60,14 @@ onBeforeUnmount(() => document.removeEventListener('keydown', keyboard))
 </template>
 
 <style scoped>
+.playlist-visibility { display: grid; gap: 6px; font-size: calc(12px * var(--ui-font-scale, 1)); }
 .online-dialog-layer { position:fixed; inset:0; z-index:450; display:grid; align-items:center; padding:16px; background:#0006; }
 .online-playlist-dialog { width:min(100%,440px); max-height:calc(100dvh - 40px); overflow:auto; box-sizing:border-box; margin:auto; padding:16px; border:1px solid var(--line); border-radius:18px; background:var(--color-body-bg); color:var(--ink); box-shadow:0 14px 48px #0004; }
-header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px; } h2 { margin:0; font-size:17px; overflow-wrap:anywhere; }
-fieldset { display:grid; gap:12px; border:0; padding:0; margin:0; min-width:0; } label { display:grid; gap:6px; font-size:12px; } label small { color:var(--muted); font-size:10px; }
+header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:12px; } h2 { margin:0; font-size: calc(17px * var(--ui-font-scale, 1)); overflow-wrap:anywhere; }
+fieldset { display:grid; gap:12px; border:0; padding:0; margin:0; min-width:0; } label { display:grid; gap:6px; font-size: calc(12px * var(--ui-font-scale, 1)); } label small { color:var(--muted); font-size: calc(10px * var(--ui-font-scale, 1)); }
 input,textarea,select { box-sizing:border-box; min-width:0; width:100%; padding:9px 11px; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:10px; font:inherit; outline:none; transition:border-color .1s,background .1s; } textarea { resize:vertical; } input:focus,textarea:focus,select:focus { border-color:var(--accent); }
 footer,.online-dialog-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }.online-dialog-actions { flex-direction:column; }
-.online-playlist-picker { display:grid; gap:7px; }.online-playlist-choice { display:flex; align-items:center; gap:10px; width:100%; padding:11px; border:1px solid var(--line); border-radius:12px; background:var(--surface); color:var(--ink); text-align:left; }.online-playlist-choice span { flex:1; min-width:0; }.online-playlist-choice b,.online-playlist-choice small { display:block; overflow:hidden; text-overflow:ellipsis; }.online-playlist-choice small { margin-top:4px; color:var(--muted); font-size:10px; }
-.online-sync-message { margin-top:12px; padding:10px; border-radius:12px; background:var(--surface); font-size:12px; line-height:1.6; }.online-sync-message button { display:flex; align-items:center; gap:6px; }
+.online-playlist-picker { display:grid; gap:7px; }.online-playlist-choice { display:flex; align-items:center; gap:10px; width:100%; padding:11px; border:1px solid var(--line); border-radius:12px; background:var(--surface); color:var(--ink); text-align:left; }.online-playlist-choice span { flex:1; min-width:0; }.online-playlist-choice b,.online-playlist-choice small { display:block; overflow:hidden; text-overflow:ellipsis; }.online-playlist-choice small { margin-top:4px; color:var(--muted); font-size: calc(10px * var(--ui-font-scale, 1)); }
+.online-sync-message { margin-top:12px; padding:10px; border-radius:12px; background:var(--surface); font-size: calc(12px * var(--ui-font-scale, 1)); line-height:1.6; }.online-sync-message button { display:flex; align-items:center; gap:6px; }
 .online-dialog-enter-active,.online-dialog-leave-active { transition:opacity .1s ease; }.online-dialog-enter-active .online-playlist-dialog,.online-dialog-leave-active .online-playlist-dialog { transition:transform .1s ease; }.online-dialog-enter-from,.online-dialog-leave-to { opacity:0; }.online-dialog-enter-from .online-playlist-dialog,.online-dialog-leave-to .online-playlist-dialog { transform:translateY(8px) scale(.98); }
 </style>

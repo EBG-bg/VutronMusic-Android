@@ -27,6 +27,6 @@ onUnmounted(() => document.removeEventListener('keydown', key, true))
 <style scoped>
 .action-dialog-layer { position: fixed; inset: 0; z-index: 500; display: grid; align-items: center; padding: 20px; background: rgb(0 0 0 / 42%); }
 .action-dialog { width: min(100%, 460px); margin: auto; padding: 20px; border-radius: 18px; color: var(--ink); background: var(--color-body-bg); box-shadow: 0 16px 60px #0005; }
-h2 { margin: 0 0 10px; font-size: 17px; } p { margin: 0; font-size: 13px; white-space: pre-line; line-height: 1.7; overflow-wrap: anywhere; }
+h2 { margin: 0 0 10px; font-size: calc(17px * var(--ui-font-scale, 1)); } p { margin: 0; font-size: calc(13px * var(--ui-font-scale, 1)); white-space: pre-line; line-height: 1.7; overflow-wrap: anywhere; }
 .action-dialog-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 </style>

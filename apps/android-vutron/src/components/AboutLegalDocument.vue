@@ -19,5 +19,5 @@ onMounted(async () => {
 </script>
 <template><pre v-if="text" class="about-document" tabindex="0">{{ text }}</pre><p v-else class="setting-note" role="status">{{ $t(failed ? 'mobile.about.documentFailed' : 'mobile.about.loading') }}</p></template>
 <style scoped>
-.about-document { max-height:55dvh; overflow:auto; margin:0; padding:2px; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; -webkit-user-select:text; font:11px/1.7 system-ui,sans-serif; color:var(--ink); }
+.about-document { max-height:55dvh; overflow:auto; margin:0; padding:2px; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; -webkit-user-select:text; font:calc(12px * var(--ui-font-scale, 1))/1.7 system-ui,sans-serif; color:var(--ink); }
 </style>

@@ -50,6 +50,19 @@ test('a private build can advance without changing public metadata while a colli
   assert.throws(() => resolveBuildInfo(root, 'mobile'), /above the latest local build/)
 }))
 
+test('a new private minor version preserves branding and the public update baseline', () => repository((root, app, write, personal) => {
+  const before = fs.readFileSync(path.join(app, 'mobile-release.json'), 'utf8')
+  write('_private/build-personal.json', { ...personal, version: '0.4.0', versionCode: 19, previousVersionCode: 18 })
+  const identity = resolveBuildInfo(root, 'auto')
+  assert.equal(identity.edition, 'personal')
+  assert.equal(identity.version, '0.4.0')
+  assert.equal(identity.displayName, personal.requiredDisplayName)
+  assert.equal(identity.comparisonVersion, '1.0.1')
+  assert.equal(identity.artifactName, 'Example-Personal-0.4.0-Android13.apk')
+  assert.equal(fs.readFileSync(path.join(app, 'mobile-release.json'), 'utf8'), before)
+  assert.throws(() => resolveBuildInfo(root, 'mobile'), /above the latest local build/)
+}))
+
 test('public clones use only official identity and reject a 0.x official version', () => repository((root, app, write) => {
   fs.unlinkSync(path.join(app, '_private/build-personal.json'))
   assert.equal(resolveBuildInfo(root, 'auto').edition, 'mobile')

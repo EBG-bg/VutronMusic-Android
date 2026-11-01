@@ -4,6 +4,41 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class LibraryBackupTest {
+    @Test public void localPlaylistOrderRemapsToRestoredIdsAndKeepsOtherAccountScopes() throws Exception {
+        JSONObject source=backup(new JSONArray().put(song()));
+        source.getJSONArray("collections").getJSONObject(0).put("collectionKey","bundle:old").put("createTime",1234L);
+        JSONObject ordering=new JSONObject().put("local:device",new JSONObject().put("mode","custom").put("keys",new JSONArray().put("bundle:old"))
+                .put("recent",new JSONObject().put("bundle:old",2345)))
+                .put("netease:7",new JSONObject().put("mode","recent").put("keys",new JSONArray()).put("recent",new JSONObject().put("7:99",3456)));
+        source.put("frontend",new JSONObject().put("vutron:playlist-orders:v1",ordering.toString()));
+        LibraryBackup.RestorePlan plan=LibraryBackup.planRestore(new JSONObject().put("collections",new JSONArray()),source);
+        String id=plan.added.get(0).getString("id");
+        JSONObject restored=new JSONObject(plan.safe.getJSONObject("frontend").getString("vutron:playlist-orders:v1"));
+        assertEquals(id,restored.getJSONObject("local:device").getJSONArray("keys").getString(0));
+        assertEquals(2345,restored.getJSONObject("local:device").getJSONObject("recent").getLong(id));
+        assertEquals(3456,restored.getJSONObject("netease:7").getJSONObject("recent").getLong("7:99"));
+        assertEquals(1234,plan.added.get(0).getLong("createTime"));
+        LibraryBackup.RestorePlan repeated=LibraryBackup.planRestore(plan.document,source);
+        assertEquals(0,repeated.added.size());
+        assertEquals(id,new JSONObject(repeated.safe.getJSONObject("frontend").getString("vutron:playlist-orders:v1")).getJSONObject("local:device").getJSONArray("keys").getString(0));
+    }
+    @Test public void interfacePreferencesAndOwnerOrdersRoundTripWithoutAccountSecrets() throws Exception {
+        JSONObject orders = new JSONObject().put("netease:123",new JSONObject().put("mode","custom")
+                .put("keys",new JSONArray().put("123:8").put("123:8").put("/private/audio"))
+                .put("recent",new JSONObject().put("123:8",12345).put("123:9",-10)))
+                .put("cookie",new JSONObject().put("mode","recent"));
+        JSONObject frontend = new JSONObject().put("vutron:font-scale","150").put("vutron:player-lyrics","true")
+                .put("vutron:timer-preset","75").put("vutron:playlist-orders:v1",orders.toString()).put("vutron_user","private");
+        JSONObject safe = LibraryBackup.safeFrontend(frontend);
+        assertEquals("150",safe.getString("vutron:font-scale"));assertEquals("75",safe.getString("vutron:timer-preset"));
+        JSONObject restored = new JSONObject(safe.getString("vutron:playlist-orders:v1"));
+        assertEquals(1,restored.length());assertEquals(1,restored.getJSONObject("netease:123").getJSONArray("keys").length());
+        assertEquals(12345,restored.getJSONObject("netease:123").getJSONObject("recent").getLong("123:8"));
+        assertFalse(restored.toString().contains("private"));assertFalse(safe.has("vutron_user"));
+        assertEquals(safe.toString(),LibraryBackup.safeFrontend(safe).toString());
+        JSONObject invalid=LibraryBackup.safeFrontend(new JSONObject().put("vutron:font-scale","151").put("vutron:timer-preset","18001").put("vutron:player-lyrics","anything"));
+        assertEquals(0,invalid.length());
+    }
     @Test public void cueFingerprintAndTuningStayPortable() throws Exception {
         JSONObject one=song().put("cueTrackNo",1).put("cueOffsetMs",10000).put("cueDurationMs",1000).put("cueUri","content://private/cue");
         JSONObject two=new JSONObject(one.toString()).put("cueTrackNo",2).put("cueOffsetMs",11000);

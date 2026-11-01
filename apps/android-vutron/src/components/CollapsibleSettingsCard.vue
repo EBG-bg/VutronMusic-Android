@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import OriginalIcon from './OriginalIcon.vue'
 import { settingsMotionDuration } from '../platform/motion'
 
@@ -10,6 +10,7 @@ const props = withDefaults(defineProps<{
   remember?: boolean
 }>(), { subtitle: '', remember: true })
 const storageKey = 'vutron:settings-expanded:' + props.sectionId
+const sectionIcon = computed(() => props.sectionId === 'appearance' ? 'palette' : props.sectionId === 'language' ? 'explore' : props.sectionId === 'directory-management' ? 'folder' : props.sectionId === 'user-backup' ? 'storage' : 'settings')
 const expanded = ref(props.remember && localStorage.getItem(storageKey) === 'true')
 const renderedOpen = ref(expanded.value)
 const mountedContent = ref(expanded.value)
@@ -74,7 +75,7 @@ onBeforeUnmount(() => { ++revision; animation?.cancel(); cardAnimation?.cancel()
   <details ref="card" class="settings-card settings-collapse" :data-settings-section="sectionId" :data-closing="closing ? '' : undefined" :open="renderedOpen" @toggle="onToggle" @vutron-settings-close.stop="close">
     <summary :aria-controls="'settings-content-' + sectionId" :aria-expanded="expanded" @click.prevent="setExpanded(!expanded)">
       <div class="settings-title">
-        <slot name="heading"><div><h3>{{ title }}</h3><p v-if="subtitle">{{ subtitle }}</p></div></slot>
+        <slot name="heading"><span class="settings-icon violet"><OriginalIcon :name="sectionIcon" /></span><div><h3>{{ title }}</h3><p v-if="subtitle">{{ subtitle }}</p></div></slot>
       </div>
       <OriginalIcon class="settings-chevron" name="down" />
     </summary>
@@ -90,7 +91,7 @@ onBeforeUnmount(() => { ++revision; animation?.cancel(); cardAnimation?.cancel()
 .settings-collapse > summary::-webkit-details-marker { display: none; }
 .settings-collapse > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
 .settings-collapse > summary .settings-title { flex: 1; min-width: 0; margin: 0; }
-.settings-chevron { flex-shrink: 0; font-size: 15px; color: var(--muted); transition: transform var(--motion-state, 220ms) ease; }
+.settings-chevron { flex-shrink: 0; font-size: calc(15px * var(--ui-font-scale, 1)); color: var(--muted); transition: transform var(--motion-state, 220ms) ease; }
 .settings-collapse > summary[aria-expanded='true'] .settings-chevron { transform: rotate(180deg); }
 .settings-collapse-content { overflow: hidden; }
 .settings-collapse-inner { padding-top: 12px; }

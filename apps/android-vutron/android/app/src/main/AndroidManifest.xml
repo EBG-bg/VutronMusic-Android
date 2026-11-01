@@ -28,6 +28,10 @@
 
         </activity>
 
+        <activity android:name=".LyricNotificationActionActivity" android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" android:noHistory="true"
+            android:excludeFromRecents="true" android:taskAffinity="" />
+
         <service
             android:name=".AndroidPlaybackService"
             android:exported="false"

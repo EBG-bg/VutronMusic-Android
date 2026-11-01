@@ -27,12 +27,15 @@ async function main() {
     const target = await (await fetch('http://127.0.0.1:' + port + '/json/new?about:blank', { method: 'PUT' })).json();
     page = await connect(target.webSocketDebuggerUrl);
     const evaluate = async expression => { const result = await page.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }); if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text); return result.result.value; };
+    const wait = async expression => { for (let i=0;i<100;i++) { if (await evaluate(expression)) return; await delay(100); } throw new Error('Timed out: '+expression); };
     await page.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     await page.send('Emulation.setTouchEmulationEnabled', { enabled: true });
     await page.send('Page.navigate', { url: server.resolvedUrls.local[0] + 'tests/fixtures/local-order.html' });
     for (let i = 0; !(await evaluate('Boolean(window.orderReady)')) && i < 100; i++) await delay(100);
     assert.equal(await evaluate('Boolean(window.orderReady)'), true);
-    await evaluate("document.querySelector('.local-order-tools select').value='custom'; document.querySelector('.local-order-tools select').dispatchEvent(new Event('change',{bubbles:true}))"); await delay(100);
+    await evaluate("document.querySelector('.local-order-tools .app-select-trigger').click()");
+    await wait("Boolean(document.querySelector('.app-select-options [data-value=custom]'))");
+    await evaluate("document.querySelector('.app-select-options [data-value=custom]').click()"); await delay(220);
     const bounds = selector => evaluate("(()=>{const r=document.querySelector(" + JSON.stringify(selector) + ").getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}})()");
     const touch = async (type, point) => page.send('Input.dispatchTouchEvent', { type, touchPoints: point ? [{ x: point.x, y: point.y, id: 1 }] : [] });
     let start = await bounds('.sort-handle'), destination = await bounds('[data-local-track-key="2"]'); destination.y += 10;

@@ -17,16 +17,23 @@ import lyrics from '../../../../src/renderer/assets/icons/osd-lyrics.svg?url'
 import close from '../../../../src/renderer/assets/icons/close.svg?url'
 import explore from '../../../../src/renderer/assets/icons/explore.svg?url'
 import list from '../../../../src/renderer/assets/icons/list.svg?url'
-import repeat from '../../../../src/renderer/assets/icons/repeat.svg?url'
-import repeatOne from '../../../../src/renderer/assets/icons/repeat-1.svg?url'
-import shuffle from '../../../../src/renderer/assets/icons/shuffle.svg?url'
+import repeat from '../assets/icons/playback-repeat.svg?url'
+import repeatOne from '../assets/icons/playback-repeat-one.svg?url'
+import shuffle from '../assets/icons/playback-shuffle.svg?url'
 import more from '../../../../src/renderer/assets/icons/more.svg?url'
 import heart from '../../../../src/renderer/assets/icons/heart.svg?url'
 import heartSolid from '../../../../src/renderer/assets/icons/heart-solid.svg?url'
 import plus from '../../../../src/renderer/assets/icons/plus.svg?url'
+import palette from '../../../../src/renderer/assets/icons/color-plate.svg?url'
+import timer from '../assets/icons/timer.svg?url'
+import sort from '../assets/icons/sort.svg?url'
+import drag from '../assets/icons/drag.svg?url'
+import storage from '../assets/icons/storage.svg?url'
+import update from '../assets/icons/update.svg?url'
+import empty from '../assets/icons/empty.svg?url'
+import error from '../assets/icons/error.svg?url'
 
-// Timer means pause at the deadline, so it reuses the original pause symbol.
-const icons = { logo, library, search, settings, previous, next, play, pause, back, refresh, down, local, folder, lyrics, close, explore, list, repeat, repeatOne, shuffle, more, heart, heartSolid, plus, timer: pause }
+const icons = { logo, library, search, settings, previous, next, play, pause, back, refresh, down, local, folder, lyrics, close, explore, list, repeat, repeatOne, shuffle, more, heart, heartSolid, plus, palette, timer, sort, drag, storage, update, empty, error }
 const props = defineProps<{ name: keyof typeof icons }>()
 const iconStyle = computed(() => ({ '--original-icon': `url("${icons[props.name]}")` }))
 </script>

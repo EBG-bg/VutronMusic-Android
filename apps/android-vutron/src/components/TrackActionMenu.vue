@@ -10,6 +10,8 @@ import OriginalIcon from './OriginalIcon.vue'
 import CollapsibleSettingsCard from './CollapsibleSettingsCard.vue'
 import { useModalFocus } from '../composables/modalFocus'
 import { actionDialog } from '../platform/actionDialog'
+import { useSheetDrag } from '../composables/sheetDrag'
+import SheetDragHandle from './SheetDragHandle.vue'
 
 const props = defineProps<{ track: VutronTrack; suspended?: boolean }>()
 const emit = defineEmits<{ close: []; comments: [track: VutronTrack] }>()
@@ -62,6 +64,7 @@ function volumeLane() {
 
 function close() { emit('close') }
 useModalFocus(dialog, { close, enabled: () => !props.suspended && !actionDialog.value, restore: false })
+useSheetDrag(dialog, { close, enabled: () => !props.suspended && !actionDialog.value })
 
 async function action(kind: 'next' | 'append' | 'play' | 'cache') {
   if (busy.value) return
@@ -119,7 +122,8 @@ onUnmounted(() => { mounted = false; volumeRead++; for (const lane of volumeLane
 <template>
     <div class="track-action-layer" :inert="suspended || Boolean(actionDialog)" @click.self="close">
       <section ref="dialog" class="track-action-menu" role="dialog" aria-modal="true" aria-label="歌曲操作">
-        <header><div><h2>{{ track.name }}</h2><p>{{ track.artists?.join(' / ') || track.album || '歌曲操作' }}</p></div><button class="icon-button" type="button" aria-label="关闭歌曲菜单" @click="close"><OriginalIcon name="close" /></button></header>
+        <SheetDragHandle @close="close" />
+        <header data-sheet-drag-handle><div><h2>{{ track.name }}</h2><p>{{ track.artists?.join(' / ') || track.album || '歌曲操作' }}</p></div><button class="icon-button" type="button" aria-label="关闭歌曲菜单" @click="close"><OriginalIcon name="close" /></button></header>
         <div class="track-action-options">
           <button v-if="canUseOnline" type="button" :disabled="busy" @click="emit('comments', track); close()"><OriginalIcon name="list" /><span>{{ $t('mobile.comments.title') }}</span></button>
           <button v-if="canUseOnline" type="button" :disabled="busy || store.onlineMutationBusy || store.onlineNeedsRefresh || !store.likedLoaded" @click="toggleLike"><OriginalIcon :name="store.isTrackLiked(track) ? 'heartSolid' : 'heart'" /><span>{{ store.likedLoaded ? $t(store.isTrackLiked(track) ? 'mobile.netease.unlike' : 'mobile.netease.like') : $t('mobile.netease.likeLoading') }}</span></button>
@@ -148,23 +152,23 @@ onUnmounted(() => { mounted = false; volumeRead++; for (const lane of volumeLane
 .track-action-menu { width: min(100%, 640px); max-height: 88dvh; overflow-y: auto; overscroll-behavior: contain; padding: 18px 16px max(16px, env(safe-area-inset-bottom)); border-radius: 18px 18px 0 0; color: var(--color-text); background: var(--color-body-bg); box-shadow: 0 -8px 36px rgb(0 0 0 / 18%); }
 header { display: flex; align-items: center; gap: 12px; padding: 0 2px 12px; border-bottom: 1px solid var(--line); }
 header > div { min-width: 0; flex: 1; }
-h2 { margin: 0; font-size: 17px; line-height: 1.4; overflow-wrap: anywhere; }
-header p { margin: 5px 0 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+h2 { margin: 0; font-size: calc(17px * var(--ui-font-scale, 1)); line-height: 1.4; overflow-wrap: anywhere; }
+header p { margin: 5px 0 0; color: var(--muted); font-size: calc(12px * var(--ui-font-scale, 1)); overflow-wrap: anywhere; }
 .track-action-options { display: grid; gap: 5px; margin-top: 9px; }
-.track-action-options > button { display: flex; align-items: center; gap: 14px; min-height: 52px; width: 100%; padding: 10px 12px; border: 0; border-radius: 10px; text-align: left; color: inherit; background: transparent; font: inherit; font-size: 14px; transition: background-color 125ms ease-out, color 125ms ease-out, opacity 125ms ease-out, transform .2s ease; }
+.track-action-options > button { display: flex; align-items: center; gap: 14px; min-height: 52px; width: 100%; padding: 10px 12px; border: 0; border-radius: 10px; text-align: left; color: inherit; background: transparent; font: inherit; font-size: calc(14px * var(--ui-font-scale, 1)); transition: background-color 125ms ease-out, color 125ms ease-out, opacity 125ms ease-out, transform .2s ease; }
 .track-action-options > button:disabled { opacity: .45; }
 .track-action-options > button:is([data-original-feedback], :focus-visible) { background-color: var(--accent-soft); }
 @media (hover: hover) and (pointer: fine) { .track-action-options > button:hover { background-color: var(--accent-soft); } }
 .track-action-options .original-icon { font-size: 20px; }
 .track-action-options span { min-width: 0; overflow-wrap: anywhere; }
-.track-action-options small { display: block; margin-top: 4px; color: var(--muted); font-size: 11px; }
+.track-action-options small { display: block; margin-top: 4px; color: var(--muted); font-size: calc(11px * var(--ui-font-scale, 1)); }
 .track-menu-volume-card { margin-top: 8px; padding: 10px 12px; box-shadow: none; background: var(--color-secondary-bg); }
-.track-action-volume { padding: 0; font-size: 13px; }
+.track-action-volume { padding: 0; font-size: calc(13px * var(--ui-font-scale, 1)); }
 .track-action-volume label { display: block; width: 100%; }
 .track-action-volume .thumb-range { margin-top: 4px; }
 .track-action-volume > div { display: flex; align-items: center; gap: 7px; margin-top: 10px; }
 .track-action-volume input[type=number] { min-width: 0; width: 72px; }
-.track-action-notice { margin: 10px 4px 0; color: var(--muted); font-size: 12px; }
+.track-action-notice { margin: 10px 4px 0; color: var(--muted); font-size: calc(12px * var(--ui-font-scale, 1)); }
 .track-feedback-enter-active, .track-feedback-leave-active { transition: opacity 125ms ease-out, transform 125ms ease-out; }
 .track-feedback-enter-from, .track-feedback-leave-to { opacity: 0; transform: translateY(5px); }
 html[data-motion="reduced"] .track-action-options > button, html[data-motion="reduced"] .track-feedback-enter-active, html[data-motion="reduced"] .track-feedback-leave-active { transition: none; }

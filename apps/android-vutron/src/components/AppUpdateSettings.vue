@@ -7,7 +7,7 @@ import { appUpdateActionLabel, appUpdateSummary } from '../platform/appUpdatePre
 import { appLocale } from '../platform/i18n'
 
 const emit = defineEmits<{ about: [] }>()
-const summary = computed(() => appUpdateSummary(update))
+const summary = computed(() => appUpdateSummary(update, !appUpdateInstallAllowed.value))
 const actionLabel = computed(() => appUpdateActionLabel(update))
 const checkedAt = computed(() => update.checkedAt > 0 ? new Date(update.checkedAt).toLocaleString(appLocale.value === 'zh' ? 'zh-CN' : appLocale.value === 'zht' ? 'zh-TW' : 'en') : '')
 </script>
@@ -15,9 +15,14 @@ const checkedAt = computed(() => update.checkedAt > 0 ? new Date(update.checkedA
 <template>
   <CollapsibleSettingsCard section-id="app-update" :title="$t('mobile.updates.title')" :subtitle="$t('mobile.updates.current', { version: update.currentVersion })">
     <template #heading>
-      <span class="settings-icon coral"><OriginalIcon name="refresh" /></span>
+      <span class="settings-icon coral"><OriginalIcon name="update" /></span>
       <div><h3>{{ $t('mobile.updates.title') }}</h3><p>{{ $t('mobile.updates.current', { version: update.currentVersion }) }}<span v-if="appUpdateAvailable"> · {{ $t('mobile.updates.found', { version: update.latestVersion }) }}</span></p></div>
     </template>
+    <dl class="update-versions">
+      <div><dt>{{ $t('mobile.updateInfo.installed') }}</dt><dd>{{ update.currentVersion }}</dd></div>
+      <div v-if="!appUpdateInstallAllowed"><dt>{{ $t('mobile.updateInfo.baseline') }}</dt><dd>{{ update.comparisonVersion }}</dd></div>
+      <div><dt>{{ $t('mobile.updateInfo.latest') }}</dt><dd>{{ update.latestVersion || $t('mobile.updateInfo.notChecked') }}</dd></div>
+    </dl>
     <div class="settings-detail">
       <span>{{ $t('mobile.updates.automatic') }}</span>
       <button class="switch" :class="{ on: update.autoCheck }" type="button" role="switch" :aria-checked="update.autoCheck" :aria-label="$t('mobile.updates.automatic')" :disabled="!appUpdatesSupported || appUpdateSaving" @click="setAutomaticAppUpdates(!update.autoCheck)"><i></i></button>
@@ -32,6 +37,7 @@ const checkedAt = computed(() => update.checkedAt > 0 ? new Date(update.checkedA
     <div class="timer-actions update-actions">
       <button class="secondary-button" type="button" :disabled="!appUpdatesSupported || appUpdateBusy" @click="checkAppUpdates(true)">{{ update.status === 'checking' ? $t('mobile.updates.checking') : $t('mobile.updates.title') }}</button>
       <button v-if="appUpdateAvailable && appUpdateInstallAllowed" class="primary-button" type="button" :disabled="appUpdateBusy" @click="updateApp()">{{ actionLabel }}</button>
+      <a v-if="!appUpdateInstallAllowed" class="secondary-button release-page-link" href="https://github.com/EBG-bg/VutronMusic-Android/releases/latest" target="_blank" rel="noopener noreferrer">{{ $t('mobile.refinements.releasePage') }}</a>
       <button class="text-button about-entry" type="button" @click="emit('about')">{{ $t('mobile.about.title') }}</button>
     </div>
     <p v-if="checkedAt" class="setting-note">{{ $t('mobile.updates.lastCheck', { time: checkedAt }) }}</p>
@@ -41,12 +47,15 @@ const checkedAt = computed(() => update.checkedAt > 0 ? new Date(update.checkedA
 </template>
 
 <style scoped>
+.update-versions { display:grid; gap:8px; margin:0 0 14px; padding:10px 12px; border:1px solid var(--line); border-radius:12px; background:var(--surface); font-size:calc(12px * var(--ui-font-scale, 1)); line-height:1.6; }
+.update-versions > div { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }.update-versions dt { color:var(--muted); }.update-versions dd { margin:0; color:var(--ink); font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.release-page-link { display:inline-flex; align-items:center; text-decoration:none; }
 .update-source a { color: var(--accent); overflow-wrap: anywhere; }
-.update-status { margin: 10px 0; color: var(--ink); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.update-status { margin: 10px 0; color: var(--ink); font-size: calc(12px * var(--ui-font-scale, 1)); line-height: 1.6; overflow-wrap: anywhere; }
 .update-status.failed { color: var(--accent); }
 .update-progress { display: block; width: 100%; height: 6px; margin: 8px 0 13px; accent-color: var(--accent); border-radius: 8px; overflow: hidden; }
 .update-actions { flex-wrap: wrap; }
-.update-notes { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface); font-size: 11px; }
+.update-notes { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--surface); font-size: calc(11px * var(--ui-font-scale, 1)); }
 .update-notes summary { cursor: pointer; color: var(--ink); }
 .update-notes p { max-height: 220px; margin: 9px 0 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); line-height: 1.7; }
 </style>

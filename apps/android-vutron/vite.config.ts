@@ -4,6 +4,7 @@ import vue from '@vitejs/plugin-vue'
 import { mobileBuild } from './build-config'
 
 export default defineConfig({
+  server: { fs: { allow: [fileURLToPath(new URL('../..', import.meta.url))] } },
   build: { target: 'es2020', cssTarget: 'chrome87' },
   plugins: [vue(), {
     name: 'vutron-build-identity',

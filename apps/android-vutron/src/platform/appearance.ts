@@ -1,4 +1,6 @@
 import { computed, ref, watch } from 'vue'
+import { Capacitor } from '@capacitor/core'
+import { vutronPlugin } from './vutronPlugin'
 import originalStyles from '../../../../src/renderer/assets/css/global.scss?raw'
 
 // Reuse desktop tokens, excluding Electron layout rules such as min-width:768px.
@@ -25,6 +27,14 @@ const media = window.matchMedia('(prefers-color-scheme: dark)')
 const systemDark = ref(media.matches)
 media.addEventListener('change', event => { systemDark.value = event.matches })
 export const resolvedAppearance = computed(() => appearance.value === 'auto' ? systemDark.value ? 'dark' : 'light' : appearance.value)
+// Android 15 makes the status bar transparent. Keep its icons and the native
+// inset background in step with the actual theme, including restored settings.
+watch(resolvedAppearance, value => {
+  if (!Capacitor.isNativePlatform()) return
+  void vutronPlugin.setSystemAppearance({ dark: value === 'dark' }).catch(error => {
+    console.warn('Unable to synchronize Android system bar appearance', error)
+  })
+}, { immediate: true })
 watch([appearance, accent, resolvedAppearance], () => {
   const root = document.documentElement
   root.dataset.theme = resolvedAppearance.value

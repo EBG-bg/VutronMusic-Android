@@ -8,12 +8,15 @@ import { vTrackMenu } from '../composables/trackActionMenu'
 import TrackMenuButton from './TrackMenuButton.vue'
 import TrackListPager from './TrackListPager.vue'
 import OriginalIcon from './OriginalIcon.vue'
+import AppSelect from './AppSelect.vue'
 
 const props = withDefaults(defineProps<{ tracks: VutronTrack[]; collectionKey: string; query?: string; loading?: boolean; localOnly?: boolean }>(), { query: '' })
 const emit = defineEmits<{ play: [track: VutronTrack, queue: VutronTrack[]]; menu: [track: VutronTrack]; orderChange: [keys: string[]] }>()
 const { t } = useI18n()
 const source = computed(() => props.tracks)
 const { mode, ordered, commit, restore } = useCollectionTrackOrder(source, toRef(props, 'collectionKey'))
+const sortModes = ['original', 'title', 'artist', 'album', 'custom'] as const
+const sortLabels = { original: 'mobile.library.originalOrder', title: 'mobile.library.title', artist: 'nav.artist', album: 'nav.album', custom: 'mobile.ordering.custom' }
 const normalizedQuery = computed(() => props.query.trim().toLowerCase())
 const filtered = useTrackSearch(ordered, normalizedQuery)
 const { visible, hasMore, showMore } = useProgressiveTracks(filtered, [toRef(props, 'collectionKey'), normalizedQuery, mode])
@@ -25,9 +28,9 @@ const canDrag = computed(() => mode.value === 'custom' && !normalizedQuery.value
 const playable = computed(() => ordered.value.filter(row => !row.missingLocal && (!props.localOnly || !row.onlineOnly)))
 const missingCount = computed(() => ordered.value.filter(row => row.missingLocal).length)
 function reportOrder() { emit('orderChange', ordered.value.map(trackKey)) }
-function changeMode(event: Event) {
+function changeMode(value: CollectionOrder) {
   cancelDrag()
-  try { mode.value = (event.target as HTMLSelectElement).value as CollectionOrder; reportOrder(); message.value = '' }
+  try { mode.value = value; reportOrder(); message.value = '' }
   catch { message.value = t('mobile.ordering.saveFailed') }
 }
 function restoreOrder() {
@@ -102,7 +105,7 @@ onBeforeUnmount(() => { cancelDrag(); document.removeEventListener('keydown', ke
   <div class="local-track-section">
     <div class="local-order-tools">
       <button class="text-button" type="button" :disabled="!playable.length || loading" @click="playable[0] && play(playable[0])"><OriginalIcon name="play" />{{ $t('mobile.ordering.playAll', { count: playable.length }) }}</button>
-      <label><span>{{ $t('mobile.library.sort') }}</span><select :value="mode" :aria-label="$t('mobile.library.sortLabel')" @change="changeMode"><option value="original">{{ $t('mobile.library.originalOrder') }}</option><option value="title">{{ $t('mobile.library.title') }}</option><option value="artist">{{ $t('nav.artist') }}</option><option value="album">{{ $t('nav.album') }}</option><option value="custom">{{ $t('mobile.ordering.custom') }}</option></select></label>
+      <div class="local-order-select"><span>{{ $t('mobile.library.sort') }}</span><AppSelect :model-value="mode" :label="$t('mobile.library.sortLabel')" :options="sortModes.map(value => ({ value, label: $t(sortLabels[value]) }))" @update:model-value="changeMode" /></div>
     </div>
     <div v-if="mode === 'custom'" class="local-order-hint"><span>{{ query ? $t('mobile.ordering.clearFilter') : $t('mobile.ordering.dragHint') }}</span><button class="text-button" type="button" @click="restoreOrder">{{ $t('mobile.ordering.restore') }}</button><button v-if="drag" class="secondary-button sort-cancel-floating" type="button" @click="cancelDrag">{{ $t('mobile.management.cancel') }}</button></div>
     <p v-if="message" class="local-order-message" role="status">{{ message }}</p>
@@ -124,12 +127,13 @@ onBeforeUnmount(() => { cancelDrag(); document.removeEventListener('keydown', ke
 </template>
 
 <style scoped>
-.local-order-tools, .local-order-hint { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:8px 0; }
+.local-order-tools { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:8px; margin:8px 0; }
+.local-order-hint { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:8px 0; }
 .local-order-tools > button { display:flex; align-items:center; gap:5px; }
-.local-order-tools label { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); }
-.local-order-tools select { padding:7px 9px; border:1px solid var(--line); border-radius:10px; color:var(--ink); background:var(--color-body-bg); }
-.local-order-hint, .local-order-message { font-size:11px; color:var(--muted); }
-.local-order-hint { flex-wrap:wrap; }.sort-handle { flex:0 0 30px; width:30px; touch-action:none; cursor:grab; font-size:23px; }
+.local-order-select { display:flex; align-items:center; gap:6px; min-width:0; font-size: calc(11px * var(--ui-font-scale, 1)); color:var(--muted); }
+.local-order-select :deep(.app-select-trigger) { max-width:150px; }.local-order-select :deep(.app-select-trigger > span) { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.local-order-hint, .local-order-message { font-size: calc(11px * var(--ui-font-scale, 1)); color:var(--muted); }
+.local-order-hint { flex-wrap:wrap; }.sort-handle { flex:0 0 30px; width:30px; touch-action:none; cursor:grab; font-size: calc(23px * var(--ui-font-scale, 1)); }
 .sort-moving { opacity:.45; }.sort-before { box-shadow:inset 0 2px var(--accent); }.sort-after { box-shadow:inset 0 -2px var(--accent); }
 .sort-cancel-floating { position:fixed; right:16px; bottom:160px; z-index:10001; border-radius:12px; box-shadow:0 3px 14px #0002; }
 .sort-floating-label { position:fixed; z-index:10000; pointer-events:none; padding:9px 12px; max-width:65vw; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; background:var(--color-body-bg); color:var(--ink); border:1px solid var(--accent); border-radius:12px; box-shadow:0 4px 20px #0003; }

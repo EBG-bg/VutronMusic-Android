@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useAndroidShellStore } from '../stores/androidShell'
 import { describePlaybackFailure } from '../platform/playbackFailure'
+import OriginalIcon from './OriginalIcon.vue'
 
 const store = useAndroidShellStore()
 const emit = defineEmits<{ login: []; offline: [] }>()
@@ -17,7 +18,7 @@ async function retry() {
 
 <template>
   <section v-if="store.playback.error && !store.playback.loading" class="playback-error-notice" role="alert">
-    <p>{{ failure.legacyMessage || $t(failure.messageKey) }}</p>
+    <p><OriginalIcon name="error" /> {{ failure.legacyMessage || $t(failure.messageKey) }}</p>
     <div class="playback-error-actions">
       <button v-if="failure.action === 'login'" class="secondary-button" type="button" @click="emit('login')">{{ $t('mobile.playbackErrors.login') }}</button>
       <button v-else-if="failure.action === 'folders'" class="secondary-button" type="button" @click="store.navigateTo('settings')">{{ $t('mobile.playbackErrors.folders') }}</button>
@@ -33,7 +34,7 @@ async function retry() {
 .playback-error-notice p { margin: 0; color: var(--ink); line-height: 1.6; overflow-wrap: anywhere; }
 .playback-error-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
 .playback-error-actions button { min-width: 0; white-space: normal; }
-.playback-error-details { margin-top: 10px; color: var(--muted); font-size: 11px; }
+.playback-error-details { margin-top: 10px; color: var(--muted); font-size: calc(11px * var(--ui-font-scale, 1)); }
 .playback-error-details summary { cursor: pointer; padding: 4px 0; }
 .playback-error-details code { display: block; padding-top: 4px; overflow-wrap: anywhere; }
 </style>

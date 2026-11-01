@@ -15,7 +15,7 @@ function updateArtworkCacheCapacity(event: Event) { store.artworkCacheCapacityMb
 </script>
 <template>
 <CollapsibleSettingsCard section-id="cache" :title="$t('mobile.library.cache')">
-          <template #heading><span class="settings-icon blue"><OriginalIcon name="down" /></span><div><h3>{{ $t('mobile.library.cache') }}</h3><p>{{ $t('mobile.settingsUi.audioUsage', { used: formatBytes(store.cacheStatus.usedBytes), capacity: store.cacheStatus.capacityMb, count: store.cacheStatus.trackCount }) }}</p><p>{{ $t('mobile.settingsUi.artworkUsage', { size: formatBytes(store.cacheStatus.libraryBytes ?? 0) }) }}</p></div></template>
+          <template #heading><span class="settings-icon blue"><OriginalIcon name="storage" /></span><div><h3>{{ $t('mobile.library.cache') }}</h3><p>{{ $t('mobile.settingsUi.audioUsage', { used: formatBytes(store.cacheStatus.usedBytes), capacity: store.cacheStatus.capacityMb, count: store.cacheStatus.trackCount }) }}</p><p>{{ $t('mobile.settingsUi.artworkUsage', { size: formatBytes(store.cacheStatus.libraryBytes ?? 0) }) }}</p></div></template>
           <label class="settings-detail"><span>{{ $t('mobile.settingsUi.autoCache') }}</span><input type="checkbox" :checked="store.cacheStatus.enabled !== false" @change="store.setAutomaticCache(($event.target as HTMLInputElement).checked)" /></label>
           <p class="setting-note">{{ $t('mobile.settingsUi.autoCacheHint') }}</p>
           <PlaybackPrefetchSettings />

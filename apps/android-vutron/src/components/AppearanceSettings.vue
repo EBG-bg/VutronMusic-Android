@@ -2,6 +2,9 @@
 import { accent, accentPresets, appearance } from '../platform/appearance'
 import CollapsibleSettingsCard from './CollapsibleSettingsCard.vue'
 import { motionPreference, reducedMotion, systemReducesMotion } from '../platform/motion'
+import { fontScale } from '../platform/interfacePreferences'
+import ThumbRange from './ThumbRange.vue'
+import AccentColorEditor from './AccentColorEditor.vue'
 </script>
 
 <template>
@@ -19,12 +22,15 @@ import { motionPreference, reducedMotion, systemReducesMotion } from '../platfor
     <p class="setting-note motion-status">{{ $t('mobile.appearanceUi.status', { mode: $t(reducedMotion ? 'mobile.appearanceUi.reduced' : 'mobile.appearanceUi.full'), system: $t(systemReducesMotion ? 'mobile.appearanceUi.systemReduced' : 'mobile.appearanceUi.systemFull') }) }}</p>
     <div class="accent-presets" role="group" :aria-label="$t('settings.theme.accent')">
       <button v-for="preset in accentPresets" :key="preset.name" type="button" :class="{ selected: accent.toLowerCase() === preset.color }" :aria-pressed="accent.toLowerCase() === preset.color" @click="accent = preset.color"><span :style="{ backgroundColor: preset.color }"></span><small>{{ $t(`mobile.appearanceUi.${preset.name}`) }}</small></button>
-      <label class="custom-accent"><input v-model="accent" type="color" :aria-label="$t('mobile.appearanceUi.custom')" /><small>{{ $t('settings.theme.Customize') }}</small></label>
     </div>
+    <AccentColorEditor />
+    <div class="font-size-setting"><label for="interface-font-scale">{{ $t('mobile.refinements.fontSize') }}</label><ThumbRange id="interface-font-scale" min="100" max="150" step="5" :value="fontScale" @input="fontScale = Number(($event.target as HTMLInputElement).value)" /><label class="percent-input"><input :value="fontScale" @change="fontScale = Number(($event.target as HTMLInputElement).value)" type="number" min="100" max="150" step="5" :aria-label="$t('mobile.refinements.fontSize')" /><span>%</span></label></div>
+    <p class="setting-note">{{ $t('mobile.refinements.fontHint') }}</p>
   </CollapsibleSettingsCard>
 </template>
 
 <style scoped>
+.font-size-setting { display:grid; grid-template-columns:minmax(0,1fr) 82px; gap:8px; align-items:center; margin-top:14px; }.font-size-setting > label:first-child { grid-column:1 / -1; }
 /* Reuse ContextMenu.vue's 125ms state easing and ButtonIcon.vue's 0.2s press. */
 .appearance-mode button { transition: color 125ms ease-out, background-color 125ms ease-out, box-shadow 125ms ease-out, transform .2s ease; }
 .accent-presets button > span { outline: 2px solid transparent; outline-offset: 3px; transition: outline-color 125ms ease-out, transform .2s ease; }

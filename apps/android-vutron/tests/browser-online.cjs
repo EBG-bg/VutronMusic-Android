@@ -27,6 +27,7 @@ async function main() {
     const target = await (await fetch('http://127.0.0.1:' + port + '/json/new?about:blank', { method: 'PUT' })).json();
     page = await connect(target.webSocketDebuggerUrl);
     const evaluate = async expression => { const result = await page.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }); if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text); return result.result.value; };
+    const wait = async expression => { for (let i=0;i<100;i++) { if (await evaluate(expression)) return; await delay(100); } throw new Error('Timed out: '+expression); };
     await page.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
     await page.send('Emulation.setTouchEmulationEnabled', { enabled: true });
     await page.send('Page.navigate', { url: server.resolvedUrls.local[0] + 'tests/fixtures/online-playlists.html' });
@@ -45,7 +46,16 @@ async function main() {
     await checkFit(); await click('.online-playlist-choice','Own'); await delay(260);
     assert.equal(await evaluate('window.onlineHarness.backend.writes.at(-1).action'),'add');
     await evaluate("document.querySelector('#new-playlist').click()"); await delay(150);
-    await evaluate("(()=>{const field=document.querySelector('.online-playlist-dialog input');field.value='New playlist';field.dispatchEvent(new Event('input',{bubbles:true}));const visibility=document.querySelector('.online-playlist-dialog select');visibility.value='10';visibility.dispatchEvent(new Event('change',{bubbles:true}))})()");
+    await evaluate("(()=>{const field=document.querySelector('.online-playlist-dialog input');field.value='New playlist';field.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('.online-playlist-dialog .app-select-trigger').click()})()");
+    await wait("Boolean(document.querySelector('.app-select-options [data-value=\"10\"]'))");
+    assert.equal(await evaluate("document.querySelector('.online-dialog-layer').inert"),true,'Parent dialog is inert while the nested picker is open');
+    await page.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+    await delay(220);
+    assert.equal(await evaluate("Boolean(document.querySelector('.online-playlist-dialog form'))"),true,'Escape closes the nested picker only');
+    assert.equal(await evaluate("document.activeElement===document.querySelector('.online-playlist-dialog .app-select-trigger')"),true,'Focus returns to visibility');
+    await evaluate("document.querySelector('.online-playlist-dialog .app-select-trigger').click()");
+    await wait("Boolean(document.querySelector('.app-select-options [data-value=\"10\"]'))");
+    await evaluate("document.querySelector('.app-select-options [data-value=\"10\"]').click()"); await delay(220);
     await checkFit(); await evaluate("document.querySelector('.online-playlist-dialog form').requestSubmit();document.querySelector('.online-playlist-dialog form').requestSubmit()");
     await delay(260);
     assert.equal(await evaluate("window.onlineHarness.backend.writes.filter(row=>row.action==='create').length"),1);
@@ -70,7 +80,8 @@ async function main() {
     await evaluate("document.querySelector('.about-entry').click()"); await delay(150);
     assert.equal(await evaluate('window.onlineHarness.store.activeTab'),'about');
     assert.match(await evaluate("document.querySelector('.about-identity').textContent"),/\d+\.\d+\.\d+/);
-    await evaluate("document.querySelector('[data-settings-section=about-privacy] > summary').click()"); await delay(250);
+    await evaluate("document.querySelector('[data-settings-section=about-privacy] > summary').click()");
+    await wait("Boolean(document.querySelector('.about-document'))");
     assert.ok(await evaluate("/privacy/i.test(document.querySelector('.about-document').textContent)"));
     await page.send('Emulation.setDeviceMetricsOverride', { width: 320, height: 640, deviceScaleFactor: 1, mobile: true });
     assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true);
@@ -78,7 +89,15 @@ async function main() {
     assert.equal(await evaluate('window.onlineHarness.store.activeTab'),'settings');
     assert.ok(await evaluate("document.querySelector('.about-entry')"));
     console.log('PASS: real Vue/Pinia playlist management, own-only picker, duplicate-submit protection, confirmations, local-mode hiding, 390/320px layout, About entry, offline privacy and Back to settings');
-  } catch (error) { failure = error; console.error('Interaction check:', error.message); }
+  } catch (error) {
+    failure = error; console.error('Interaction check:', error.message);
+    if (page) {
+      try {
+        const result = await page.send('Runtime.evaluate', { expression: 'JSON.stringify({inert:document.querySelector("#app")?.inert,privacyStatus:document.querySelector("[data-settings-section=about-privacy]")?.innerText.slice(-180),assets:performance.getEntriesByType("resource").filter(e=>/PRIVACY/i.test(e.name)).map(e=>({url:e.name,status:e.responseStatus}))})', returnByValue: true });
+        console.error('Interaction diagnostic:', result.result.value);
+      } catch {}
+    }
+  }
   finally {
     if (browser) { try { await browser.send('Browser.close'); } catch {} browser.ws.close(); }
     if (page) page.ws.close();

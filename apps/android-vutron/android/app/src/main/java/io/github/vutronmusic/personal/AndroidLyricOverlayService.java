@@ -246,6 +246,11 @@ public final class AndroidLyricOverlayService extends Service {
     }
 
     private PendingIntent notificationAction(String action, int request) {
+        if (ACTION_TEMPORARY_HIDE.equals(action)) {
+            return PendingIntent.getActivity(this, request, new Intent(this, LyricNotificationActionActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION),
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        }
         return PendingIntent.getService(this, request, new Intent(this, AndroidLyricOverlayService.class).setAction(action),
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
     }

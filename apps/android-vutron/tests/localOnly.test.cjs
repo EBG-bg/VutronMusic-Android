@@ -74,12 +74,13 @@ function fixture({ nativeMode = false, preference = false, sessionProfile, conne
     search: method('search', () => { throw new Error('Unexpected online search') }),
     getEntityTracks: method('getEntityTracks', () => { throw new Error('Unexpected online entity') })
   }
+  for (const name of ['getSleepTimer','setSleepTimer','clearSleepTimer']) if (handlers[name]) native[name] = method(name,handlers[name])
   const modules = new Map()
   const globals = {
     Error, Date, console, setTimeout, clearTimeout,
     setInterval(callback, interval) { const id = ++nextTimer; timers.set(id, { callback, interval }); return id },
     clearInterval(id) { timers.delete(id) },
-    window: { scrollY: 0 },
+    window: { scrollY: 0, addEventListener() {}, removeEventListener() {} },
     document: { visibilityState: 'visible' },
     localStorage: {
       getItem: key => localStorageValues.get(key) ?? null,
@@ -545,6 +546,26 @@ test('logout preserves frontend offline data and subsequent index reads do not r
   assert.equal(f.count('scanLocalMusic'), 0)
   assert.equal(f.count('getLocalMusicIndex'), 3)
   assert.equal(f.count('logout'), 1)
+  f.dispose()
+})
+
+test('sleep timer ignores a stale poll, saves exact seconds and stops its foreground clock when cleared', async () => {
+  let pending
+  const f=fixture({nativeMode:true,handlers:{
+    getSleepTimer:async()=>pending ? pending.promise : {remainingMs:0},
+    setSleepTimer:async({durationMs})=>({remainingMs:durationMs,deadlineMs:Date.now()+durationMs}),
+    clearSleepTimer:async()=>({remainingMs:0})
+  }})
+  await f.store.restore();assert.equal(f.timers.size,0)
+  pending=deferred();const poll=f.store.refreshPlaybackState();await new Promise(resolve=>setImmediate(resolve))
+  await f.store.setSleepTimerSeconds(75)
+  assert.equal(f.argsFor('setSleepTimer')[0].durationMs,75000)
+  assert.ok(f.store.sleepTimerRemainingMs>74000)
+  assert.equal([...f.timers.values()].filter(t=>t.interval===250).length,1)
+  pending.resolve({remainingMs:0});await poll
+  assert.ok(f.store.sleepTimerRemainingMs>74000,'poll started before the mutation cannot clear the new timer')
+  await f.store.clearSleepTimer();assert.equal(f.store.sleepTimerRemainingMs,0)
+  assert.equal([...f.timers.values()].filter(t=>t.interval===250).length,0)
   f.dispose()
 })
 

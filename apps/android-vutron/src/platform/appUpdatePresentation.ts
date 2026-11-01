@@ -12,11 +12,11 @@ export function isNewerAppVersion(candidate: string | undefined, current: string
   return false
 }
 
-export function appUpdateSummary(state: VutronAppUpdateState): string {
+export function appUpdateSummary(state: VutronAppUpdateState, informationOnly = false): string {
   switch (state.status) {
     case 'checking': return t('mobile.updateStatus.checking')
     case 'available': return t('mobile.updates.found', { version: state.latestVersion ?? '' })
-    case 'upToDate': return t('mobile.updateStatus.upToDate')
+    case 'upToDate': return t(informationOnly ? 'mobile.updateInfo.baselineCurrent' : 'mobile.updateStatus.upToDate')
     case 'noRelease': return t('mobile.updateStatus.noRelease')
     case 'downloading': return t('mobile.updateStatus.downloading', { progress: Math.round(state.progress) })
     case 'ready': return t('mobile.updateStatus.ready')

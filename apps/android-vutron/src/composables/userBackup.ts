@@ -6,10 +6,12 @@ import { appearance, accent, type Appearance } from '../platform/appearance'
 import { motionPreference, type MotionPreference } from '../platform/motion'
 import { playlistView, playlistColumns } from '../platform/libraryLayout'
 import { ORDER_STORAGE_KEY } from './localTrackOrdering'
+import { INTERFACE_KEYS } from '../platform/interfacePreferences'
+import { PLAYLIST_ORDER_KEY, sanitizePlaylistOrders } from './playlistOrdering'
 import { libraryMutationBusy } from '../platform/libraryActivity'
 import { useAndroidShellStore } from '../stores/androidShell'
 
-const keys = ['vutron:language', 'vutron:appearance', 'vutron:accent', 'vutron:motion-preference', 'vutron:playlist-view', 'vutron:playlist-columns', 'vutron:local-track-order']
+const keys = ['vutron:language', 'vutron:appearance', 'vutron:accent', 'vutron:motion-preference', 'vutron:playlist-view', 'vutron:playlist-columns', 'vutron:local-track-order', ...INTERFACE_KEYS, PLAYLIST_ORDER_KEY]
 export function useUserBackup() {
   const busy = ref(false), message = ref('')
   const store = useAndroidShellStore()
@@ -34,7 +36,13 @@ export function useUserBackup() {
       await store.flushLiveSettings()
       const result = await vutronPlugin.importUserBackup()
       if (result.cancelled) return
-      for (const key of keys) if (typeof result.frontend?.[key] === 'string') localStorage.setItem(key, result.frontend[key])
+      for (const key of keys) if (typeof result.frontend?.[key] === 'string') {
+        if (key === PLAYLIST_ORDER_KEY) {
+          const existing = sanitizePlaylistOrders(JSON.parse(localStorage.getItem(key) || '{}'))
+          const restored = sanitizePlaylistOrders(JSON.parse(result.frontend[key]))
+          localStorage.setItem(key, JSON.stringify({ ...existing, ...restored }))
+        } else localStorage.setItem(key, result.frontend[key])
+      }
       const previous = JSON.parse(localStorage.getItem(ORDER_STORAGE_KEY) || '{}')
       localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify({ ...previous, ...result.orders }))
       const values = result.frontend || {}

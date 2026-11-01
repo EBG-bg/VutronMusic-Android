@@ -1,15 +1,16 @@
 <script setup lang="ts">
 import type { LocalTrackOrder } from '../composables/libraryPresentation'
+import AppSelect from './AppSelect.vue'
 defineProps<{ modelValue: LocalTrackOrder }>()
 const emit = defineEmits<{ 'update:modelValue': [value: LocalTrackOrder] }>()
-function change(event: Event) { emit('update:modelValue', (event.target as HTMLSelectElement).value as LocalTrackOrder) }
+const modes = ['original', 'title', 'artist', 'album'] as const
+const labels = { original: 'mobile.library.originalOrder', title: 'mobile.library.title', artist: 'nav.artist', album: 'nav.album' }
 </script>
 
 <template>
-  <label class="local-sort-control"><span>{{ $t('mobile.library.sort') }}</span><select :value="modelValue" :aria-label="$t('mobile.library.sortLabel')" @change="change"><option value="original">{{ $t('mobile.library.originalOrder') }}</option><option value="title">{{ $t('mobile.library.title') }}</option><option value="artist">{{ $t('nav.artist') }}</option><option value="album">{{ $t('nav.album') }}</option></select></label>
+  <div class="local-sort-control"><span>{{ $t('mobile.library.sort') }}</span><AppSelect :model-value="modelValue" :label="$t('mobile.library.sortLabel')" :options="modes.map(value => ({ value, label: $t(labels[value]) }))" @update:model-value="emit('update:modelValue', $event)" /></div>
 </template>
 
 <style scoped>
-.local-sort-control { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin: 10px 0; color: var(--muted); font-size: 11px; }
-.local-sort-control select { padding: 7px 10px; border: 1px solid var(--surface); border-radius: 10px; color: var(--ink); background: var(--color-body-bg); font: inherit; }
+.local-sort-control { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin: 10px 0; color: var(--muted); font-size: calc(11px * var(--ui-font-scale, 1)); }
 </style>

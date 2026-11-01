@@ -6,7 +6,7 @@ async function main(){
   fs.mkdirSync(root,{recursive:true});
  const profile=fs.mkdtempSync(path.join(root,'ui-features-'));
  const {createServer}=await import('vite');
-  const bridgeFixture=['sliders','playback-ui','refinements'].includes(process.env.VUTRON_TEST_SCENARIO)?'sliders-native.mock.js':'features-native.mock.js';
+  const bridgeFixture=['personal-ui','polish','timer-wheel','sheet-gestures'].includes(process.env.VUTRON_TEST_SCENARIO)?'personal-ui-native.mock.js':['sliders','playback-ui','refinements','landscape'].includes(process.env.VUTRON_TEST_SCENARIO)?'sliders-native.mock.js':'features-native.mock.js';
  const server=await createServer({root:app,optimizeDeps:{entries:['tests/fixtures/features.html']},plugins:[{name:'feature-fixture',enforce:'pre',transform(code,id){if(id.replaceAll('\\','/').endsWith('/src/platform/vutronPlugin.ts'))return "export { vutronPlugin } from '/tests/fixtures/"+bridgeFixture+"'"}}],server:{host:'127.0.0.1',port:0},logLevel:'error'});
  await server.listen();
  const child=spawn(process.env.EDGE_PATH||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',['--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'],{windowsHide:true,stdio:'ignore'});
@@ -28,6 +28,26 @@ async function main(){
   await page.send('Page.navigate',{url:server.resolvedUrls.local[0]+'tests/fixtures/features.html'});
   const wait=async expression=>{for(let i=0;i<100;i++){if(await evaluate(expression))return;await delay(100)}throw new Error('Timed out: '+expression)};
   await wait('window.featureReady===true');
+  if(process.env.VUTRON_TEST_SCENARIO==='icons'){
+    await page.send('Emulation.setDeviceMetricsOverride',{width:1100,height:620,deviceScaleFactor:1,mobile:false});
+    const tree=await page.send('Page.getFrameTree');await page.send('Page.setDocumentContent',{frameId:tree.frameTree.frame.id,html:fs.readFileSync(path.join(root,'mobile-icons-preview.html'),'utf8')});await delay(300);
+    const shot=await page.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});fs.writeFileSync(path.join(root,'mobile-icons-preview.png'),Buffer.from(shot.data,'base64'));console.log('Icon preview rendered');return;
+  }
+  if(process.env.VUTRON_TEST_SCENARIO==='landscape'){
+    await require('./browser-landscape.cjs')({page,evaluate,wait,delay,root});return;
+  }
+  if(process.env.VUTRON_TEST_SCENARIO==='sheet-gestures'){
+    await require('./browser-sheet-gestures.cjs')({page,evaluate,wait,delay,root});return;
+  }
+  if(process.env.VUTRON_TEST_SCENARIO==='timer-wheel'){
+    await require('./browser-timer-wheel.cjs')({page,evaluate,wait,delay,root});return;
+  }
+  if(process.env.VUTRON_TEST_SCENARIO==='polish'){
+    await require('./browser-polish.cjs')({page,evaluate,wait,delay,root});return;
+  }
+  if(process.env.VUTRON_TEST_SCENARIO==='personal-ui'){
+    await require('./browser-personal-ui.cjs')({page,evaluate,wait,delay,root});return;
+  }
   if(process.env.VUTRON_TEST_SCENARIO==='refinements'){
     await require('./browser-refinements.cjs')({page,evaluate,wait,delay,root});return;
   }
@@ -166,7 +186,12 @@ async function main(){
     '  except PermissionError:',
     '   if attempt==14: raise',
     '   time.sleep(.2)',
-    "shutil.rmtree(chr(92)*2+'?'+chr(92)+str(target),onerror=retry)"
+    'for attempt in range(10):',
+    " try: shutil.rmtree(chr(92)*2+'?'+chr(92)+str(target),onerror=retry);break",
+    ' except FileNotFoundError: break',
+    ' except OSError as error:',
+    '  if getattr(error,"winerror",None) not in (5,32,145) or attempt==9: raise',
+    '  time.sleep(.2)'
    ].join('\n'),root,resolved],{windowsHide:true,stdio:'pipe'});
    else fs.rmSync(resolved,{recursive:true,force:true,maxRetries:6,retryDelay:300});
   }catch(error){console.warn('Temporary browser cleanup pending:',resolved,error.message)}

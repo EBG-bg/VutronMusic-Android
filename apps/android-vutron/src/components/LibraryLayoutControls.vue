@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { playlistView, playlistColumns } from '../platform/libraryLayout'
 import OriginalIcon from './OriginalIcon.vue'
+import AppSelect from './AppSelect.vue'
+const columns = [1, 2, 3, 4, 5, 6]
 </script>
 <template>
-  <div class="library-layout-controls" role="group" aria-label="歌单排版">
-    <button type="button" :aria-pressed="playlistView === 'cards'" :class="{ selected: playlistView === 'cards' }" @click="playlistView = 'cards'"><OriginalIcon name="library" /><span>卡片</span></button>
-    <button type="button" :aria-pressed="playlistView === 'list'" :class="{ selected: playlistView === 'list' }" @click="playlistView = 'list'"><OriginalIcon name="list" /><span>列表</span></button>
-    <Transition name="layout-count"><label v-if="playlistView === 'cards'">每排<select v-model.number="playlistColumns" aria-label="每排歌单数量"><option v-for="count in 6" :key="count" :value="count">{{ count }}</option></select>个</label></Transition>
+  <div class="library-layout-controls" role="group" :aria-label="$t('mobile.refinements.layout')">
+    <button type="button" :aria-pressed="playlistView === 'cards'" :class="{ selected: playlistView === 'cards' }" @click="playlistView = 'cards'"><OriginalIcon name="library" /><span>{{ $t('mobile.refinements.cards') }}</span></button>
+    <button type="button" :aria-pressed="playlistView === 'list'" :class="{ selected: playlistView === 'list' }" @click="playlistView = 'list'"><OriginalIcon name="list" /><span>{{ $t('mobile.refinements.list') }}</span></button>
+    <Transition name="layout-count"><div v-if="playlistView === 'cards'" class="layout-count-control"><span>{{ $t('mobile.refinements.columns') }}</span><AppSelect v-model="playlistColumns" :label="$t('mobile.refinements.columns')" :options="columns.map(value => ({ value, label: String(value) }))" /></div></Transition>
   </div>
 </template>
 

@@ -97,10 +97,21 @@ test('the actual language settings component renders English and Traditional Chi
   const code = ts.transpileModule(script.content, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText
   const module = { exports: {} }
   const card = vue.defineComponent({ props: ['title', 'subtitle'], setup: (props, { slots }) => () => vue.h('section', [vue.h('h2', props.title), slots.default?.()]) })
+  const pickerFile = path.resolve(__dirname, '../src/components/AppSelect.vue')
+  const pickerScript = compileScript(parse(fs.readFileSync(pickerFile, 'utf8'), { filename: pickerFile }).descriptor, { id: 'picker-language-test', inlineTemplate: true })
+  const pickerCode = ts.transpileModule(pickerScript.content, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText
+  const pickerModule = { exports: {} }
+  vm.runInNewContext(pickerCode, { module: pickerModule, exports: pickerModule.exports, require(name) {
+    if (name === 'vue') return vue
+    if (name === '../platform/appSelect') return { activeAppSelect: vue.shallowRef(), closeAppSelect: () => false }
+    if (name === './OriginalIcon.vue') return { __esModule: true, default: vue.defineComponent({ render: () => vue.h('span') }) }
+    throw new Error('Unexpected picker dependency: ' + name)
+  } })
   vm.runInNewContext(code, { module, exports: module.exports, require(name) {
     if (name === 'vue') return vue
     if (name === '../platform/i18n') return f
     if (name === './CollapsibleSettingsCard.vue') return { __esModule: true, default: card }
+    if (name === './AppSelect.vue') return { __esModule: true, default: pickerModule.exports.default }
     throw new Error('Unexpected language settings dependency: ' + name)
   } })
   const render = () => renderToString(vue.createSSRApp(module.exports.default).use(f.i18n))

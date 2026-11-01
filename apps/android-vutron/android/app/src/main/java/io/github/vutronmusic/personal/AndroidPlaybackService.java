@@ -100,6 +100,7 @@ public final class AndroidPlaybackService extends Service {
     private boolean remotePlayback;
     private boolean buffering;
     private boolean destroyed;
+    private boolean progressTickerStarted;
     private boolean urlLookupPending;
     private boolean resumeOnFocusGain;
     private float focusVolume = 1f;
@@ -488,7 +489,6 @@ public final class AndroidPlaybackService extends Service {
         } catch (RuntimeException | java.io.IOException failure) { Log.w("VutronNetwork", "Background network observer unavailable", failure); }
         try { queue = PlaybackQueue.load(this); }
         catch (Exception failure) { Log.w("VutronPlayback", "Could not restore the playback queue", failure); }
-        progressHandler.post(progressTicker);
         audio = getSystemService(AudioManager.class);
         ContextCompat.registerReceiver(this, noisyReceiver, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), ContextCompat.RECEIVER_NOT_EXPORTED);
         noisyReceiverRegistered = true;
@@ -512,7 +512,16 @@ public final class AndroidPlaybackService extends Service {
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? null : intent.getAction();
-        if (!ACTION_STOP.equals(action)) startForeground(NOTIFICATION_ID, notification());
+        // Every foreground-service intent, including a cold notification Stop,
+        // must promote before it may stop or schedule idle housekeeping.
+        startForeground(NOTIFICATION_ID, notification());
+        if (!ACTION_STOP.equals(action) && !progressTickerStarted) {
+            progressTickerStarted = true;
+            // The posted tick runs after this command has established player or
+            // URL-lookup state. A tick posted from onCreate could stop the fresh
+            // service before onStartCommand and trigger the Android FGS timeout.
+            progressHandler.post(progressTicker);
+        }
         if (intent != null && intent.hasExtra(ROUTE_EPOCH) && !routeGuard.accepts(intent.getLongExtra(ROUTE_EPOCH, -1))) {
             if (!playing && !desiredPlayback) pause();
             return START_NOT_STICKY;

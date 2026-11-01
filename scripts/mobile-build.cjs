@@ -24,7 +24,7 @@ function resolveBuildInfo(repository, requested = process.env.VUTRON_BUILD_EDITI
   if (edition === 'personal') {
     requireBuild(hasPersonal, 'Personal builds require the ignored private configuration')
     selected = readJson(personalPath)
-    requireBuild(selected.edition === 'personal' && /^0[.]3[.][0-9]+$/.test(selected.version), 'Personal builds must continue the 0.3.x series, never a 1.x version')
+    requireBuild(selected.edition === 'personal' && /^0[.][0-9]+[.][0-9]+$/.test(selected.version), 'Personal builds must use the private 0.x series, never a 1.x version')
     requireBuild(selected.displayName && selected.displayName === selected.requiredDisplayName && selected.displayName !== mobile.displayName, 'Personal display name must match its private branding rule')
     requireBuild(selected.comparisonVersion === pkg.version, 'Personal comparison baseline must match the current official feature version')
     const previous = selected.previousVersionCode ?? 0

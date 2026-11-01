@@ -89,6 +89,10 @@ final class LocalPlaylistStore {
             JSONObject result = load(directory);
             if (!audioOnly) validateNewManifest(result);
             if (result.optInt("trackCount") == 0) throw new IOException("歌单中没有可用曲目");
+            // Creation means the local collection's import time, not the audio file's mtime.
+            result.put("createTime", System.currentTimeMillis());
+            result.remove("localTracks"); result.remove("id"); result.remove("bundleDir");
+            LibraryFiles.writeJson(new File(directory, "manifest.json"), result);
             LibraryTaskRunner.checkCancelled();
             File published = new File(root, bundleId);
             if (!directory.renameTo(published)) throw new IOException("无法保存完整歌单副本");

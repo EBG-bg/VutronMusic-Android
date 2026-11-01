@@ -1,0 +1,134 @@
+/* Native Android 15 insets are consumed by Capacitor. env() also keeps the
+   browser layout safe when a cutout is exposed directly to the WebView. */
+body .action-dialog-layer,
+body .online-dialog-layer {
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+body .action-dialog,
+body .online-playlist-dialog {
+  max-height: calc(100dvh - max(16px, env(safe-area-inset-top)) - max(16px, env(safe-area-inset-bottom)));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+body .track-action-layer,
+body .comments-layer,
+body .tuning-layer,
+body .queue-layer {
+  padding-top: max(12px, env(safe-area-inset-top));
+  padding-right: env(safe-area-inset-right);
+  padding-left: env(safe-area-inset-left);
+}
+body .track-action-menu,
+body .comments-sheet,
+body .tuning-sheet,
+body .queue-panel {
+  max-height: min(var(--adaptive-sheet-height, 90dvh), calc(100dvh - max(12px, env(safe-area-inset-top))));
+}
+body .track-action-menu { --adaptive-sheet-height: 88dvh; }
+body .queue-panel { --adaptive-sheet-height: min(82dvh, 780px); }
+body .library-sidebar {
+  padding-left: max(12px, env(safe-area-inset-left));
+  padding-right: max(12px, env(safe-area-inset-right));
+}
+
+.player-lyrics-content { height: 100%; min-height: 0; min-width: 0; }
+@media (orientation: landscape) {
+  .player-lyrics-content { display: flex; align-items: stretch; gap: 10px; }
+  .player-lyrics-content > .original-lyrics-view { flex: 1; min-width: 0; width: 0; }
+  .settings-page .lyric-offset-control:not(:focus-within) { display: none; }
+}
+
+/* Use the available window size, so split screen falls back to the phone UI. */
+@media (min-width: 840px) and (orientation: landscape) {
+  :root {
+    --navigation-rail: 88px;
+    --landscape-content: 1440px;
+    --page-gutter: 24px;
+  }
+  .app-shell {
+    width: min(calc(100% - var(--navigation-rail) - env(safe-area-inset-left)), var(--landscape-content));
+    min-height: 100dvh;
+    margin-left: max(calc(var(--navigation-rail) + env(safe-area-inset-left)), calc((100vw - var(--landscape-content) + var(--navigation-rail)) / 2));
+    margin-right: 0;
+    padding-bottom: calc(88px + env(safe-area-inset-bottom));
+  }
+  .app-shell.settings-surface { padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+  .app-shell:has(.login-view) { width: min(100%, 760px); margin-inline: auto; }
+  .page { min-height: calc(100dvh - 164px); }
+  .app-shell .bottom-nav {
+    inset: 0 auto 0 0;
+    width: calc(var(--navigation-rail) + env(safe-area-inset-left));
+    max-width: none;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 10px;
+    padding: max(12px, env(safe-area-inset-top)) 10px max(12px, env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-left));
+    border-top: 0;
+    border-right: 1px solid var(--line);
+    overflow-y: auto;
+  }
+  .app-shell .bottom-nav > button { flex: 0 0 auto; min-height: 60px; gap: 6px; padding: 8px 4px; }
+  .app-shell .bottom-nav button small { font-size: calc(11px * var(--ui-font-scale, 1)); }
+  .app-shell .mini-player {
+    left: calc(var(--navigation-rail) + env(safe-area-inset-left) + var(--page-gutter));
+    right: max(var(--page-gutter), env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    width: auto;
+    max-width: calc(var(--landscape-content) - 2 * var(--page-gutter));
+  }
+  .app-shell .toast-error, .app-shell .queue-notice {
+    left: calc(var(--navigation-rail) + env(safe-area-inset-left) + var(--page-gutter));
+    right: max(var(--page-gutter), env(safe-area-inset-right));
+    bottom: calc(84px + env(safe-area-inset-bottom));
+    max-width: min(700px, calc(100vw - var(--navigation-rail) - 2 * var(--page-gutter) - env(safe-area-inset-left) - env(safe-area-inset-right)));
+    margin-inline: auto;
+  }
+  .hero-carousel { --hero-step: min(45vw, 540px); height: clamp(170px, 32dvh, 280px); }
+  .app-shell .library-shortcuts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .app-shell .player-page {
+    display: grid;
+    grid-template-columns: minmax(260px, .85fr) minmax(0, 1.15fr);
+    column-gap: clamp(24px, 4vw, 64px);
+    align-items: start;
+    padding-bottom: 16px;
+  }
+  .player-page > :not(.lyrics-panel) { grid-column: 1; min-width: 0; }
+  .player-page .player-artwork { width: min(100%, clamp(128px, 32dvh, 300px)); margin-bottom: 16px; }
+  .player-page > .lyrics-panel {
+    grid-column: 2;
+    grid-row: 1 / span 12;
+    position: sticky;
+    top: max(16px, env(safe-area-inset-top));
+    min-width: 0;
+    margin-top: 0;
+  }
+  .player-page .original-lyrics-scroll { height: clamp(200px, calc(100dvh - 160px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 720px); }
+  /* The compact player can switch between cover and lyrics. Keep that choice
+     while placing the visual beside the transport controls on a wide window. */
+  .app-shell .player-page > .player-visual {
+    grid-column: 2;
+    grid-row: 1 / span 12;
+    position: sticky;
+    top: max(16px, env(safe-area-inset-top));
+    min-width: 0;
+  }
+  .player-page .player-visual .player-artwork { width: min(100%, clamp(200px, 60dvh, 460px)); }
+  .player-page .player-visual .artwork-toggle { border-radius: 16px; }
+  .player-page .player-visual .player-lyrics-view { height: auto; min-height: 0; overflow: visible; margin: 0; }
+  .app-shell .player-page .player-visual .original-lyrics-view { height: auto; display: block; }
+  .app-shell .player-page .player-lyrics-content { height: auto; }
+  .app-shell .player-page .player-visual .original-lyrics-scroll { flex: none; height: clamp(200px, calc(100dvh - 220px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 660px); }
+}
+
+/* A short landscape window must remain scrollable, including with a keyboard. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .app-shell { padding-top: max(8px, env(safe-area-inset-top)); }
+  .app-header { margin-bottom: 14px; }
+  .app-shell .bottom-nav { gap: 4px; }
+  .app-shell .bottom-nav > button { min-height: 48px; }
+  .player-page .player-artwork { width: min(100%, 140px); }
+  body .track-action-menu, body .comments-sheet, body .tuning-sheet, body .queue-panel { border-radius: 14px 14px 0 0; }
+  .qr-image-frame { width: min(180px, 45dvh); height: min(180px, 45dvh); }
+}

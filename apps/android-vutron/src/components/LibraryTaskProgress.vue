@@ -8,5 +8,5 @@ const taskLabel = computed(() => libraryTask.kind === 'cachePlaylists' ? 'mobile
 </template>
 <style scoped>
 .library-task-progress { position: fixed; z-index: 280; left: 16px; right: 16px; bottom: calc(100px + env(safe-area-inset-bottom)); max-width: 540px; margin: auto; display: flex; align-items: center; gap: 12px; border: 1px solid var(--surface); padding: 12px 16px; border-radius: 14px; color: var(--ink); background: var(--color-body-bg); box-shadow: 0 6px 24px #0003; }
-div { flex: 1; display: flex; gap: 8px; flex-wrap: wrap; font-size: 12px; } progress { max-width: 30%; height: 5px; accent-color: var(--accent); }
+div { flex: 1; display: flex; gap: 8px; flex-wrap: wrap; font-size: calc(12px * var(--ui-font-scale, 1)); } progress { max-width: 30%; height: 5px; accent-color: var(--accent); }
 </style>

@@ -49,7 +49,7 @@ module.exports=async({page,evaluate,wait,delay,root})=>{
     }
     checked.push(selector);
   };
-  await evaluate("window.featureHarness.store.navigateTo('settings')");await delay(300);
+  await evaluate("window.featureHarness.store.navigateTo('settings')");await wait("document.querySelector('[data-settings-section=cache] > summary')");await delay(200);
   await evaluate("document.querySelector('[data-settings-section=cache] > summary').click()");await delay(200);
   for(const label of ['音频缓存容量','封面缓存容量'])await checkRange(selectorFor(label));
   assert.equal(await evaluate("JSON.parse(localStorage.getItem('vutron-slider-ui')).artworkCapacityMb"),1024);

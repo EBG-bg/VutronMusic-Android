@@ -12,7 +12,7 @@ def publicIdentity = new groovy.json.JsonSlurper().parseText(file('../../mobile-
 if (edition == 'personal') {
     if (!privateIdentityFile.isFile()) throw new GradleException('Private build configuration is required.')
     def expected = new groovy.json.JsonSlurper().parseText(privateIdentityFile.getText('UTF-8'))
-    if (!(identity.version ==~ /0\.3\.\d+/) || identity.displayName != expected.requiredDisplayName || identity.version != expected.version || identity.versionCode != expected.versionCode)
+    if (!(identity.version ==~ /0\.\d+\.\d+/) || identity.displayName != expected.requiredDisplayName || identity.version != expected.version || identity.versionCode != expected.versionCode)
         throw new GradleException('Personal build identity violates its private version/branding rules.')
 } else if (!(identity.version ==~ /1\.\d+\.\d+/) || identity.displayName != 'Vutron Music - Mobile' || identity.version != publicVersion || identity.versionCode != publicIdentity.versionCode) {
     throw new GradleException('Official builds require the official name and 1.x version series.')
