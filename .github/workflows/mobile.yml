@@ -33,6 +33,11 @@ jobs:
   visual:
     runs-on: windows-2025
     steps:
+      - name: Prepare Git checkout
+        shell: pwsh
+        run: |
+          git config --global core.longpaths true
+          git config --global core.autocrlf false
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
