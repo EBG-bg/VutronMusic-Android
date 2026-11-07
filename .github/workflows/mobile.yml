@@ -122,7 +122,20 @@ jobs:
       - name: Desktop export checks
         run: xvfb-run -a python3 -m unittest discover -s tools/tests -p 'test_export*.py'
       - name: Plugin host and media gateway checks
-        run: node --test vendor/android-runtime/tests/*.test.cjs
+        run: |
+          result=0
+          for suite in vendor/android-runtime/tests/*.test.cjs; do
+            echo "::group::Runtime suite: $suite"
+            if timeout --signal=TERM --kill-after=5s 90s node --test "$suite"; then
+              echo "Runtime suite completed: $suite"
+            else
+              suite_status=$?
+              echo "::error::Runtime suite failed: $suite (exit $suite_status)"
+              result=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$result"
       - name: Check Vue SFC types and build Mobile
         run: sh scripts/build-mobile.sh Debug
       - name: Mobile behavior checks

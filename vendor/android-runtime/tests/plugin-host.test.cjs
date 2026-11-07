@@ -5,15 +5,24 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const http = require('http');
+const tempRoot = os.tmpdir();
 const runtime = path.resolve(__dirname, '../src/main/assets/sources-runtime');
 const { createPluginHost, redact, validId, brandResult, accountScope } = require(path.join(runtime, 'plugin-host.cjs'));
 const contract = require(path.join(runtime, 'plugin-contract.cjs'));
 function host(options={}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'vutron-plugin-host-'));
+  const root = fs.mkdtempSync(path.join(tempRoot, 'vutron-plugin-host-'));
+  const previousTmp = process.env.TMPDIR;
   const instance = createPluginHost({ root, builtins: path.join(runtime, 'plugins'), workerFile:path.join(runtime,'plugin-worker.cjs'), validateMeta:contract.validateMeta, validateResult:contract.validateResult,...options });
-  return { ...instance, root };
+  return { ...instance, root, previousTmp };
 }
-async function finish(instance) { instance.close(); await new Promise(resolve=>setTimeout(resolve,100)); fs.rmSync(instance.root,{recursive:true,force:true}); }
+async function finish(instance) {
+  try { instance.close(); await new Promise(resolve=>setTimeout(resolve,100)); }
+  finally {
+    if (instance.previousTmp === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = instance.previousTmp;
+    fs.rmSync(instance.root,{recursive:true,force:true});
+  }
+}
 const source = `exports.meta={name:'Fixture',type:'stream',capabilities:{getLyric:true}};
 let initialized='';api.store.get('value').then(v=>{initialized=v||'ready'});
 exports.systemPing=async()=>({code:200,status:initialized==='ready'?'login':'logout'});
