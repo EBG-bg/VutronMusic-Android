@@ -17,6 +17,8 @@ const tasks = new AsyncLocalStorage();
 const { compareValidatedSources, describeQuality } = require('./quality-selection.cjs');
 const { selectCandidate } = require('./strict-identity.cjs');
 const mediaGateway = require('./media-gateway.cjs').createMediaGateway();
+let plugins;
+let pluginMedia;
 const diagnosticPath = process.argv[4];
 let diagnosticError = '';
 let stage = 'loading-matcher';
@@ -129,7 +131,7 @@ require.cache[selectModulePath].exports = (list, info) => {
 };
 require.cache[selectModulePath].exports.ENABLE_FLAC = upstreamSelect.ENABLE_FLAC;
 const match = require('@unblockneteasemusic/server');
-const SOURCES = ['bodian', 'kuwo', 'kugou', 'qq', 'bilibili', 'pyncmd', 'migu'];
+const SOURCES = require('./source-policy.json').fallbackSources;
 const SOURCE_CONCURRENCY = 3;
 const SOURCE_TIMEOUT_MS = 4500;
 const QUALITY_SELECTION_TIMEOUT_MS = 15000;
@@ -250,8 +252,57 @@ const server = http.createServer((request, response) => {
   try { target = new URL(request.url, 'http://127.0.0.1'); }
   catch { json(response, 400, { code: 400, message: 'Invalid runtime request URL' }); return; }
   if (mediaGateway.handle(request, response, target)) return;
+  if (pluginMedia && pluginMedia.handle(request, response, target)) return;
   if (request.headers.authorization !== `Bearer ${token}`) {
     json(response, 403, { code: 403, message: 'Unauthorized runtime request' });
+    return;
+  }
+  if (request.method === 'POST' && target.pathname === '/plugins') {
+    const chunks = []; let length = 0;
+    request.on('data', chunk => { length += chunk.length; if (length > 8*1024*1024) request.destroy(); else chunks.push(chunk); });
+    request.on('end', async () => {
+      try {
+        const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if (!plugins) {
+          const contract = require('./plugin-contract.cjs');
+          plugins = require('./plugin-host.cjs').createPluginHost({ root: path.join(path.dirname(diagnosticPath), 'music-plugins-v1'),
+            validateMeta: contract.validateMeta, validateResult: contract.validateResult,
+            parseLyric: require('./plugin-lyrics.cjs').parseLyric,
+            fallbackSongUrl: async id => {
+              if (!/^[1-9]\d{0,17}$/.test(id)) return { code:400 };
+              const operation = { scopes: new Set(), cancelled: false };
+              try {
+                const item = await highestQualityMatch(id, operation);
+                if (!item || !item.url) return { code:404 };
+                const source = { ...item, headers: { ...(item.headers || {}) } };
+                const hostname = new URL(source.url).hostname;
+                if (hostname.endsWith('.bilivideo.com') || hostname === 'bilivideo.com' || hostname.endsWith('.akamaized.net')) source.headers.Referer = 'https://www.bilibili.com/';
+                return { code:200,url:'http://127.0.0.1:' + port + mediaGateway.register(source) };
+              } finally { operation.cancelled = true; for (const scope of operation.scopes) cancel(scope); }
+            } });
+          pluginMedia = require('./plugin-media-gateway.cjs').createPluginMediaGateway({ allowed: id => plugins.canNetwork(id) });
+        }
+        if (input.action === 'resolveMedia') {
+          if (!input.allowNetwork) throw Object.assign(new Error('Plugin networking is paused'), { code:'PLUGIN_OFFLINE' });
+          const configured = plugins.list().plugins.find(item => item.id === input.id && item.enabled);
+          if (!configured) throw Object.assign(new Error('Plugin is disabled or not installed'), { code:'PLUGIN_DISABLED' });
+          const media = input.media || {};
+          const remote = new URL(media.url), base = configured.baseUrl ? new URL(configured.baseUrl) : null;
+          const registered = base && remote.origin === base.origin
+            ? pluginMedia.register(input.id, configured.baseUrl, media) : mediaGateway.register(media);
+          json(response,200,{code:200,path:registered}); return;
+        }
+        if (input.action === 'policy' && !input.allowNetwork) pluginMedia.revoke();
+        const result = await plugins.handle(input);
+        const ownershipChanged = ['disable', 'remove', 'reset', 'configure'].includes(input.action)
+          || input.action === 'call' && ((['doLogin', 'doLogout', 'updateBaseUrl'].includes(input.method) && result.result?.code === 200)
+            || input.method === 'loginQrCodeCheck' && result.result?.code === 803);
+        if (ownershipChanged) pluginMedia.revoke(input.id);
+        json(response, 200, { code: 200, ...result });
+      } catch (error) {
+        json(response, 400, { code:400,errorCode:String(error.code || 'PLUGIN_ERROR'),message:require('./plugin-host.cjs').redact(error.message || 'Plugin operation failed') });
+      }
+    });
     return;
   }
   if (request.method === 'GET' && target.pathname === '/media/register') {

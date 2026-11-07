@@ -1,7 +1,7 @@
 {
   "product": "Vutron Music - Mobile",
-  "release": "1.1.0",
-  "reviewDate": "2026-10-31",
+  "release": "1.2.0",
+  "reviewDate": "2026-11-07",
   "scope": "Installed frontend modules, embedded Node source tree, resolved Android runtime graph and retained JNI binaries; build-only dependencies are not asserted to ship.",
   "packages": [
     {
@@ -246,6 +246,3145 @@
         "directory": "packages/api"
       },
       "licenseSource": "https://raw.githubusercontent.com/vuejs/devtools-v6/master/LICENSE"
+    },
+    {
+      "category": "embedded-node",
+      "name": "@neteasecloudmusicapienhanced/api",
+      "version": "4.36.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/_neteasecloudmusicapienhanced_api-4.36.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "@borewit/text-codec",
+      "version": "0.2.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@borewit/text-codec",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/_borewit_text-codec-0.2.3/LICENSE.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Borewit/text-codec.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "@neteasecloudmusicapienhanced/unblockmusic-utils",
+      "version": "0.3.4",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/_neteasecloudmusicapienhanced_unblockmusic-utils-0.3.4/LICENSE"
+      ],
+      "repository": null
+    },
+    {
+      "category": "embedded-node",
+      "name": "accepts",
+      "version": "1.3.8",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/accepts",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/accepts-1.3.8/LICENSE"
+      ],
+      "repository": "jshttp/accepts"
+    },
+    {
+      "category": "embedded-node",
+      "name": "body-parser",
+      "version": "1.20.9",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/body-parser",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/body-parser-1.20.9/LICENSE"
+      ],
+      "repository": "expressjs/body-parser"
+    },
+    {
+      "category": "embedded-node",
+      "name": "content-disposition",
+      "version": "0.5.4",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/content-disposition",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/content-disposition-0.5.4/LICENSE"
+      ],
+      "repository": "jshttp/content-disposition"
+    },
+    {
+      "category": "embedded-node",
+      "name": "content-type",
+      "version": "1.0.5",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/content-type",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/content-type-1.0.5/LICENSE"
+      ],
+      "repository": "jshttp/content-type"
+    },
+    {
+      "category": "embedded-node",
+      "name": "cookie-signature",
+      "version": "1.0.7",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/cookie-signature",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/cookie-signature-1.0.7/LICENSE-from-README.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/visionmedia/node-cookie-signature.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "debug",
+      "version": "2.6.9",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/debug",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/debug-2.6.9/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/visionmedia/debug.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "ms",
+      "version": "2.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/debug/node_modules/ms",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/ms-2.0.0/license.md"
+      ],
+      "repository": "zeit/ms"
+    },
+    {
+      "category": "embedded-node",
+      "name": "express",
+      "version": "4.22.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/express",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/express-4.22.3/LICENSE"
+      ],
+      "repository": "expressjs/express"
+    },
+    {
+      "category": "embedded-node",
+      "name": "finalhandler",
+      "version": "1.3.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/finalhandler",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/finalhandler-1.3.2/LICENSE"
+      ],
+      "repository": "pillarjs/finalhandler"
+    },
+    {
+      "category": "embedded-node",
+      "name": "fresh",
+      "version": "0.5.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/fresh",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/fresh-0.5.2/LICENSE"
+      ],
+      "repository": "jshttp/fresh"
+    },
+    {
+      "category": "embedded-node",
+      "name": "iconv-lite",
+      "version": "0.4.24",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/iconv-lite",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/iconv-lite-0.4.24/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/ashtuchkin/iconv-lite.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "media-typer",
+      "version": "0.3.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/media-typer",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/media-typer-0.3.0/LICENSE"
+      ],
+      "repository": "jshttp/media-typer"
+    },
+    {
+      "category": "embedded-node",
+      "name": "merge-descriptors",
+      "version": "1.0.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/merge-descriptors",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/merge-descriptors-1.0.3/LICENSE"
+      ],
+      "repository": "sindresorhus/merge-descriptors"
+    },
+    {
+      "category": "embedded-node",
+      "name": "mime-db",
+      "version": "1.52.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/mime-db",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/mime-db-1.52.0/LICENSE"
+      ],
+      "repository": "jshttp/mime-db"
+    },
+    {
+      "category": "embedded-node",
+      "name": "mime-types",
+      "version": "2.1.35",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/mime-types",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/mime-types-2.1.35/LICENSE"
+      ],
+      "repository": "jshttp/mime-types"
+    },
+    {
+      "category": "embedded-node",
+      "name": "negotiator",
+      "version": "0.6.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/negotiator",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/negotiator-0.6.3/LICENSE"
+      ],
+      "repository": "jshttp/negotiator"
+    },
+    {
+      "category": "embedded-node",
+      "name": "path-to-regexp",
+      "version": "0.1.13",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/path-to-regexp",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/path-to-regexp-0.1.13/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/pillarjs/path-to-regexp.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "qs",
+      "version": "6.16.2",
+      "declaredLicense": "BSD-3-Clause",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/qs",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/qs-6.16.2/LICENSE.md"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/ljharb/qs.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "range-parser",
+      "version": "1.2.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/range-parser",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/range-parser-1.2.1/LICENSE"
+      ],
+      "repository": "jshttp/range-parser"
+    },
+    {
+      "category": "embedded-node",
+      "name": "raw-body",
+      "version": "2.5.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/raw-body",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/raw-body-2.5.3/LICENSE"
+      ],
+      "repository": "stream-utils/raw-body"
+    },
+    {
+      "category": "embedded-node",
+      "name": "send",
+      "version": "0.19.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/send",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/send-0.19.2/LICENSE"
+      ],
+      "repository": "pillarjs/send"
+    },
+    {
+      "category": "embedded-node",
+      "name": "serve-static",
+      "version": "1.16.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/serve-static",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/serve-static-1.16.3/LICENSE"
+      ],
+      "repository": "expressjs/serve-static"
+    },
+    {
+      "category": "embedded-node",
+      "name": "type-is",
+      "version": "1.6.18",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@neteasecloudmusicapienhanced/unblockmusic-utils/node_modules/type-is",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/type-is-1.6.18/LICENSE"
+      ],
+      "repository": "jshttp/type-is"
+    },
+    {
+      "category": "embedded-node",
+      "name": "@tokenizer/inflate",
+      "version": "0.4.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@tokenizer/inflate",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/_tokenizer_inflate-0.4.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Borewit/tokenizer-inflate.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "@tootallnate/quickjs-emscripten",
+      "version": "0.23.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@tootallnate/quickjs-emscripten",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/_tootallnate_quickjs-emscripten-0.23.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/justjake/quickjs-emscripten"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "accepts",
+      "version": "2.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/accepts",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/accepts-2.0.0/LICENSE"
+      ],
+      "repository": "jshttp/accepts"
+    },
+    {
+      "category": "embedded-node",
+      "name": "agent-base",
+      "version": "6.0.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/agent-base",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/agent-base-6.0.2/LICENSE-from-README.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/TooTallNate/node-agent-base.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "ansi-regex",
+      "version": "6.5.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/ansi-regex",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/ansi-regex-6.5.0/license"
+      ],
+      "repository": "chalk/ansi-regex"
+    },
+    {
+      "category": "embedded-node",
+      "name": "ansi-styles",
+      "version": "3.2.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/ansi-styles",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/ansi-styles-3.2.1/license"
+      ],
+      "repository": "chalk/ansi-styles"
+    },
+    {
+      "category": "embedded-node",
+      "name": "args",
+      "version": "5.0.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/args",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/args-5.0.3/LICENSE"
+      ],
+      "repository": "leo/args"
+    },
+    {
+      "category": "embedded-node",
+      "name": "array-flatten",
+      "version": "1.1.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/array-flatten",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/array-flatten-1.1.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/blakeembrey/array-flatten.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "ast-types",
+      "version": "0.13.4",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/ast-types",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/ast-types-0.13.4/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/benjamn/ast-types.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "asynckit",
+      "version": "0.4.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/asynckit",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/asynckit-0.4.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/alexindigo/asynckit.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "atomic-sleep",
+      "version": "1.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/atomic-sleep",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/atomic-sleep-1.0.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/davidmarkclements/atomic-sleep.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "axios",
+      "version": "1.21.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/axios",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/axios-1.21.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/axios/axios.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "basic-ftp",
+      "version": "6.2.6",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/basic-ftp",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/basic-ftp-6.2.6/LICENSE.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/patrickjuchli/basic-ftp.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "body-parser",
+      "version": "2.4.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/body-parser",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/body-parser-2.4.0/LICENSE"
+      ],
+      "repository": "expressjs/body-parser"
+    },
+    {
+      "category": "embedded-node",
+      "name": "busboy",
+      "version": "1.6.0",
+      "declaredLicense": "UNSPECIFIED",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/busboy",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/busboy-1.6.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "http://github.com/mscdex/busboy.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "bytes",
+      "version": "3.1.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/bytes",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/bytes-3.1.2/LICENSE"
+      ],
+      "repository": "visionmedia/bytes.js"
+    },
+    {
+      "category": "embedded-node",
+      "name": "call-bind-apply-helpers",
+      "version": "1.0.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/call-bind-apply-helpers",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/call-bind-apply-helpers-1.0.2/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/call-bind-apply-helpers.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "call-bound",
+      "version": "1.0.4",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/call-bound",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/call-bound-1.0.4/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/call-bound.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "camelcase",
+      "version": "5.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/camelcase",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/camelcase-5.0.0/license"
+      ],
+      "repository": "sindresorhus/camelcase"
+    },
+    {
+      "category": "embedded-node",
+      "name": "chalk",
+      "version": "2.4.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/chalk",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/chalk-2.4.2/license"
+      ],
+      "repository": "chalk/chalk"
+    },
+    {
+      "category": "embedded-node",
+      "name": "cliui",
+      "version": "9.0.1",
+      "declaredLicense": "ISC",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/cliui",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/cliui-9.0.1/LICENSE.txt"
+      ],
+      "repository": "yargs/cliui"
+    },
+    {
+      "category": "embedded-node",
+      "name": "string-width",
+      "version": "7.2.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/cliui/node_modules/string-width",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/string-width-7.2.0/license"
+      ],
+      "repository": "sindresorhus/string-width"
+    },
+    {
+      "category": "embedded-node",
+      "name": "color-convert",
+      "version": "1.9.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/color-convert",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/color-convert-1.9.3/LICENSE"
+      ],
+      "repository": "Qix-/color-convert"
+    },
+    {
+      "category": "embedded-node",
+      "name": "color-name",
+      "version": "1.1.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/color-name",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/color-name-1.1.3/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git@github.com:dfcreative/color-name.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "colorette",
+      "version": "2.0.20",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/colorette",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/colorette-2.0.20/LICENSE.md"
+      ],
+      "repository": "jorgebucaran/colorette"
+    },
+    {
+      "category": "embedded-node",
+      "name": "combined-stream",
+      "version": "1.0.8",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/combined-stream",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/combined-stream-1.0.8/License"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/felixge/node-combined-stream.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "content-disposition",
+      "version": "2.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/content-disposition",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/content-disposition-2.0.1/LICENSE"
+      ],
+      "repository": "jshttp/content-disposition"
+    },
+    {
+      "category": "embedded-node",
+      "name": "content-type",
+      "version": "2.1.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/content-type",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/content-type-2.1.0/LICENSE"
+      ],
+      "repository": "jshttp/content-type"
+    },
+    {
+      "category": "embedded-node",
+      "name": "cookie",
+      "version": "0.7.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/cookie",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/cookie-0.7.2/LICENSE"
+      ],
+      "repository": "jshttp/cookie"
+    },
+    {
+      "category": "embedded-node",
+      "name": "cookie-signature",
+      "version": "1.2.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/cookie-signature",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/cookie-signature-1.2.2/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/visionmedia/node-cookie-signature.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "crypto-js",
+      "version": "4.2.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/crypto-js",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/crypto-js-4.2.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "http://github.com/brix/crypto-js.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "data-uri-to-buffer",
+      "version": "6.0.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/data-uri-to-buffer",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/data-uri-to-buffer-6.0.2/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/TooTallNate/proxy-agents.git",
+        "directory": "packages/data-uri-to-buffer"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "dateformat",
+      "version": "4.6.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/dateformat",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/dateformat-4.6.3/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/felixge/node-dateformat.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "debug",
+      "version": "4.4.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/debug",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/debug-4.4.3/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/debug-js/debug.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "decamelize",
+      "version": "1.2.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/decamelize",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/decamelize-1.2.0/license"
+      ],
+      "repository": "sindresorhus/decamelize"
+    },
+    {
+      "category": "embedded-node",
+      "name": "degenerator",
+      "version": "5.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/degenerator",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/degenerator-5.0.1/LICENSE-from-README.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/TooTallNate/proxy-agents.git",
+        "directory": "packages/degenerator"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "delayed-stream",
+      "version": "1.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/delayed-stream",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/delayed-stream-1.0.0/License"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/felixge/node-delayed-stream.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "depd",
+      "version": "2.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/depd",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/depd-2.0.0/LICENSE"
+      ],
+      "repository": "dougwilson/nodejs-depd"
+    },
+    {
+      "category": "embedded-node",
+      "name": "destroy",
+      "version": "1.2.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/destroy",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/destroy-1.2.0/LICENSE"
+      ],
+      "repository": "stream-utils/destroy"
+    },
+    {
+      "category": "embedded-node",
+      "name": "dijkstrajs",
+      "version": "1.0.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/dijkstrajs",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/dijkstrajs-1.0.3/LICENSE.md"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/tcort/dijkstrajs"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "dotenv",
+      "version": "17.4.2",
+      "declaredLicense": "BSD-2-Clause",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/dotenv",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/dotenv-17.4.2/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/motdotla/dotenv.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "dunder-proto",
+      "version": "1.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/dunder-proto",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/dunder-proto-1.0.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/es-shims/dunder-proto.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "duplexify",
+      "version": "4.1.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/duplexify",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/duplexify-4.1.3/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/mafintosh/duplexify"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "ee-first",
+      "version": "1.1.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/ee-first",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/ee-first-1.1.1/LICENSE"
+      ],
+      "repository": "jonathanong/ee-first"
+    },
+    {
+      "category": "embedded-node",
+      "name": "emoji-regex",
+      "version": "10.6.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/emoji-regex",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/emoji-regex-10.6.0/LICENSE-MIT.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/mathiasbynens/emoji-regex.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "encodeurl",
+      "version": "2.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/encodeurl",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/encodeurl-2.0.1/LICENSE"
+      ],
+      "repository": "pillarjs/encodeurl"
+    },
+    {
+      "category": "embedded-node",
+      "name": "end-of-stream",
+      "version": "1.4.5",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/end-of-stream",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/end-of-stream-1.4.5/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/mafintosh/end-of-stream.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "es-define-property",
+      "version": "1.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/es-define-property",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/es-define-property-1.0.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/es-define-property.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "es-errors",
+      "version": "1.3.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/es-errors",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/es-errors-1.3.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/es-errors.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "es-object-atoms",
+      "version": "1.1.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/es-object-atoms",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/es-object-atoms-1.1.2/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/es-object-atoms.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "es-set-tostringtag",
+      "version": "2.1.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/es-set-tostringtag",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/es-set-tostringtag-2.1.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/es-shims/es-set-tostringtag.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "escalade",
+      "version": "3.2.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/escalade",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/escalade-3.2.0/license"
+      ],
+      "repository": "lukeed/escalade"
+    },
+    {
+      "category": "embedded-node",
+      "name": "escape-html",
+      "version": "1.0.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/escape-html",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/escape-html-1.0.3/LICENSE"
+      ],
+      "repository": "component/escape-html"
+    },
+    {
+      "category": "embedded-node",
+      "name": "escape-string-regexp",
+      "version": "1.0.5",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/escape-string-regexp",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/escape-string-regexp-1.0.5/license"
+      ],
+      "repository": "sindresorhus/escape-string-regexp"
+    },
+    {
+      "category": "embedded-node",
+      "name": "escodegen",
+      "version": "2.1.0",
+      "declaredLicense": "BSD-2-Clause",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/escodegen",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/escodegen-2.1.0/LICENSE.BSD"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "http://github.com/estools/escodegen.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "esprima",
+      "version": "4.0.1",
+      "declaredLicense": "BSD-2-Clause",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/esprima",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/esprima-4.0.1/LICENSE.BSD"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/jquery/esprima.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "estraverse",
+      "version": "5.3.0",
+      "declaredLicense": "BSD-2-Clause",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/estraverse",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/estraverse-5.3.0/LICENSE.BSD"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "http://github.com/estools/estraverse.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "esutils",
+      "version": "2.0.3",
+      "declaredLicense": "BSD-2-Clause",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/esutils",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/esutils-2.0.3/LICENSE.BSD"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "http://github.com/estools/esutils.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "etag",
+      "version": "1.8.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/etag",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/etag-1.8.1/LICENSE"
+      ],
+      "repository": "jshttp/etag"
+    },
+    {
+      "category": "embedded-node",
+      "name": "express",
+      "version": "5.3.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/express",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/express-5.3.0/LICENSE"
+      ],
+      "repository": "expressjs/express"
+    },
+    {
+      "category": "embedded-node",
+      "name": "express-fileupload",
+      "version": "1.6.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/express-fileupload",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/express-fileupload-1.6.0/LICENSE"
+      ],
+      "repository": "richardgirges/express-fileupload"
+    },
+    {
+      "category": "embedded-node",
+      "name": "fast-redact",
+      "version": "3.5.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/fast-redact",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/fast-redact-3.5.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/davidmarkclements/fast-redact.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "fast-safe-stringify",
+      "version": "2.1.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/fast-safe-stringify",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/fast-safe-stringify-2.1.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/davidmarkclements/fast-safe-stringify.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "file-type",
+      "version": "21.3.4",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/file-type",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/file-type-21.3.4/license"
+      ],
+      "repository": "sindresorhus/file-type"
+    },
+    {
+      "category": "embedded-node",
+      "name": "finalhandler",
+      "version": "2.1.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/finalhandler",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/finalhandler-2.1.1/LICENSE"
+      ],
+      "repository": "pillarjs/finalhandler"
+    },
+    {
+      "category": "embedded-node",
+      "name": "find-up",
+      "version": "4.1.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/find-up",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/find-up-4.1.0/license"
+      ],
+      "repository": "sindresorhus/find-up"
+    },
+    {
+      "category": "embedded-node",
+      "name": "flatstr",
+      "version": "1.0.12",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/flatstr",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/flatstr-1.0.12/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/davidmarkclements/flatstr.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "follow-redirects",
+      "version": "1.16.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/follow-redirects",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/follow-redirects-1.16.2/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+ssh://git@github.com/follow-redirects/follow-redirects.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "form-data",
+      "version": "4.0.6",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/form-data",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/form-data-4.0.6/License"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/form-data/form-data.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "mime-db",
+      "version": "1.52.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/form-data/node_modules/mime-db",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/mime-db-1.52.0/LICENSE"
+      ],
+      "repository": "jshttp/mime-db"
+    },
+    {
+      "category": "embedded-node",
+      "name": "mime-types",
+      "version": "2.1.35",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/form-data/node_modules/mime-types",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/mime-types-2.1.35/LICENSE"
+      ],
+      "repository": "jshttp/mime-types"
+    },
+    {
+      "category": "embedded-node",
+      "name": "forwarded",
+      "version": "0.2.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/forwarded",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/forwarded-0.2.0/LICENSE"
+      ],
+      "repository": "jshttp/forwarded"
+    },
+    {
+      "category": "embedded-node",
+      "name": "fresh",
+      "version": "2.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/fresh",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/fresh-2.0.0/LICENSE"
+      ],
+      "repository": "jshttp/fresh"
+    },
+    {
+      "category": "embedded-node",
+      "name": "function-bind",
+      "version": "1.1.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/function-bind",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/function-bind-1.1.2/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Raynos/function-bind.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "get-caller-file",
+      "version": "2.0.5",
+      "declaredLicense": "ISC",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/get-caller-file",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/get-caller-file-2.0.5/LICENSE.md"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/stefanpenner/get-caller-file.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "get-east-asian-width",
+      "version": "1.7.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/get-east-asian-width",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/get-east-asian-width-1.7.0/license"
+      ],
+      "repository": "sindresorhus/get-east-asian-width"
+    },
+    {
+      "category": "embedded-node",
+      "name": "get-intrinsic",
+      "version": "1.3.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/get-intrinsic",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/get-intrinsic-1.3.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/get-intrinsic.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "get-proto",
+      "version": "1.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/get-proto",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/get-proto-1.0.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/get-proto.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "get-uri",
+      "version": "6.0.5",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/get-uri",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/get-uri-6.0.5/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/TooTallNate/proxy-agents.git",
+        "directory": "packages/get-uri"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "gopd",
+      "version": "1.2.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/gopd",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/gopd-1.2.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/gopd.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "has-flag",
+      "version": "3.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/has-flag",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/has-flag-3.0.0/license"
+      ],
+      "repository": "sindresorhus/has-flag"
+    },
+    {
+      "category": "embedded-node",
+      "name": "has-symbols",
+      "version": "1.1.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/has-symbols",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/has-symbols-1.1.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/inspect-js/has-symbols.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "has-tostringtag",
+      "version": "1.0.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/has-tostringtag",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/has-tostringtag-1.0.2/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/inspect-js/has-tostringtag.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "hasown",
+      "version": "2.0.4",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/hasown",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/hasown-2.0.4/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/inspect-js/hasOwn.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "http-errors",
+      "version": "2.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/http-errors",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/http-errors-2.0.1/LICENSE"
+      ],
+      "repository": "jshttp/http-errors"
+    },
+    {
+      "category": "embedded-node",
+      "name": "http-proxy-agent",
+      "version": "7.0.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/http-proxy-agent",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/http-proxy-agent-7.0.2/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/TooTallNate/proxy-agents.git",
+        "directory": "packages/http-proxy-agent"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "agent-base",
+      "version": "7.1.4",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/http-proxy-agent/node_modules/agent-base",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/agent-base-7.1.4/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/TooTallNate/proxy-agents.git",
+        "directory": "packages/agent-base"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "https-proxy-agent",
+      "version": "5.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/https-proxy-agent",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/https-proxy-agent-5.0.1/LICENSE-from-README.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/TooTallNate/node-https-proxy-agent.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "iconv-lite",
+      "version": "0.7.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/iconv-lite",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/iconv-lite-0.7.3/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/pillarjs/iconv-lite.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "ieee754",
+      "version": "1.2.1",
+      "declaredLicense": "BSD-3-Clause",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/ieee754",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/ieee754-1.2.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/feross/ieee754.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "inherits",
+      "version": "2.0.4",
+      "declaredLicense": "ISC",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/inherits",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/inherits-2.0.4/LICENSE"
+      ],
+      "repository": "git://github.com/isaacs/inherits"
+    },
+    {
+      "category": "embedded-node",
+      "name": "ip-address",
+      "version": "10.7.6",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/ip-address",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/ip-address-10.7.6/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/beaugunderson/ip-address.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "ipaddr.js",
+      "version": "1.9.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/ipaddr.js",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/ipaddr.js-1.9.1/LICENSE"
+      ],
+      "repository": "git://github.com/whitequark/ipaddr.js"
+    },
+    {
+      "category": "embedded-node",
+      "name": "is-fullwidth-code-point",
+      "version": "3.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/is-fullwidth-code-point",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/is-fullwidth-code-point-3.0.0/license"
+      ],
+      "repository": "sindresorhus/is-fullwidth-code-point"
+    },
+    {
+      "category": "embedded-node",
+      "name": "is-promise",
+      "version": "4.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/is-promise",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/is-promise-4.0.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/then/is-promise.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "joycon",
+      "version": "3.1.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/joycon",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/joycon-3.1.1/LICENSE"
+      ],
+      "repository": {
+        "url": "egoist/joycon",
+        "type": "git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "leven",
+      "version": "2.1.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/leven",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/leven-2.1.0/license"
+      ],
+      "repository": "sindresorhus/leven"
+    },
+    {
+      "category": "embedded-node",
+      "name": "locate-path",
+      "version": "5.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/locate-path",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/locate-path-5.0.0/license"
+      ],
+      "repository": "sindresorhus/locate-path"
+    },
+    {
+      "category": "embedded-node",
+      "name": "math-intrinsics",
+      "version": "1.1.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/math-intrinsics",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/math-intrinsics-1.1.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/es-shims/math-intrinsics.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "media-typer",
+      "version": "2.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/media-typer",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/media-typer-2.0.0/LICENSE"
+      ],
+      "repository": "jshttp/media-typer"
+    },
+    {
+      "category": "embedded-node",
+      "name": "merge-descriptors",
+      "version": "2.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/merge-descriptors",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/merge-descriptors-2.0.0/license"
+      ],
+      "repository": "sindresorhus/merge-descriptors"
+    },
+    {
+      "category": "embedded-node",
+      "name": "methods",
+      "version": "1.1.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/methods",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/methods-1.1.2/LICENSE"
+      ],
+      "repository": "jshttp/methods"
+    },
+    {
+      "category": "embedded-node",
+      "name": "mime",
+      "version": "1.6.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/mime",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/mime-1.6.0/LICENSE"
+      ],
+      "repository": {
+        "url": "https://github.com/broofa/node-mime",
+        "type": "git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "mime-db",
+      "version": "1.54.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/mime-db",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/mime-db-1.54.0/LICENSE"
+      ],
+      "repository": "jshttp/mime-db"
+    },
+    {
+      "category": "embedded-node",
+      "name": "mime-types",
+      "version": "3.0.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/mime-types",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/mime-types-3.0.2/LICENSE"
+      ],
+      "repository": "jshttp/mime-types"
+    },
+    {
+      "category": "embedded-node",
+      "name": "mri",
+      "version": "1.1.4",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/mri",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/mri-1.1.4/license.md"
+      ],
+      "repository": "lukeed/mri"
+    },
+    {
+      "category": "embedded-node",
+      "name": "ms",
+      "version": "2.1.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/ms",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/ms-2.1.3/license.md"
+      ],
+      "repository": "vercel/ms"
+    },
+    {
+      "category": "embedded-node",
+      "name": "music-metadata",
+      "version": "11.16.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/music-metadata",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/music-metadata-11.16.1/LICENSE.txt"
+      ],
+      "repository": "github:Borewit/music-metadata"
+    },
+    {
+      "category": "embedded-node",
+      "name": "negotiator",
+      "version": "1.1.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/negotiator",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/negotiator-1.1.0/LICENSE"
+      ],
+      "repository": "jshttp/negotiator"
+    },
+    {
+      "category": "embedded-node",
+      "name": "netmask",
+      "version": "2.1.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/netmask",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/netmask-2.1.1/LICENSE.md"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/rs/node-netmask.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "node-forge",
+      "version": "1.4.3",
+      "declaredLicense": "(BSD-3-Clause OR GPL-2.0)",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/node-forge",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/node-forge-1.4.3/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/digitalbazaar/forge"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "node-windows",
+      "version": "1.0.0-beta.8",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/node-windows",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/node-windows-1.0.0-beta.8/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/coreybutler/node-windows.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "ansi-regex",
+      "version": "5.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/node-windows/node_modules/ansi-regex",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/ansi-regex-5.0.1/license"
+      ],
+      "repository": "chalk/ansi-regex"
+    },
+    {
+      "category": "embedded-node",
+      "name": "ansi-styles",
+      "version": "4.3.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/node-windows/node_modules/ansi-styles",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/ansi-styles-4.3.0/license"
+      ],
+      "repository": "chalk/ansi-styles"
+    },
+    {
+      "category": "embedded-node",
+      "name": "cliui",
+      "version": "8.0.1",
+      "declaredLicense": "ISC",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/node-windows/node_modules/cliui",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/cliui-8.0.1/LICENSE.txt"
+      ],
+      "repository": "yargs/cliui"
+    },
+    {
+      "category": "embedded-node",
+      "name": "color-convert",
+      "version": "2.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/node-windows/node_modules/color-convert",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/color-convert-2.0.1/LICENSE"
+      ],
+      "repository": "Qix-/color-convert"
+    },
+    {
+      "category": "embedded-node",
+      "name": "color-name",
+      "version": "1.1.4",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/node-windows/node_modules/color-name",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/color-name-1.1.4/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git@github.com:colorjs/color-name.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "emoji-regex",
+      "version": "8.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/node-windows/node_modules/emoji-regex",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/emoji-regex-8.0.0/LICENSE-MIT.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/mathiasbynens/emoji-regex.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "string-width",
+      "version": "4.2.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/node-windows/node_modules/string-width",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/string-width-4.2.3/license"
+      ],
+      "repository": "sindresorhus/string-width"
+    },
+    {
+      "category": "embedded-node",
+      "name": "strip-ansi",
+      "version": "6.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/node-windows/node_modules/strip-ansi",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/strip-ansi-6.0.1/license"
+      ],
+      "repository": "chalk/strip-ansi"
+    },
+    {
+      "category": "embedded-node",
+      "name": "wrap-ansi",
+      "version": "7.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/node-windows/node_modules/wrap-ansi",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/wrap-ansi-7.0.0/license"
+      ],
+      "repository": "chalk/wrap-ansi"
+    },
+    {
+      "category": "embedded-node",
+      "name": "yargs",
+      "version": "17.7.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/node-windows/node_modules/yargs",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/yargs-17.7.3/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/yargs/yargs.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "yargs-parser",
+      "version": "21.1.1",
+      "declaredLicense": "ISC",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/node-windows/node_modules/yargs-parser",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/yargs-parser-21.1.1/LICENSE.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/yargs/yargs-parser.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "object-inspect",
+      "version": "1.13.4",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/object-inspect",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/object-inspect-1.13.4/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/inspect-js/object-inspect.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "on-exit-leak-free",
+      "version": "0.2.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/on-exit-leak-free",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/on-exit-leak-free-0.2.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/mcollina/on-exit-or-gc.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "on-finished",
+      "version": "2.4.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/on-finished",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/on-finished-2.4.2/LICENSE"
+      ],
+      "repository": "jshttp/on-finished"
+    },
+    {
+      "category": "embedded-node",
+      "name": "once",
+      "version": "1.4.0",
+      "declaredLicense": "ISC",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/once",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/once-1.4.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/isaacs/once"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "p-limit",
+      "version": "2.3.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/p-limit",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/p-limit-2.3.0/license"
+      ],
+      "repository": "sindresorhus/p-limit"
+    },
+    {
+      "category": "embedded-node",
+      "name": "p-locate",
+      "version": "4.1.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/p-locate",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/p-locate-4.1.0/license"
+      ],
+      "repository": "sindresorhus/p-locate"
+    },
+    {
+      "category": "embedded-node",
+      "name": "p-try",
+      "version": "2.2.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/p-try",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/p-try-2.2.0/license"
+      ],
+      "repository": "sindresorhus/p-try"
+    },
+    {
+      "category": "embedded-node",
+      "name": "pac-proxy-agent",
+      "version": "7.2.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/pac-proxy-agent",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/pac-proxy-agent-7.2.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/TooTallNate/proxy-agents.git",
+        "directory": "packages/pac-proxy-agent"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "agent-base",
+      "version": "7.1.4",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/pac-proxy-agent/node_modules/agent-base",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/agent-base-7.1.4/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/TooTallNate/proxy-agents.git",
+        "directory": "packages/agent-base"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "https-proxy-agent",
+      "version": "7.0.6",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/pac-proxy-agent/node_modules/https-proxy-agent",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/https-proxy-agent-7.0.6/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/TooTallNate/proxy-agents.git",
+        "directory": "packages/https-proxy-agent"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "pac-resolver",
+      "version": "7.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/pac-resolver",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/pac-resolver-7.0.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/TooTallNate/proxy-agents.git",
+        "directory": "packages/pac-resolver"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "parseurl",
+      "version": "1.3.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/parseurl",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/parseurl-1.3.3/LICENSE"
+      ],
+      "repository": "pillarjs/parseurl"
+    },
+    {
+      "category": "embedded-node",
+      "name": "path-exists",
+      "version": "4.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/path-exists",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/path-exists-4.0.0/license"
+      ],
+      "repository": "sindresorhus/path-exists"
+    },
+    {
+      "category": "embedded-node",
+      "name": "path-to-regexp",
+      "version": "8.4.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/path-to-regexp",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/path-to-regexp-8.4.2/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/pillarjs/path-to-regexp.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "pino",
+      "version": "6.14.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/pino",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/pino-6.14.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/pinojs/pino.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "pino-abstract-transport",
+      "version": "0.5.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/pino-abstract-transport",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/pino-abstract-transport-0.5.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/pinojs/pino-abstract-transport.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "pino-pretty",
+      "version": "7.6.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/pino-pretty",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/pino-pretty-7.6.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+ssh://git@github.com/pinojs/pino-pretty.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "sonic-boom",
+      "version": "2.8.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/pino-pretty/node_modules/sonic-boom",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/sonic-boom-2.8.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/pinojs/sonic-boom.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "pino-std-serializers",
+      "version": "3.2.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/pino-std-serializers",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/pino-std-serializers-3.2.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+ssh://git@github.com/pinojs/pino-std-serializers.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "pngjs",
+      "version": "5.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/pngjs",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/pngjs-5.0.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/lukeapage/pngjs.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "process-warning",
+      "version": "1.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/process-warning",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/process-warning-1.0.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/fastify/processs-warning.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "proxy-addr",
+      "version": "2.0.8",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/proxy-addr",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/proxy-addr-2.0.8/LICENSE"
+      ],
+      "repository": "jshttp/proxy-addr"
+    },
+    {
+      "category": "embedded-node",
+      "name": "proxy-from-env",
+      "version": "2.1.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/proxy-from-env",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/proxy-from-env-2.1.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Rob--W/proxy-from-env.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "pump",
+      "version": "3.0.4",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/pump",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/pump-3.0.4/LICENSE"
+      ],
+      "repository": "git://github.com/mafintosh/pump.git"
+    },
+    {
+      "category": "embedded-node",
+      "name": "qrcode",
+      "version": "1.5.4",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/qrcode",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/qrcode-1.5.4/license"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/soldair/node-qrcode.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "ansi-regex",
+      "version": "5.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/qrcode/node_modules/ansi-regex",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/ansi-regex-5.0.1/license"
+      ],
+      "repository": "chalk/ansi-regex"
+    },
+    {
+      "category": "embedded-node",
+      "name": "ansi-styles",
+      "version": "4.3.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/qrcode/node_modules/ansi-styles",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/ansi-styles-4.3.0/license"
+      ],
+      "repository": "chalk/ansi-styles"
+    },
+    {
+      "category": "embedded-node",
+      "name": "cliui",
+      "version": "6.0.0",
+      "declaredLicense": "ISC",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/qrcode/node_modules/cliui",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/cliui-6.0.0/LICENSE.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "http://github.com/yargs/cliui.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "color-convert",
+      "version": "2.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/qrcode/node_modules/color-convert",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/color-convert-2.0.1/LICENSE"
+      ],
+      "repository": "Qix-/color-convert"
+    },
+    {
+      "category": "embedded-node",
+      "name": "color-name",
+      "version": "1.1.4",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/qrcode/node_modules/color-name",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/color-name-1.1.4/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git@github.com:colorjs/color-name.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "emoji-regex",
+      "version": "8.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/qrcode/node_modules/emoji-regex",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/emoji-regex-8.0.0/LICENSE-MIT.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/mathiasbynens/emoji-regex.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "string-width",
+      "version": "4.2.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/qrcode/node_modules/string-width",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/string-width-4.2.3/license"
+      ],
+      "repository": "sindresorhus/string-width"
+    },
+    {
+      "category": "embedded-node",
+      "name": "strip-ansi",
+      "version": "6.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/qrcode/node_modules/strip-ansi",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/strip-ansi-6.0.1/license"
+      ],
+      "repository": "chalk/strip-ansi"
+    },
+    {
+      "category": "embedded-node",
+      "name": "wrap-ansi",
+      "version": "6.2.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/qrcode/node_modules/wrap-ansi",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/wrap-ansi-6.2.0/license"
+      ],
+      "repository": "chalk/wrap-ansi"
+    },
+    {
+      "category": "embedded-node",
+      "name": "y18n",
+      "version": "4.0.3",
+      "declaredLicense": "ISC",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/qrcode/node_modules/y18n",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/y18n-4.0.3/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git@github.com:yargs/y18n.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "yargs",
+      "version": "15.4.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/qrcode/node_modules/yargs",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/yargs-15.4.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/yargs/yargs.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "yargs-parser",
+      "version": "18.1.3",
+      "declaredLicense": "ISC",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/qrcode/node_modules/yargs-parser",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/yargs-parser-18.1.3/LICENSE.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/yargs/yargs-parser.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "qs",
+      "version": "6.17.1",
+      "declaredLicense": "BSD-3-Clause",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/qs",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/qs-6.17.1/LICENSE.md"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/ljharb/qs.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "quick-format-unescaped",
+      "version": "4.0.4",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/quick-format-unescaped",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/quick-format-unescaped-4.0.4/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/davidmarkclements/quick-format.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "range-parser",
+      "version": "1.3.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/range-parser",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/range-parser-1.3.0/LICENSE"
+      ],
+      "repository": "jshttp/range-parser"
+    },
+    {
+      "category": "embedded-node",
+      "name": "raw-body",
+      "version": "3.0.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/raw-body",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/raw-body-3.0.2/LICENSE"
+      ],
+      "repository": "stream-utils/raw-body"
+    },
+    {
+      "category": "embedded-node",
+      "name": "readable-stream",
+      "version": "3.6.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/readable-stream",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/readable-stream-3.6.2/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/nodejs/readable-stream"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "require-directory",
+      "version": "2.1.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/require-directory",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/require-directory-2.1.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/troygoode/node-require-directory.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "require-main-filename",
+      "version": "2.0.0",
+      "declaredLicense": "ISC",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/require-main-filename",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/require-main-filename-2.0.0/LICENSE.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+ssh://git@github.com/yargs/require-main-filename.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "rfdc",
+      "version": "1.4.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/rfdc",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/rfdc-1.4.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/davidmarkclements/rfdc.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "router",
+      "version": "2.2.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/router",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/router-2.2.0/LICENSE"
+      ],
+      "repository": "pillarjs/router"
+    },
+    {
+      "category": "embedded-node",
+      "name": "safe-buffer",
+      "version": "5.2.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/safe-buffer",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/safe-buffer-5.2.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/feross/safe-buffer.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "safe-decode-uri-component",
+      "version": "1.2.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/safe-decode-uri-component",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/safe-decode-uri-component-1.2.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/jridgewell/safe-decode-uri-component.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "safer-buffer",
+      "version": "2.1.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/safer-buffer",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/safer-buffer-2.1.2/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ChALkeR/safer-buffer.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "sax",
+      "version": "1.6.1",
+      "declaredLicense": "BlueOak-1.0.0",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/sax",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/sax-1.6.1/LICENSE.md"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+ssh://git@github.com/isaacs/sax-js.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "secure-json-parse",
+      "version": "2.7.0",
+      "declaredLicense": "BSD-3-Clause",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/secure-json-parse",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/secure-json-parse-2.7.0/LICENSE.md"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/fastify/secure-json-parse.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "send",
+      "version": "1.2.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/send",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/send-1.2.1/LICENSE"
+      ],
+      "repository": "pillarjs/send"
+    },
+    {
+      "category": "embedded-node",
+      "name": "serve-static",
+      "version": "2.2.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/serve-static",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/serve-static-2.2.1/LICENSE"
+      ],
+      "repository": "expressjs/serve-static"
+    },
+    {
+      "category": "embedded-node",
+      "name": "set-blocking",
+      "version": "2.0.0",
+      "declaredLicense": "ISC",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/set-blocking",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/set-blocking-2.0.0/LICENSE.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/yargs/set-blocking.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "setprototypeof",
+      "version": "1.2.0",
+      "declaredLicense": "ISC",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/setprototypeof",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/setprototypeof-1.2.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/wesleytodd/setprototypeof.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "side-channel",
+      "version": "1.1.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/side-channel",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/side-channel-1.1.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/side-channel.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "side-channel-list",
+      "version": "1.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/side-channel-list",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/side-channel-list-1.0.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/side-channel-list.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "side-channel-map",
+      "version": "1.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/side-channel-map",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/side-channel-map-1.0.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/side-channel-map.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "side-channel-weakmap",
+      "version": "1.0.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/side-channel-weakmap",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/side-channel-weakmap-1.0.2/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ljharb/side-channel-weakmap.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "smart-buffer",
+      "version": "4.2.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/smart-buffer",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/smart-buffer-4.2.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/JoshGlazebrook/smart-buffer.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "socks",
+      "version": "2.8.10",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/socks",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/socks-2.8.10/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/JoshGlazebrook/socks.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "socks-proxy-agent",
+      "version": "8.0.5",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/socks-proxy-agent",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/socks-proxy-agent-8.0.5/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/TooTallNate/proxy-agents.git",
+        "directory": "packages/socks-proxy-agent"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "agent-base",
+      "version": "7.1.4",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/socks-proxy-agent/node_modules/agent-base",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/agent-base-7.1.4/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/TooTallNate/proxy-agents.git",
+        "directory": "packages/agent-base"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "sonic-boom",
+      "version": "1.4.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/sonic-boom",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/sonic-boom-1.4.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/mcollina/sonic-boom.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "source-map",
+      "version": "0.6.1",
+      "declaredLicense": "BSD-3-Clause",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/source-map",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/source-map-0.6.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "http://github.com/mozilla/source-map.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "split2",
+      "version": "4.2.0",
+      "declaredLicense": "ISC",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/split2",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/split2-4.2.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/mcollina/split2.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "statuses",
+      "version": "2.0.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/statuses",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/statuses-2.0.2/LICENSE"
+      ],
+      "repository": "jshttp/statuses"
+    },
+    {
+      "category": "embedded-node",
+      "name": "stream-shift",
+      "version": "1.0.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/stream-shift",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/stream-shift-1.0.3/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/mafintosh/stream-shift.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "streamsearch",
+      "version": "1.1.0",
+      "declaredLicense": "UNSPECIFIED",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/streamsearch",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/streamsearch-1.1.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "http://github.com/mscdex/streamsearch.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "string-width",
+      "version": "8.3.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/string-width",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/string-width-8.3.0/license"
+      ],
+      "repository": "sindresorhus/string-width"
+    },
+    {
+      "category": "embedded-node",
+      "name": "string_decoder",
+      "version": "1.3.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/string_decoder",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/string_decoder-1.3.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/nodejs/string_decoder.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "strip-ansi",
+      "version": "7.2.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/strip-ansi",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/strip-ansi-7.2.0/license"
+      ],
+      "repository": "chalk/strip-ansi"
+    },
+    {
+      "category": "embedded-node",
+      "name": "strip-json-comments",
+      "version": "3.1.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/strip-json-comments",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/strip-json-comments-3.1.1/license"
+      ],
+      "repository": "sindresorhus/strip-json-comments"
+    },
+    {
+      "category": "embedded-node",
+      "name": "strtok3",
+      "version": "10.7.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/strtok3",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/strtok3-10.7.0/LICENSE.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Borewit/strtok3.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "supports-color",
+      "version": "5.5.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/supports-color",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/supports-color-5.5.0/license"
+      ],
+      "repository": "chalk/supports-color"
+    },
+    {
+      "category": "embedded-node",
+      "name": "toidentifier",
+      "version": "1.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/toidentifier",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/toidentifier-1.0.1/LICENSE"
+      ],
+      "repository": "component/toidentifier"
+    },
+    {
+      "category": "embedded-node",
+      "name": "token-types",
+      "version": "6.2.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/token-types",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/token-types-6.2.0/LICENSE.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Borewit/token-types.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "tslib",
+      "version": "2.9.1",
+      "declaredLicense": "0BSD",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/tslib",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/tslib-2.9.1/LICENSE.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/tslib.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "tunnel",
+      "version": "0.0.6",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/tunnel",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/tunnel-0.0.6/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/koichik/node-tunnel.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "type-is",
+      "version": "2.1.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/type-is",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/type-is-2.1.0/LICENSE"
+      ],
+      "repository": "jshttp/type-is"
+    },
+    {
+      "category": "embedded-node",
+      "name": "media-typer",
+      "version": "1.1.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/type-is/node_modules/media-typer",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/media-typer-1.1.1/LICENSE"
+      ],
+      "repository": "jshttp/media-typer"
+    },
+    {
+      "category": "embedded-node",
+      "name": "uint8array-extras",
+      "version": "1.6.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/uint8array-extras",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/uint8array-extras-1.6.0/license"
+      ],
+      "repository": "sindresorhus/uint8array-extras"
+    },
+    {
+      "category": "embedded-node",
+      "name": "unpipe",
+      "version": "1.0.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/unpipe",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/unpipe-1.0.0/LICENSE"
+      ],
+      "repository": "stream-utils/unpipe"
+    },
+    {
+      "category": "embedded-node",
+      "name": "util-deprecate",
+      "version": "1.0.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/util-deprecate",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/util-deprecate-1.0.2/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/TooTallNate/util-deprecate.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "utils-merge",
+      "version": "1.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/utils-merge",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/utils-merge-1.0.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/jaredhanson/utils-merge.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "vary",
+      "version": "1.1.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/vary",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/vary-1.1.2/LICENSE"
+      ],
+      "repository": "jshttp/vary"
+    },
+    {
+      "category": "embedded-node",
+      "name": "which-module",
+      "version": "2.0.1",
+      "declaredLicense": "ISC",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/which-module",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/which-module-2.0.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/nexdrew/which-module.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "win-guid",
+      "version": "0.2.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/win-guid",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/win-guid-0.2.1/LICENSE.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Borewit/win-guid.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "wrap-ansi",
+      "version": "9.0.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/wrap-ansi",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/wrap-ansi-9.0.2/license"
+      ],
+      "repository": "chalk/wrap-ansi"
+    },
+    {
+      "category": "embedded-node",
+      "name": "ansi-styles",
+      "version": "6.2.3",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/wrap-ansi/node_modules/ansi-styles",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/ansi-styles-6.2.3/license"
+      ],
+      "repository": "chalk/ansi-styles"
+    },
+    {
+      "category": "embedded-node",
+      "name": "string-width",
+      "version": "7.2.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/wrap-ansi/node_modules/string-width",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/string-width-7.2.0/license"
+      ],
+      "repository": "sindresorhus/string-width"
+    },
+    {
+      "category": "embedded-node",
+      "name": "wrappy",
+      "version": "1.0.2",
+      "declaredLicense": "ISC",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/wrappy",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/wrappy-1.0.2/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/npm/wrappy"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "xml",
+      "version": "1.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/xml",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/xml-1.0.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "http://github.com/dylang/node-xml"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "xml2js",
+      "version": "0.6.2",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/xml2js",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/xml2js-0.6.2/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Leonidas-from-XIV/node-xml2js.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "xmlbuilder",
+      "version": "11.0.1",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/xmlbuilder",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/xmlbuilder-11.0.1/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/oozcitak/xmlbuilder-js.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "y18n",
+      "version": "5.0.8",
+      "declaredLicense": "ISC",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/y18n",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/y18n-5.0.8/LICENSE"
+      ],
+      "repository": "yargs/y18n"
+    },
+    {
+      "category": "embedded-node",
+      "name": "yargs",
+      "version": "18.2.0",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/yargs",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/yargs-18.2.0/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/yargs/yargs.git"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "yargs-parser",
+      "version": "22.0.0",
+      "declaredLicense": "ISC",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/yargs-parser",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/yargs-parser-22.0.0/LICENSE.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/yargs/yargs-parser.git"
+      }
     },
     {
       "category": "embedded-node",
@@ -806,6 +3945,160 @@
       "repository": {
         "type": "git",
         "url": "https://github.com/npm/wrappy"
+      }
+    },
+    {
+      "category": "embedded-node",
+      "name": "zod",
+      "version": "4.6.6",
+      "declaredLicense": "MIT",
+      "source": "vendor/android-runtime/src/main/assets/sources-runtime/node_modules/zod",
+      "licenseFiles": [
+        "legal/licenses/embedded-node/zod-4.6.6/LICENSE"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/colinhacks/zod.git"
+      }
+    },
+    {
+      "category": "build-tools",
+      "name": "jsesc",
+      "version": "3.1.0",
+      "declaredLicense": "MIT",
+      "source": "packages/plugin-api/node_modules/jsesc",
+      "licenseFiles": [
+        "legal/licenses/build-tools/jsesc-3.1.0/LICENSE-MIT.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/mathiasbynens/jsesc.git"
+      }
+    },
+    {
+      "category": "build-tools",
+      "name": "regenerate",
+      "version": "1.5.0",
+      "declaredLicense": "MIT",
+      "source": "packages/plugin-api/node_modules/regenerate",
+      "licenseFiles": [
+        "legal/licenses/build-tools/regenerate-1.5.0/LICENSE-MIT.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/mathiasbynens/regenerate.git"
+      }
+    },
+    {
+      "category": "build-tools",
+      "name": "regenerate-unicode-properties",
+      "version": "10.3.0",
+      "declaredLicense": "MIT",
+      "source": "packages/plugin-api/node_modules/regenerate-unicode-properties",
+      "licenseFiles": [
+        "legal/licenses/build-tools/regenerate-unicode-properties-10.3.0/LICENSE-MIT.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/mathiasbynens/regenerate-unicode-properties.git"
+      }
+    },
+    {
+      "category": "build-tools",
+      "name": "regexpu-core",
+      "version": "6.5.4",
+      "declaredLicense": "MIT",
+      "source": "packages/plugin-api/node_modules/regexpu-core",
+      "licenseFiles": [
+        "legal/licenses/build-tools/regexpu-core-6.5.4/LICENSE-MIT.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/mathiasbynens/regexpu-core.git"
+      }
+    },
+    {
+      "category": "build-tools",
+      "name": "regjsgen",
+      "version": "0.8.0",
+      "declaredLicense": "MIT",
+      "source": "packages/plugin-api/node_modules/regjsgen",
+      "licenseFiles": [
+        "legal/licenses/build-tools/regjsgen-0.8.0/LICENSE-MIT.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/bnjmnt4n/regjsgen.git"
+      }
+    },
+    {
+      "category": "build-tools",
+      "name": "regjsparser",
+      "version": "0.14.1",
+      "declaredLicense": "BSD-2-Clause",
+      "source": "packages/plugin-api/node_modules/regjsparser",
+      "licenseFiles": [
+        "legal/licenses/build-tools/regjsparser-0.14.1/LICENSE.BSD"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "git+ssh://git@github.com/jviereck/regjsparser.git"
+      }
+    },
+    {
+      "category": "build-tools",
+      "name": "unicode-canonical-property-names-ecmascript",
+      "version": "2.0.1",
+      "declaredLicense": "MIT",
+      "source": "packages/plugin-api/node_modules/unicode-canonical-property-names-ecmascript",
+      "licenseFiles": [
+        "legal/licenses/build-tools/unicode-canonical-property-names-ecmascript-2.0.1/LICENSE-MIT.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/mathiasbynens/unicode-canonical-property-names-ecmascript.git"
+      }
+    },
+    {
+      "category": "build-tools",
+      "name": "unicode-match-property-ecmascript",
+      "version": "2.0.0",
+      "declaredLicense": "MIT",
+      "source": "packages/plugin-api/node_modules/unicode-match-property-ecmascript",
+      "licenseFiles": [
+        "legal/licenses/build-tools/unicode-match-property-ecmascript-2.0.0/LICENSE-MIT.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/mathiasbynens/unicode-match-property-ecmascript.git"
+      }
+    },
+    {
+      "category": "build-tools",
+      "name": "unicode-match-property-value-ecmascript",
+      "version": "2.2.1",
+      "declaredLicense": "MIT",
+      "source": "packages/plugin-api/node_modules/unicode-match-property-value-ecmascript",
+      "licenseFiles": [
+        "legal/licenses/build-tools/unicode-match-property-value-ecmascript-2.2.1/LICENSE-MIT.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/mathiasbynens/unicode-match-property-value-ecmascript.git"
+      }
+    },
+    {
+      "category": "build-tools",
+      "name": "unicode-property-aliases-ecmascript",
+      "version": "2.2.0",
+      "declaredLicense": "MIT",
+      "source": "packages/plugin-api/node_modules/unicode-property-aliases-ecmascript",
+      "licenseFiles": [
+        "legal/licenses/build-tools/unicode-property-aliases-ecmascript-2.2.0/LICENSE-MIT.txt"
+      ],
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/mathiasbynens/unicode-property-aliases-ecmascript.git"
       }
     },
     {

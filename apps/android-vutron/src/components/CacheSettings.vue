@@ -19,7 +19,6 @@ function updateArtworkCacheCapacity(event: Event) { store.artworkCacheCapacityMb
           <label class="settings-detail"><span>{{ $t('mobile.settingsUi.autoCache') }}</span><input type="checkbox" :checked="store.cacheStatus.enabled !== false" @change="store.setAutomaticCache(($event.target as HTMLInputElement).checked)" /></label>
           <p class="setting-note">{{ $t('mobile.settingsUi.autoCacheHint') }}</p>
           <PlaybackPrefetchSettings />
-          <CollapsibleSettingsCard class="cache-advanced" section-id="cache-prefetch" :title="$t('mobile.settingsUi.prefetchLibrary')" :remember="false"><button class="secondary-button" type="button" :disabled="store.cacheAllPlaylistsLoading" @click="store.cacheAllPlaylists()">{{ $t(store.cacheAllPlaylistsLoading ? 'mobile.settingsUi.savingLibrary' : 'mobile.settingsUi.saveLibrary') }}</button><p class="setting-note">{{ store.cacheAllPlaylistsResult }}</p></CollapsibleSettingsCard>
           <p v-if="store.cacheStatus.downloading || store.cacheStatus.queued" class="setting-note">{{ store.cacheStatus.downloading ? $t('mobile.settingsUi.downloading', { done: formatBytes(store.cacheStatus.downloadedBytes ?? 0), total: formatBytes(store.cacheStatus.downloadTotalBytes ?? 0) }) + ' · ' : '' }}{{ $t('mobile.settingsUi.queued', { count: store.cacheStatus.queued ?? 0 }) }}</p>
           <p v-if="store.cacheStatus.error" class="inline-error">{{ store.cacheStatus.error }}</p>
           <div class="storage-meter"><span :style="{ width: `${cacheUsedPercent}%` }"></span></div>
@@ -29,6 +28,6 @@ function updateArtworkCacheCapacity(event: Event) { store.artworkCacheCapacityMb
           <div class="settings-detail"><span>{{ $t('mobile.settingsUi.cacheHint') }}</span><button class="text-button danger-text" type="button" @click="store.clearCache">{{ $t('mobile.settingsUi.clear') }}</button></div>
           <button class="wide-outline-button" type="button" @click="emit('openOffline')">{{ $t('mobile.settingsUi.viewOffline') }}</button>
           <label class="setting-range"><span>{{ $t('mobile.settingsUi.artworkCapacity') }}</span><b>{{ store.artworkCacheCapacityMb }} MB</b></label>
-          <ThumbRange class="settings-slider" min="32" max="1024" step="32" :value="store.artworkCacheCapacityMb" aria-label="封面缓存容量" @input="updateArtworkCacheCapacity" @change="store.setArtworkCacheCapacity" />
+          <ThumbRange class="settings-slider" min="32" max="1024" step="32" :value="store.artworkCacheCapacityMb" :aria-label="$t('mobile.settingsUi.artworkCapacity')" @input="updateArtworkCacheCapacity" @change="store.setArtworkCacheCapacity" />
         </CollapsibleSettingsCard>
 </template>

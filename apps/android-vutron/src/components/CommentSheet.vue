@@ -25,6 +25,11 @@ const MAX_AUTO_COMMENTS = 300
 let observer: IntersectionObserver | undefined
 function date(time: number) { return time > 0 ? new Date(time).toLocaleDateString() : '' }
 function replyTo(row: VutronComment) { reply.value = row; void nextTick(() => composer.value?.focus()) }
+function collapseFloor(row: VutronComment,event: MouseEvent) {
+  const trigger=(event.currentTarget as HTMLElement).closest('.comment-row')?.querySelector<HTMLButtonElement>('button[aria-controls]')
+  thread.toggleFloor(row)
+  void nextTick(()=>{trigger?.focus({preventScroll:true});trigger?.scrollIntoView({block:'nearest',behavior:'instant'})})
+}
 async function send() { if (await thread.submit(reply.value ? 'reply' : 'add', text.value, reply.value)) { text.value = ''; reply.value = undefined } }
 async function remove(row: VutronComment) {
   if (await askAction({ title: t('mobile.comments.delete'), message: t('mobile.comments.deleteHint'), confirmLabel: t('mobile.comments.delete'), cancelLabel: t('mobile.management.cancel') }) === 'confirm')
@@ -57,14 +62,16 @@ onUnmounted(() => { observer?.disconnect() })
         <div class="comment-actions">
           <button :disabled="busy || expired || row.deleted" :aria-pressed="row.liked" @click="thread.like(row)"><OriginalIcon :name="row.liked ? 'heartSolid' : 'heart'" />{{ row.likedCount || $t('mobile.comments.like') }}</button>
           <button :disabled="busy || expired || row.deleted" @click="replyTo(row)">{{ $t('mobile.comments.reply') }}</button>
-          <button v-if="row.replyCount || floors[row.id]" :disabled="floors[row.id]?.loading || expired" @click="thread.loadFloor(row)">{{ $t('mobile.comments.floor') }} {{ row.replyCount || '' }}</button>
+          <button v-if="row.replyCount || floors[row.id]" :aria-expanded="Boolean(floors[row.id]?.expanded)" :aria-controls="'comment-floor-' + row.id" :disabled="!floors[row.id] && expired" @click="thread.toggleFloor(row)">{{ $t(floors[row.id]?.expanded ? 'mobile.playbackReview.collapseReplies' : 'mobile.comments.floor') }} {{ row.replyCount || '' }}</button>
           <button v-if="row.userId === account && !row.deleted" :disabled="busy || expired" @click="remove(row)">{{ $t('mobile.comments.delete') }}</button>
         </div>
-        <section v-if="floors[row.id]" class="comment-floor">
+        <div v-if="floors[row.id]" :id="'comment-floor-' + row.id" class="comment-floor-region" :class="{ expanded: floors[row.id].expanded }" :inert="!floors[row.id].expanded" :aria-hidden="!floors[row.id].expanded"><div class="comment-floor-clip"><section class="comment-floor">
           <article v-for="child in floors[row.id].rows" :key="child.id"><b>{{ child.nickname }}</b><p class="comment-content">{{ child.content }}</p><blockquote v-for="quoted in child.replies" :key="quoted.id">{{ quoted.nickname }}：{{ quoted.content }}</blockquote><div class="comment-actions"><button :disabled="busy || expired || child.deleted" :aria-pressed="child.liked" @click="thread.like(child)"><OriginalIcon :name="child.liked ? 'heartSolid' : 'heart'" />{{ child.likedCount || $t('mobile.comments.like') }}</button><button :disabled="busy || expired || child.deleted" @click="replyTo(child)">{{ $t('mobile.comments.reply') }}</button><button v-if="child.userId === account && !child.deleted" :disabled="busy || expired" @click="remove(child)">{{ $t('mobile.comments.delete') }}</button></div></article>
+          <p v-if="floors[row.id].loading" class="setting-note" role="status">{{ $t('mobile.comments.loading') }}</p>
           <p v-if="floors[row.id].error" class="inline-error">{{ floors[row.id].error }}</p>
           <button v-if="floors[row.id].more || floors[row.id].error" class="text-button" :disabled="floors[row.id].loading || expired" @click="thread.loadFloor(row)">{{ $t(floors[row.id].loading ? 'mobile.comments.loading' : 'mobile.comments.moreReplies') }}</button>
-        </section>
+          <button v-if="floors[row.id].expanded" type="button" class="text-button comment-floor-collapse" :aria-controls="'comment-floor-'+row.id" aria-expanded="true" @click="collapseFloor(row,$event)"><OriginalIcon name="up" />{{ $t('mobile.playbackReview.collapseReplies') }}</button>
+        </section></div></div>
       </article>
       <p v-if="comments.length" class="comment-count" role="status">{{ $t('mobile.commentPerformance.shown', { count: comments.length, total }) }}<span v-if="comments.length >= MAX_AUTO_COMMENTS && more"> · {{ $t('mobile.commentPerformance.paused') }}</span></p>
       <div ref="sentinel" class="comment-more"><span v-if="loading">{{ $t('mobile.comments.loading') }}</span><button v-else-if="more && enabled && !expired" class="text-button" @click="thread.load()">{{ $t(comments.length >= MAX_AUTO_COMMENTS ? 'mobile.commentPerformance.continue' : 'mobile.comments.more') }}</button><span v-else-if="comments.length">{{ $t('mobile.comments.noMore') }}</span></div>
@@ -87,6 +94,10 @@ button:is(:focus-visible,[data-original-feedback]),.comment-sort .selected { bac
 .comment-row { padding:14px 0;border-bottom:1px solid var(--line); } .comment-author { display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size: calc(13px * var(--ui-font-scale, 1)); }
 .comment-row { content-visibility:auto;contain-intrinsic-size:auto 160px; }
 .comment-floor article { content-visibility:auto;contain-intrinsic-size:auto 96px; }
+.comment-floor-region { display:grid; grid-template-rows:0fr; opacity:0; transition:grid-template-rows var(--motion-state) ease,opacity var(--motion-state) ease; }
+.comment-floor-region.expanded { grid-template-rows:1fr; opacity:1; }
+.comment-floor-clip { min-height:0; overflow:hidden; }
+html[data-motion='reduced'] .comment-floor-region { transition:none; }
 .comment-count { color:var(--muted);font-size: calc(12px * var(--ui-font-scale, 1));line-height:1.5; }
 .comment-content { white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;line-height:1.65;font-size: calc(14px * var(--ui-font-scale, 1));margin:8px 0; }
 blockquote { margin:8px 0;padding:8px 10px;border-radius:9px;background:var(--color-secondary-bg);white-space:pre-wrap;overflow-wrap:anywhere;font-size: calc(12px * var(--ui-font-scale, 1)); }

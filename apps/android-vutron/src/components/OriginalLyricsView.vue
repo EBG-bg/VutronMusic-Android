@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import type { LyricFamily, LyricLine } from '@vutronmusic/core/lyrics'
 import { lyricDisplayStyle, type LyricDisplaySettings } from '../platform/lyricDisplay'
+import { isMotionReduced } from '../platform/motion'
 import {
   boundaryScrollRemainder, interpolatedPosition, lyricClock, lyricDisplayLines, lyricIndexAt, lyricLineProgress,
   lyricCenteredScrollTop, lyricSeekPosition, lyricVisibleBand, lyricWordProgress, type LyricPlaybackAnchor
@@ -20,6 +21,10 @@ const emit = defineEmits<{ seek: [position: number] }>()
 const container = ref<HTMLElement>()
 const activeIndex = ref(-1)
 const manualScroll = ref(false)
+const pendingLine = ref<number>()
+let pendingUntil = 0
+let confirmationTimer: ReturnType<typeof setTimeout> | undefined
+function clearConfirmation() { clearTimeout(confirmationTimer); confirmationTimer = undefined; pendingLine.value = undefined; pendingUntil = 0 }
 const rows: HTMLElement[] = []
 const hasWords = computed(() => props.family.original.some(line => line.words.length > 0))
 const estimated = computed(() => props.displaySettings?.estimatedWordTiming === true)
@@ -143,15 +148,17 @@ async function followActive(instant = false, reveal = false) {
     band = lyricVisibleBand(listRect.top, listRect.bottom, viewport.top, viewport.bottom)
   }
   const top = lyricCenteredScrollTop(list.scrollTop, rowRect.top, rowRect.bottom, band)
-  list.scrollTo({ top, behavior: instant ? 'instant' as ScrollBehavior : 'smooth' })
+  list.scrollTo({ top, behavior: instant || isMotionReduced() ? 'instant' as ScrollBehavior : 'smooth' })
 }
 
 function returnToCurrent() {
+  clearConfirmation()
   manualScroll.value = false
   void followActive(false, true)
 }
 
 function markManualScroll() {
+  clearConfirmation()
   ++followGeneration
   manualScroll.value = true
 }
@@ -189,9 +196,23 @@ function touchMove(event: TouchEvent) {
   })
 }
 
-function seekLine(line: LyricLine, event: MouseEvent) {
+function seekLine(line: LyricLine, event: MouseEvent, index: number) {
   // A finger drag must not seek when a WebView synthesizes its trailing click.
   if (touchPointerMoved && event.detail !== 0) { touchPointerMoved = false; return }
+  if (pendingLine.value !== index || performance.now() > pendingUntil) {
+    clearConfirmation()
+    manualScroll.value = true
+    ++followGeneration
+    pendingLine.value = index
+    pendingUntil = performance.now() + 1800
+    confirmationTimer = setTimeout(clearConfirmation, 1800)
+    return
+  }
+  confirmLine(line)
+}
+
+function confirmLine(line: LyricLine) {
+  clearConfirmation()
   const target = lyricSeekPosition(line, props.offsetMs, props.duration)
   anchor = { position: target, monotonicTime: performance.now(), playing: props.playing, rate: props.rate }
   manualScroll.value = false
@@ -228,6 +249,7 @@ watch(displayLines, () => {
   if (!manualScroll.value) void followActive(true)
 }, { deep: true, flush: 'post' })
 watch(() => props.family, async () => {
+  clearConfirmation()
   ++followGeneration
   highlightedRow = -1
   activeWords = []
@@ -253,6 +275,7 @@ onMounted(() => {
   void followActive(true)
 })
 onUnmounted(() => {
+  clearConfirmation()
   mounted = false
   cancelAnimationFrame(frame)
   cancelAnimationFrame(handoffFrame)
@@ -268,11 +291,12 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="original-lyrics-view" :class="{ 'word-timed': hasWords || hasEstimates }" :style="displayStyle" aria-label="歌词">
-    <header class="original-lyrics-heading"><b>歌词</b><span v-if="hasWords" class="original-lyrics-source">原始逐字</span><span v-if="hasEstimates" class="original-lyrics-source estimated-lyrics-note">估算逐字（计算生成，可能不准确）</span><button v-if="manualScroll" type="button" class="return-current-lyric" @click="returnToCurrent">返回当前句</button></header>
-    <div v-if="!family.original.length" class="original-lyrics-empty">暂无歌词</div>
-    <div v-else ref="container" class="original-lyrics-scroll" tabindex="0" aria-label="歌词滚动区域" @wheel.passive="markManualScroll" @keydown="scrollKey" @touchstart.passive="touchStart" @touchmove.passive="touchMove">
-      <button v-for="(line, index) in displayLines" :key="line.start + '-' + index" :ref="element => setRow(element, index)" type="button" class="original-lyric-row" :class="{ active: activeIndex === index }" :aria-current="activeIndex === index ? 'true' : undefined" :aria-label="'跳到歌词：' + line.text" @click="seekLine(line, $event)">
+  <section class="original-lyrics-view" :class="{ 'word-timed': hasWords || hasEstimates }" :style="displayStyle" :aria-label="$t('mobile.lyricUi.title')">
+    <header class="original-lyrics-heading"><b>{{ $t('mobile.lyricUi.title') }}</b><span v-if="hasWords" class="original-lyrics-source">{{ $t('mobile.lyricUi.originalWords') }}</span><span v-if="hasEstimates" class="original-lyrics-source estimated-lyrics-note">{{ $t('mobile.lyricUi.estimatedWords') }}</span><button v-if="manualScroll" type="button" class="return-current-lyric" @click="returnToCurrent">{{ $t('mobile.lyricUi.returnCurrent') }}</button></header>
+    <div class="lyric-seek-confirmation" aria-live="polite"><template v-if="pendingLine !== undefined"><span>{{ $t('mobile.playbackReview.seekAgain') }}</span><button type="button" class="text-button" @click="confirmLine(displayLines[pendingLine])">{{ $t('mobile.playbackReview.confirmSeek') }}</button></template></div>
+    <div v-if="!family.original.length" class="original-lyrics-empty">{{ $t('mobile.refinements.noLyrics') }}</div>
+    <div v-else ref="container" class="original-lyrics-scroll" tabindex="0" :aria-label="$t('mobile.lyricUi.scrollArea')" @wheel.passive="markManualScroll" @keydown="scrollKey" @touchstart.passive="touchStart" @touchmove.passive="touchMove">
+      <button v-for="(line, index) in displayLines" :key="line.start + '-' + index" :ref="element => setRow(element, index)" type="button" class="original-lyric-row" :class="{ active: activeIndex === index, 'seek-pending': pendingLine === index }" :aria-current="activeIndex === index ? 'true' : undefined" :aria-label="$t('mobile.playbackReview.seekLabel', { text: line.text })" @click="seekLine(line, $event, index)">
         <span class="original-lyric-text"><span v-if="!line.words.length" class="original-lyric-word">{{ line.text || '♪' }}</span><template v-else><span v-for="(word, wordIndex) in line.words" :key="wordIndex" class="original-lyric-word">{{ word.text }}</span></template></span>
         <span v-if="family.pairedTranslations[index]" class="original-lyric-translation">{{ family.pairedTranslations[index] }}</span>
       </button>
@@ -291,6 +315,8 @@ onUnmounted(() => {
 .original-lyrics-scroll::before, .original-lyrics-scroll::after { content: ''; display: block; height: var(--lyric-edge-space, 130px); pointer-events: none; }
 .original-lyric-row { display: block; width: 100%; min-width: 0; margin: 2px 0; padding: 13px 10px; border: 0; border-radius: 12px; color: var(--lyric-unplayed, var(--color-full-text-unplay)); background: transparent; text-align: left; font-family: inherit; font-weight: 600; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .original-lyric-row:active { background: var(--color-secondary-bg-for-transparent); }
+.original-lyric-row.seek-pending { background:var(--accent-soft); outline:1px solid var(--accent); outline-offset:-1px; }
+.lyric-seek-confirmation { min-height:34px; display:flex; align-items:center; flex-wrap:wrap; gap:4px; color:var(--muted); font-size:calc(11px * var(--ui-font-scale, 1)); }
 .original-lyric-text { display: block; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 21px; line-height: 1.5; filter: var(--lyric-shadow, none); transform: scale(.96); transform-origin: left center; transition: transform .3s cubic-bezier(.25,.46,.45,.94); }
 .original-lyric-row.active .original-lyric-text { transform: scale(1); }
 .original-lyric-word { --lyric-progress: 0%; background-image: linear-gradient(to right, var(--lyric-played, var(--color-wbw-text-played)) var(--lyric-progress), var(--lyric-unplayed, var(--color-wbw-text-unplay)) var(--lyric-progress)); background-clip: text; -webkit-background-clip: text; color: transparent; }

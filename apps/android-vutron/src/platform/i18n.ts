@@ -6,6 +6,9 @@ import en from '../../../../src/renderer/locales/en.json'
 import mobileZh from '../locales/zh-hans.json'
 import mobileZht from '../locales/zh-hant.json'
 import mobileEn from '../locales/en.json'
+import pluginZh from '../plugins/locales/zh-hans.json'
+import pluginZht from '../plugins/locales/zh-hant.json'
+import pluginEn from '../plugins/locales/en.json'
 
 export type AppLocale = 'zh' | 'zht' | 'en'
 export const supportedLocales: readonly AppLocale[] = ['zh', 'zht', 'en']
@@ -18,7 +21,7 @@ try {
 
 export const i18n = createI18n({
   legacy: false, globalInjection: true, locale: initialLocale, fallbackLocale: 'zh',
-  messages: { zh: { ...zh, mobile: mobileZh }, zht: { ...zht, mobile: mobileZht }, en: { ...en, mobile: mobileEn } }
+  messages: { zh: { ...zh, mobile: { ...mobileZh, plugins: pluginZh } }, zht: { ...zht, mobile: { ...mobileZht, plugins: pluginZht } }, en: { ...en, mobile: { ...mobileEn, plugins: pluginEn } } }
 })
 export const appLocale = i18n.global.locale
 export const translate = i18n.global.t

@@ -26,12 +26,13 @@ final class LocalLyricSource {
     private LocalLyricSource() { }
 
     static LyricRepository.Lyrics load(Context context, JSONObject song) {
-        if (song == null) return null;
-        // Album sidecars have absolute time; do not present them as per-track lyrics.
-        if (song.optInt("cueTrackNo") > 0) return null;
-        String source = song.optString("localUri", "");
-        if (source.isEmpty()) source = song.optString("localPath", "");
-        if (source.isEmpty() || song.optBoolean("cached") || "cache".equals(song.optString("source"))) return null;
+        LyricRepository.Lyrics path = loadPath(context, song);
+        return path == null ? loadEmbedded(context, song) : path;
+    }
+
+    static LyricRepository.Lyrics loadPath(Context context, JSONObject song) {
+        String source = readableSource(song);
+        if (source.isEmpty()) return null;
         LyricRepository.Lyrics plain = null;
         for (String extension : new String[]{"eslrc", "lrc"}) try {
             String sidecar = sidecar(context, source, song.optString("localFileName", ""), extension);
@@ -40,9 +41,23 @@ final class LocalLyricSource {
             for (LyricTimeline.Line line : result.original.lines) if (!line.words.isEmpty()) return result;
             if (plain == null) plain = result;
         } catch (Exception unavailable) { Log.d("VutronLyrics", "Local sidecar unavailable: " + unavailable.getClass().getSimpleName()); }
-        if (plain != null) return plain;
+        return plain;
+    }
+
+    static LyricRepository.Lyrics loadEmbedded(Context context, JSONObject song) {
+        String source = readableSource(song);
+        if (source.isEmpty()) return null;
         try (InputStream input = open(context, source)) { return fromText(embedded(input)); }
         catch (Exception unavailable) { Log.d("VutronLyrics", "Embedded lyrics unavailable: " + unavailable.getClass().getSimpleName()); return null; }
+    }
+
+    private static String readableSource(JSONObject song) {
+        if (song == null) return "";
+        // Album sidecars have absolute time; do not present them as per-track lyrics.
+        if (song.optInt("cueTrackNo") > 0) return "";
+        String source = song.optString("localUri", "");
+        if (source.isEmpty()) source = song.optString("localPath", "");
+        return source.isEmpty() || song.optBoolean("cached") || "cache".equals(song.optString("source")) ? "" : source;
     }
 
     private static LyricRepository.Lyrics fromText(String value) throws org.json.JSONException {

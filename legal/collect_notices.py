@@ -2,14 +2,18 @@
 from __future__ import annotations
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shutil
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
+from datetime import datetime, timedelta, timezone
 
 ROOT = Path(__file__).resolve().parents[1]
+if os.name == 'nt' and not str(ROOT).startswith('\\\\?\\'):
+    ROOT = Path('\\\\?\\' + str(ROOT))
 LEGAL = ROOT / 'legal'
 LICENSES = LEGAL / 'licenses'
 LICENSES.mkdir(parents=True, exist_ok=True)
@@ -38,6 +42,10 @@ def package(path: Path, category: str) -> None:
         return
     data = json.loads(manifest.read_text(encoding='utf-8'))
     name, version = data.get('name', path.name), data.get('version', '')
+    # The enhanced API's dependency tree includes three metadata-only packages.
+    # They have no Android runtime code and are explicitly excluded from assets.
+    if category == 'embedded-node' and name in {'@tokenizer/token', 'gzip', 'https'}:
+        return
     identifier = re.sub(r'[^A-Za-z0-9_.-]', '_', name) + '-' + version
     files = [p for p in path.iterdir() if p.is_file() and re.match(r'^(licen[cs]e|copying|notice|unlicense)', p.name, re.I)]
     copied = [copy_license(p, LICENSES / category / identifier / p.name) for p in files]
@@ -64,6 +72,14 @@ package_names = ['vue', 'pinia', 'vue-demi', '@capacitor/core', '@capacitor/andr
 for name in package_names:
     package(ROOT / 'apps/android-vutron/node_modules' / name, 'frontend')
 scan_runtime(RUNTIME / 'assets/sources-runtime/node_modules')
+
+# Build-time Unicode rewriting expands property tables into shipped JavaScript.
+# Retain the toolchain's original grants without shipping its implementation.
+plugin_api = ROOT / 'packages/plugin-api'
+plugin_lock = json.loads((plugin_api / 'package-lock.json').read_text(encoding='utf-8'))
+for dependency, metadata in sorted(plugin_lock['packages'].items()):
+    if dependency and metadata.get('dev'):
+        package(plugin_api / dependency, 'build-tools')
 
 # NIO desugaring is a separate D8 input, absent from releaseRuntimeClasspath.
 compat_source = ROOT / 'vendor/java-compat/desugar-jdk-2.1.5-source.zip'
@@ -191,7 +207,8 @@ for entry in entries:
     if entry.get('name', '').startswith('org.jetbrains.kotlinx:'):
         entry['licenseFiles'] = ['legal/licenses/Kotlinx-Coroutines-APACHE-2.0.txt']
 release_version = json.loads((ROOT / 'apps/android-vutron/package.json').read_text(encoding='utf-8-sig'))['version']
-document = {'product': 'Vutron Music - Mobile', 'release': release_version, 'reviewDate': '2026-10-26',
+document = {'product': 'Vutron Music - Mobile', 'release': release_version,
+            'reviewDate': os.environ.get('VUTRON_LICENSE_REVIEW_DATE', datetime.now(timezone(timedelta(hours=8))).date().isoformat()),
             'scope': 'Installed frontend modules, embedded Node source tree, resolved Android runtime graph and retained JNI binaries; build-only dependencies are not asserted to ship.',
             'packages': entries, 'nativeBinaries': binaries, 'licenseSources': license_sources, 'unresolvedLicenseFiles': missing}
 (LEGAL / 'third-party-inventory.json').write_text(json.dumps(document, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
@@ -203,4 +220,4 @@ for license_path in sorted(LICENSES.rglob('*')):
         combined.append('\n======== ' + relative(license_path) + ' ========\n')
         combined.append(license_path.read_text(encoding='utf-8-sig', errors='replace'))
 (LEGAL / 'THIRD_PARTY_LICENSES.txt').write_text('\n'.join(combined), encoding='utf-8')
-print(json.dumps({'packages': len(entries), 'nativeBinaries': len(binaries), 'licenseFiles': len(list(LICENSES.rglob('*.*'))), 'unresolved': missing}, ensure_ascii=False))
+print(json.dumps({'packages': len(entries), 'nativeBinaries': len(binaries), 'licenseFiles': sum(path.is_file() for path in LICENSES.rglob('*')), 'unresolved': missing}, ensure_ascii=False))

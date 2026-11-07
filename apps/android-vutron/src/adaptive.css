@@ -105,21 +105,25 @@ body .library-sidebar {
     margin-top: 0;
   }
   .player-page .original-lyrics-scroll { height: clamp(200px, calc(100dvh - 160px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 720px); }
-  /* The compact player can switch between cover and lyrics. Keep that choice
-     while placing the visual beside the transport controls on a wide window. */
+  /* Wide windows show the artwork with transport on the left and lyrics on
+     the right. Compact/split-screen windows keep the saved phone view. */
   .app-shell .player-page > .player-visual {
-    grid-column: 2;
-    grid-row: 1 / span 12;
-    position: sticky;
-    top: max(16px, env(safe-area-inset-top));
-    min-width: 0;
+    display: contents;
   }
-  .player-page .player-visual .player-artwork { width: min(100%, clamp(200px, 60dvh, 460px)); }
+  .player-page .player-visual .player-artwork { grid-column: 1; grid-row: 2; width: min(100%, clamp(160px, 36dvh, 360px)); }
   .player-page .player-visual .artwork-toggle { border-radius: 16px; }
-  .player-page .player-visual .player-lyrics-view { height: auto; min-height: 0; overflow: visible; margin: 0; }
+  .player-page .player-visual .player-lyrics-view { grid-column: 2; grid-row: 1 / span 12; position: sticky; top: max(16px, env(safe-area-inset-top)); height: auto; min-height: 0; min-width:0; overflow: visible; margin: 0; }
   .app-shell .player-page .player-visual .original-lyrics-view { height: auto; display: block; }
   .app-shell .player-page .player-lyrics-content { height: auto; }
   .app-shell .player-page .player-visual .original-lyrics-scroll { flex: none; height: clamp(200px, calc(100dvh - 220px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 660px); }
+}
+
+/* Keep the transport above the navigation on small portrait screens at large
+   text sizes. At the normal font scale this preserves the original artwork. */
+@media (max-width: 370px) and (max-height: 760px) and (orientation: portrait) {
+  .player-page .player-artwork {
+    width: min(68vw, max(112px, calc(68vw - (var(--ui-font-scale, 1) - 1) * 176px)));
+  }
 }
 
 /* A short landscape window must remain scrollable, including with a keyboard. */

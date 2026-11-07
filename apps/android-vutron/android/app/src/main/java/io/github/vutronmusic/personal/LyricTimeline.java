@@ -84,6 +84,32 @@ final class LyricTimeline {
 
     static LyricTimeline empty() { return new LyricTimeline(new ArrayList<>()); }
 
+    /** Original plugin lines use seconds, while their word intervals use milliseconds. */
+    static LyricTimeline fromPlugin(org.json.JSONArray source, String field) {
+        List<Line> lines = new ArrayList<>();
+        for (int i=0; source != null && i<Math.min(MAX_LINES, source.length()); i++) {
+            org.json.JSONObject raw = source.optJSONObject(i);
+            org.json.JSONObject lyric = raw == null ? null : raw.optJSONObject(field);
+            if (lyric == null) continue;
+            long time = Math.max(0, Math.round(raw.optDouble("start") * 1000));
+            long end = Math.max(time, Math.round(raw.optDouble("end") * 1000));
+            String text = lyric.optString("text");
+            List<Word> words = new ArrayList<>();
+            org.json.JSONArray info = lyric.optJSONArray("info");
+            int cursor = 0;
+            for (int n=0; info != null && n<info.length(); n++) {
+                org.json.JSONObject item = info.optJSONObject(n); if (item == null) continue;
+                String word = item.optString("word");
+                int first = text.indexOf(word, cursor);
+                if (first < 0 || word.isEmpty()) { words.clear(); break; }
+                long start = Math.max(time, item.optLong("start")), stop = Math.max(start, item.optLong("end"));
+                words.add(new Word(start, stop-start, first, first+word.length())); cursor = first+word.length();
+            }
+            lines.add(new Line(time, end-time, text, words));
+        }
+        return new LyricTimeline(lines);
+    }
+
     /** Negative clocks intentionally select no line, so a zero-time first row can be delayed. */
     static long adjustedTime(long playerPosition, long offsetMs) {
         return playerPosition - offsetMs;

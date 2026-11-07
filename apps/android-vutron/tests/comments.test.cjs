@@ -1,4 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),ts=require('typescript'),vue=require('vue');
+const mobileI18n=require('./helpers/i18n.cjs').loadMobileI18n();
 const row=(id='9007199254740993')=>({id,userId:'7',nickname:'User',content:'<script>text</script>',deleted:false,time:1,liked:false,likedCount:2,replyCount:1,replies:[]});
 const page=(comments=[],more=false)=>({comments,total:comments.length,hasMore:more,cursor:'9',nextPage:2,sort:99});
 const deferred=()=>{let resolve,reject;let promise=new Promise((a,b)=>{resolve=a;reject=b});return {promise,resolve,reject}};
@@ -6,7 +7,7 @@ function setup(overrides={}) {
  const calls=[],plugin={getComments:async q=>{calls.push(q);return page([row()])},getCommentReplies:async()=>page([row('4')]),manageComment:async()=>({committed:true}),...overrides};
  const module={exports:{}},filename=path.join(__dirname,'../src/composables/commentThread.ts');
  vm.runInNewContext(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
- {module,exports:module.exports,require:n=>n==='vue'?vue:{vutronPlugin:plugin},Error,Set,Array,Number,Boolean,JSON,String,Object});
+ {module,exports:module.exports,require:n=>n==='vue'?vue:n==='../platform/i18n'?mobileI18n:{vutronPlugin:plugin},Error,Set,Array,Number,Boolean,JSON,String,Object});
  const target=vue.ref({targetType:'track',targetId:'1'}),account=vue.ref('7'),enabled=vue.ref(true),scope=vue.effectScope();
  const api=scope.run(()=>module.exports.createCommentThread(target,account,enabled));
  return {api,scope,target,account,enabled,calls};
@@ -34,6 +35,20 @@ test('reply pagination is independent; empty and overlong drafts never submit',a
  assert.equal(await s.api.submit('add','  '),false);assert.equal(await s.api.submit('add','a'.repeat(141)),false);
  assert.equal(await s.api.submit('delete','',{...c,userId:'8'}),false);assert.equal(writes,0);
  assert.equal(await s.api.submit('reply','hello',c),true);assert.equal(writes,1);s.scope.stop();
+});
+
+test('floor replies collapse and reopen without fetching another page', async()=>{
+ let reads=0;const s=setup({getCommentReplies:async()=>{reads++;return page([row('4')],true)}});await tick();const c=s.api.comments.value[0];
+ await s.api.toggleFloor(c);assert.equal(reads,1);assert.equal(s.api.floors[c.id].expanded,true);
+ await s.api.toggleFloor(c);assert.equal(s.api.floors[c.id].expanded,false);
+ await s.api.toggleFloor(c);assert.equal(s.api.floors[c.id].expanded,true);assert.equal(reads,1);
+ await s.api.loadFloor(c);assert.equal(reads,2);s.scope.stop();
+});
+
+test('a pending floor response keeps the user-selected collapsed state', async()=>{
+ const pending=deferred(),s=setup({getCommentReplies:()=>pending.promise});await tick();const c=s.api.comments.value[0];
+ const first=s.api.toggleFloor(c);await s.api.toggleFloor(c);assert.equal(s.api.floors[c.id].expanded,false);
+ pending.resolve(page([row('4')]));await first;assert.equal(s.api.floors[c.id].expanded,false);assert.equal(s.api.floors[c.id].rows.length,1);s.scope.stop();
 });
 test('expired login prevents repeated requests until session changes',async()=>{
  let writes=0;const s=setup({manageComment:async()=>{writes++;throw {code:'301',message:'expired'}}});await tick();

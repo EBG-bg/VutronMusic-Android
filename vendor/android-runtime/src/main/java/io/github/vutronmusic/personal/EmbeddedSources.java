@@ -100,6 +100,32 @@ public final class EmbeddedSources {
 
     public static String status() { return stage; }
 
+    /** The plugin host shares this already embedded Node runtime and private bearer. */
+    public static JSONObject pluginRequest(Context context, JSONObject payload) throws IOException {
+        long deadline = SystemClock.elapsedRealtime() + 65000;
+        ensureStarted(context.getApplicationContext());
+        awaitReady(deadline);
+        return postPlugin(payload, deadline);
+    }
+
+    public static boolean runtimeStarted() { return started && startupFailure == null; }
+
+    public static JSONObject pluginMedia(Context context, String pluginId, String url, JSONObject headers, boolean allowNetwork) throws IOException {
+        try {
+            java.net.URI existing = new java.net.URI(url);
+            if (ready && "http".equalsIgnoreCase(existing.getScheme()) && "127.0.0.1".equals(existing.getHost())
+                    && existing.getPort() == port && existing.getPath().matches("/(?:media|plugin-media)/[a-f0-9]{48}")
+                    && existing.getUserInfo() == null && existing.getQuery() == null && existing.getFragment() == null)
+                return new JSONObject().put("url", url).put("headers", new JSONObject());
+            JSONObject result = pluginRequest(context, new JSONObject().put("action", "resolveMedia").put("id", pluginId)
+                    .put("allowNetwork", allowNetwork).put("media", new JSONObject().put("url", url).put("headers", headers == null ? new JSONObject() : headers)));
+            if (result.optInt("code") != 200) return result;
+            String mediaPath = result.optString("path");
+            if (!mediaPath.matches("/(?:plugin-media|media)/[a-f0-9]{48}")) throw new IOException("插件媒体地址无效");
+            return new JSONObject().put("url", "http://127.0.0.1:" + port + mediaPath).put("headers", new JSONObject());
+        } catch (JSONException | java.net.URISyntaxException invalid) { throw new IOException("插件媒体请求无效", invalid); }
+    }
+
     /** App-private diagnostic text, excluding account credentials and signed media URLs. */
     public static String diagnostics(Context context) {
         File file = new File(context.getFilesDir(), "source-runtime.log");
@@ -155,6 +181,7 @@ public final class EmbeddedSources {
         try {
             stage = "解包内置音源资源";
             record("extract-start", null);
+            RuntimeBundle.recover(runtime);
             File marker = new File(runtime, ".ready");
             String fingerprint = bundleFingerprint(context.getAssets());
             boolean installed = false;
@@ -166,14 +193,7 @@ public final class EmbeddedSources {
                 }
             }
             if (!installed) {
-                copyAssets(context.getAssets(), ASSETS, runtime);
-                if (!new File(runtime, "server.js").isFile()
-                        || !new File(runtime, "node_modules/@unblockneteasemusic/server/src/provider/match.js").isFile()) {
-                    throw new IOException("内置音源资源不完整");
-                }
-                try (FileOutputStream output = new FileOutputStream(marker)) {
-                    output.write(fingerprint.getBytes(StandardCharsets.UTF_8));
-                }
+                RuntimeBundle.install(runtime, fingerprint, target -> copyAssets(context.getAssets(), ASSETS, target));
             }
             record("extract-ready", null);
             startNode(library, new File(runtime, "server.js"));
@@ -188,7 +208,10 @@ public final class EmbeddedSources {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             digest.update(BUNDLE.getBytes(StandardCharsets.UTF_8));
-            for (String source : new String[]{"server.js", "quality-selection.cjs", "strict-identity.cjs"}) {
+            for (String source : new String[]{"server.js", "quality-selection.cjs", "strict-identity.cjs", "dependency-lock.json",
+                    "runtime-compat-contracts.json", "runtime-compat-dependencies.json",
+                    "plugin-host.cjs", "plugin-worker.cjs", "plugin-media-gateway.cjs", "plugin-contract.cjs", "plugin-schemas.cjs", "plugin-defaults.cjs", "plugin-lyrics.cjs", "plugin-core-lyrics.cjs",
+                    "plugins/builtin-index.json", "plugins/local.js", "plugins/netease.js", "plugins/kugou.js", "plugins/emby.js", "plugins/jellyfin.js", "plugins/navidrome.js", "plugins/demo.js"}) {
                 try (InputStream input = assets.open(ASSETS + "/" + source)) {
                     byte[] buffer = new byte[8192];
                     int count;
@@ -200,6 +223,66 @@ public final class EmbeddedSources {
             return value.toString();
         } catch (NoSuchAlgorithmException failure) {
             throw new IOException("设备缺少 SHA-256，无法核对音源资源", failure);
+        }
+    }
+
+    /** Replaces only the generated bundle. Plugin/account/cache data lives beside it. */
+    static final class RuntimeBundle {
+        interface Writer { void copy(File destination) throws IOException; }
+        private static File sibling(File runtime, String suffix) throws IOException {
+            File parent = runtime.getAbsoluteFile().getParentFile().getCanonicalFile();
+            File expected = new File(parent, BUNDLE);
+            if (!BUNDLE.equals(runtime.getName()) || !expected.equals(runtime.getCanonicalFile())) throw new IOException("音源资源目录不在固定应用目录中");
+            File result = new File(parent, BUNDLE + suffix);
+            if (!result.getAbsoluteFile().equals(result.getCanonicalFile())) throw new IOException("音源临时目录不能是外部链接");
+            return result;
+        }
+        static void recover(File runtime) throws IOException {
+            File previous = sibling(runtime, ".previous"), next = sibling(runtime, ".installing");
+            if (!runtime.exists() && previous.exists() && !previous.renameTo(runtime)) throw new IOException("无法恢复上次音源资源");
+            if (next.exists()) removeTree(next);
+            if (runtime.exists() && previous.exists()) cleanupPrevious(previous);
+        }
+        static void install(File runtime, String fingerprint, Writer writer) throws IOException {
+            recover(runtime);
+            File next = sibling(runtime, ".installing"), previous = sibling(runtime, ".previous");
+            if (!next.mkdirs() && !next.isDirectory()) throw new IOException("无法创建新的音源资源目录");
+            boolean committed = false, movedOld = false;
+            try {
+                writer.copy(next);
+                if (!new File(next,"server.js").isFile()
+                        || !new File(next,"node_modules/@unblockneteasemusic/server/src/provider/match.js").isFile()) throw new IOException("内置音源资源不完整");
+                try (FileOutputStream output = new FileOutputStream(new File(next,".ready"))) {
+                    output.write(fingerprint.getBytes(StandardCharsets.UTF_8)); output.getFD().sync();
+                }
+                if (previous.exists()) removeTree(previous);
+                if (runtime.exists()) { if (!runtime.renameTo(previous)) throw new IOException("无法暂存上次音源资源"); movedOld = true; }
+                if (!next.renameTo(runtime)) {
+                    IOException failure = new IOException("无法提交新的音源资源");
+                    if (movedOld && !previous.renameTo(runtime)) failure.addSuppressed(new IOException("上次资源保留在固定回退目录，等待下次启动恢复"));
+                    throw failure;
+                }
+                committed = true;
+                cleanupPrevious(previous);
+            } finally {
+                if (!committed && next.exists()) {
+                    try { removeTree(next); } catch (IOException cleanup) { record("bundle-cleanup-deferred", cleanup); }
+                }
+            }
+        }
+        private static void cleanupPrevious(File previous) {
+            try { if (previous.exists()) removeTree(previous); }
+            catch (IOException cleanup) { record("bundle-cleanup-deferred", cleanup); }
+        }
+        private static void removeTree(File file) throws IOException {
+            if (java.nio.file.Files.isSymbolicLink(file.toPath())) {
+                if (!file.delete()) throw new IOException("无法移除音源目录中的旧链接"); return;
+            }
+            if (file.isDirectory()) {
+                File[] children = file.listFiles(); if (children == null) throw new IOException("无法列出旧音源资源");
+                for (File child : children) removeTree(child);
+            }
+            if (file.exists() && !file.delete()) throw new IOException("无法清理旧音源资源");
         }
     }
 
@@ -307,6 +390,41 @@ public final class EmbeddedSources {
             if (timeout != null) timeout.cancel(false);
             if (connection != null) connection.disconnect();
         }
+    }
+
+    private static JSONObject postPlugin(JSONObject payload, long deadline) throws IOException {
+        checkInterrupted();
+        byte[] data = payload.toString().getBytes(StandardCharsets.UTF_8);
+        if (data.length > 8 * 1024 * 1024) throw new IOException("插件请求超过大小限制");
+        int remaining = (int) Math.max(1, Math.min(Integer.MAX_VALUE, deadline - SystemClock.elapsedRealtime()));
+        HttpURLConnection connection = (HttpURLConnection) new URL("http://127.0.0.1:" + port + "/plugins").openConnection();
+        connection.setConnectTimeout(Math.min(1000, remaining));
+        connection.setReadTimeout(remaining);
+        connection.setInstanceFollowRedirects(false);
+        connection.setRequestMethod("POST");
+        connection.setRequestProperty("Authorization", "Bearer " + token);
+        connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+        connection.setRequestProperty("Connection", "close");
+        connection.setFixedLengthStreamingMode(data.length);
+        connection.setDoOutput(true);
+        ScheduledFuture<?> timeout = DEADLINES.schedule(connection::disconnect, remaining, TimeUnit.MILLISECONDS);
+        try {
+            try (java.io.OutputStream output = connection.getOutputStream()) { output.write(data); }
+            int status = connection.getResponseCode();
+            InputStream input = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            if (input == null) throw new IOException("插件宿主未返回结果");
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            try (InputStream stream = input) {
+                byte[] buffer = new byte[8192]; int count;
+                while ((count = stream.read(buffer)) != -1) {
+                    checkInterrupted();
+                    if (output.size() + count > 8 * 1024 * 1024) throw new IOException("插件结果超过大小限制");
+                    output.write(buffer, 0, count);
+                }
+            }
+            return new JSONObject(output.toString(StandardCharsets.UTF_8.name()));
+        } catch (JSONException invalid) { throw new IOException("插件宿主返回了无效结果", invalid); }
+        finally { timeout.cancel(false); connection.disconnect(); }
     }
 
     private static void record(String event, Throwable failure) {

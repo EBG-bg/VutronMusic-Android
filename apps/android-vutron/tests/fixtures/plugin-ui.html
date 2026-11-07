@@ -1,0 +1,21 @@
+<!doctype html><html lang="zh-CN"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app"></div><script type="module">
+import {createApp,h,ref,Teleport} from 'vue'
+import {createPinia} from 'pinia'
+import {i18n} from '/src/platform/i18n'
+import '/src/style.css'
+import '/src/platform/appearance'
+import '/src/platform/motion'
+import PluginManagerView from '/src/components/PluginManagerView.vue'
+import PluginLibraryView from '/src/components/PluginLibraryView.vue'
+import ActionDialog from '/src/components/ActionDialog.vue'
+import TrackActionMenu from '/src/components/TrackActionMenu.vue'
+import AppSettingsView from '/src/components/AppSettingsView.vue'
+import {pluginBackend} from '/tests/fixtures/music-plugin-native.mock.js'
+import {requestPluginNavigation} from '/src/plugins/navigation'
+const current=ref(''),localOnly=ref(false),instance=ref(),plays=[],libraryVisible=ref(true),menuTrack=ref(),menuInstance=ref(),settingsVisible=ref(false)
+window.pluginHarness={backend:pluginBackend,plays,localOnly,current,libraryVisible,menuTrack,settingsVisible,openNativeMenu(stale=false){const track={...pluginBackend.tracks[0],pluginId:'fixture'},source=pluginBackend.plugins.find(row=>row.id==='fixture');menuTrack.value={id:999,name:track.name,pluginId:source.id,pluginAccountScope:stale?'previous-account':source.accountScope,pluginTrack:track,artists:['Fixture artist']}},backNativeMenu(){if(!menuInstance.value?.handleBack())menuTrack.value=undefined},open(id){current.value=id},back(){if(!instance.value?.handleBack())current.value=''}}
+createApp({render:()=>h('main',{class:'app-shell'},[
+ settingsVisible.value?h(AppSettingsView,{onOpenPlugins:()=>settingsVisible.value=false}):current.value?(libraryVisible.value?h(PluginLibraryView,{ref:instance,pluginId:current.value,localOnly:localOnly.value,onBack:()=>current.value='',onManage:()=>current.value='',onOpenSource:value=>{requestPluginNavigation(value);current.value=value.pluginId},onPlay:value=>plays.push(value),onNext:value=>plays.push({...value,action:'next'}),onAppend:value=>plays.push({...value,action:'append'}),onRadioTrash:value=>plays.push({...value,action:'radioTrash'})}):h('div',{class:'player-placeholder'},'Player')):h(PluginManagerView,{ref:instance,localOnly:localOnly.value,onOpen:id=>current.value=id,onBack:()=>{}}),h(ActionDialog)
+ ,menuTrack.value?h(Teleport,{to:'body'},[h(TrackActionMenu,{ref:menuInstance,track:menuTrack.value,onClose:()=>menuTrack.value=undefined})]):undefined])}).use(createPinia()).use(i18n).mount('#app')
+window.pluginReady=true
+</script></body></html>

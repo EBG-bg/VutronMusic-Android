@@ -28,6 +28,7 @@ import android.util.Log;
 import androidx.core.content.ContextCompat;
 
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -108,6 +109,10 @@ public final class AndroidPlaybackService extends Service {
     // Resolved URL and provider headers remain memory-only until actual playback.
     private JSONObject cacheLocation;
     private int cacheEnqueuedGeneration = -1;
+    private int pluginStartedGeneration = -1;
+    private int pluginEndedGeneration = -1;
+    private long lastPluginReportTime;
+    private boolean lastPluginPlaying;
     private PlaybackQueue.Snapshot queue;
     private Future<?> urlTask;
     private final NextTrackPrefetch nextPrefetch = new NextTrackPrefetch();
@@ -172,8 +177,19 @@ public final class AndroidPlaybackService extends Service {
         if (connection != null) connection.disconnect();
         int requestGeneration = service.generation;
         service.progressHandler.post(() -> {
-            if (service.destroyed || requestGeneration != service.generation || !LocalOnlyMode.enabled(service)) return;
+            if (service.destroyed || requestGeneration != service.generation || PluginMedia.networkAllowed(service, service.trackMetadata)) return;
             if (service.remotePlayback || service.urlLookupPending) service.stopPlayback(false);
+        });
+    }
+
+    static void invalidatePluginSource(String pluginId) {
+        AndroidPlaybackService service = activeInstance;
+        if (service == null || service.destroyed || service.progressHandler == null) return;
+        service.progressHandler.post(() -> {
+            if (service.destroyed) return;
+            JSONObject requested = service.queue == null ? null : service.queue.current();
+            if (pluginId.equals(service.trackMetadata == null ? "" : service.trackMetadata.optString("pluginId"))
+                    || requested != null && pluginId.equals(requested.optString("pluginId"))) service.stopPlayback(false);
         });
     }
 
@@ -366,7 +382,7 @@ public final class AndroidPlaybackService extends Service {
             if (!prefetchQueueSignature.claim(queue.token,generation,mode,queue.count(),queue.upNext.length(),queue.index,queue.insertedPlaying)) return;
             cancelPrefetchWork();
             JSONObject selected = queue.peekNext(mode,true,0);
-            if (selected == null || !LocalLibraryIds.uri(selected).isEmpty() || selected.optBoolean("cached") || selected.optLong("id") == trackId) return;
+            if (selected == null || PluginMedia.isPlugin(selected) || !LocalLibraryIds.uri(selected).isEmpty() || selected.optBoolean("cached") || selected.optLong("id") == trackId) return;
             String key = NextTrackPrefetch.key(selected), queueToken = queue.token;
             String attempt = queueToken + ":" + generation + ":" + key;
             prefetchAttempt = attempt;
@@ -531,7 +547,7 @@ public final class AndroidPlaybackService extends Service {
                 PlaybackQueue.Snapshot requested = PlaybackQueue.load(this);
                 if (requested != null && requested.token.equals(intent.getStringExtra("queueToken"))) {
                     queue = requested;
-                    selectQueueTrack(intent.getBooleanExtra("restorePosition", true));
+                    selectQueueTrack(intent.getBooleanExtra("restorePosition", true), true, intent.getIntExtra("resumePosition", -1));
                 }
             } catch (Exception failure) {
                 Log.w("VutronPlayback", "Could not load the selected queue", failure);
@@ -563,6 +579,14 @@ public final class AndroidPlaybackService extends Service {
             PlaybackQueue.Snapshot latest = PlaybackQueue.load(this);
             if (latest == null || !latest.token.equals(queue.token)) return;
             queue = latest;
+            if (queue.upNext.length()==0 && queue.index==queue.count()-1) {
+                JSONObject radio = null;
+                for (int i=queue.index; i>=0; i--) {
+                    JSONObject candidate=queue.songs.optJSONObject(i);
+                    if (candidate!=null && "personalFM".equals(candidate.optString("pluginSourceMethod"))) { radio=candidate; break; }
+                }
+                if (radio!=null) { refillPluginRadio(radio); return; }
+            }
             int random = queue.count() > 1 ? java.util.concurrent.ThreadLocalRandom.current().nextInt(queue.count() - 1) : 0;
             PlaybackQueue.Snapshot next = queue.next(getMode(this), automatic, random);
             // Consuming inserts changes the durable history and pending list together.
@@ -580,7 +604,50 @@ public final class AndroidPlaybackService extends Service {
         selectQueueTrack(restorePosition, true);
     }
 
+    private void refillPluginRadio(JSONObject radio) throws Exception {
+        final JSONObject previous = new JSONObject(radio.toString());
+        final String expectedQueue = queue.token;
+        persistPosition(); releasePlayer(); cancelUrlTask();
+        final int token = ++generation;
+        playing=false; desiredPlayback=true; urlLookupPending=true; publish();
+        urlTask=urlWorker.submit(() -> {
+            try {
+                String id=previous.getString("pluginId");
+                String account=previous.getString("pluginAccountScope");
+                if (!account.equals(AndroidPluginManager.accountScope(this,id))) throw new java.io.IOException("私人电台账号已变化");
+                JSONObject result=AndroidPluginManager.callScoped(this,id,"personalFM",new JSONObject(),account);
+                if (!account.equals(AndroidPluginManager.accountScope(this,id))) throw new java.io.IOException("私人电台账号已变化");
+                JSONArray incoming=result.optJSONArray("data");
+                if (result.optInt("code")!=200 || incoming==null || incoming.length()==0) throw new java.io.IOException("私人电台暂时没有返回下一批歌曲");
+                JSONArray normalized=new JSONArray();
+                for(int i=0;i<incoming.length();i++) {
+                    JSONObject track=PluginTrackAdapter.track(id,incoming.getJSONObject(i),account).put("pluginSourceMethod","personalFM");
+                    normalized.put(track);
+                }
+                progressHandler.post(() -> {
+                    if(destroyed || token!=generation) return;
+                    try {
+                        PlaybackQueue.Snapshot current=PlaybackQueue.load(this);
+                        if(current==null || !current.token.equals(expectedQueue)) { urlLookupPending=false;urlTask=null;desiredPlayback=false;publish();return; }
+                        if (!account.equals(AndroidPluginManager.accountScope(this,id))) throw new java.io.IOException("私人电台账号已变化");
+                        JSONArray rows=new JSONArray(); int start=Math.max(0,current.count()-100);
+                        for(int i=start;i<current.count();i++) rows.put(current.songs.getJSONObject(i));
+                        int last=rows.length()-1;
+                        for(int i=0;i<normalized.length();i++) rows.put(normalized.getJSONObject(i));
+                        queue=new PlaybackQueue.Snapshot(java.util.UUID.randomUUID().toString(),rows,last,current.upNext);
+                        PlaybackQueue.persist(this,queue);urlLookupPending=false;urlTask=null;
+                        queue=queue.next(0,false,0);PlaybackQueue.persist(this,queue);selectQueueTrack(false);
+                    } catch(Exception failure){urlLookupPending=false;urlTask=null;publishError("无法接续私人电台");}
+                });
+            } catch(Exception failure) {progressHandler.post(() -> {if(token==generation && !destroyed){urlLookupPending=false;urlTask=null;publishError("私人电台下一批读取失败，请重试");}});}
+        });
+    }
+
     private void selectQueueTrack(boolean restorePosition, boolean autoPlay) {
+        selectQueueTrack(restorePosition, autoPlay, -1);
+    }
+
+    private void selectQueueTrack(boolean restorePosition, boolean autoPlay, int requestedPosition) {
         if (queue == null || queue.current() == null) return;
         persistPosition();
         android.content.SharedPreferences saved = getSharedPreferences(PLAYBACK_PREFS, MODE_PRIVATE);
@@ -589,7 +656,7 @@ public final class AndroidPlaybackService extends Service {
                 ? nextPrefetch.take(NextTrackPrefetch.key(selected),queue.token,SystemClock.elapsedRealtime()) : null;
         invalidatePrefetch();
         long id = selected.optLong("id");
-        int position = restorePosition && saved.getLong(LAST_TRACK_ID, 0L) == id
+        int position = requestedPosition >= 0 ? requestedPosition : restorePosition && saved.getLong(LAST_TRACK_ID, 0L) == id
                 ? saved.getInt(LAST_POSITION, 0) : 0;
         cancelUrlTask();
         releasePlayer();
@@ -666,7 +733,10 @@ public final class AndroidPlaybackService extends Service {
         invalidatePrefetch();
         String url = intent.getStringExtra("url");
         boolean remote = url != null && (url.startsWith("http://") || url.startsWith("https://"));
-        if (remote && LocalOnlyMode.enabled(this)) {
+        JSONObject requestedMetadata;
+        try { requestedMetadata = new JSONObject(intent.getStringExtra("track") == null ? "{}" : intent.getStringExtra("track")); }
+        catch (Exception invalid) { requestedMetadata = new JSONObject(); }
+        if (remote && !PluginMedia.networkAllowed(this, requestedMetadata)) {
             publishError(PlaybackFailure.of("offline")); return;
         }
         if (!isSupportedSource(url)) {
@@ -709,7 +779,7 @@ public final class AndroidPlaybackService extends Service {
                     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());
             candidate.setOnPreparedListener(prepared -> {
                 if (destroyed || player != prepared || token != generation) return;
-                if (remotePlayback && LocalOnlyMode.enabled(this)) {
+                if (remotePlayback && !PluginMedia.networkAllowed(this, trackMetadata)) {
                     publishError(PlaybackFailure.of("offline")); return;
                 }
                 playerPrepared = true;
@@ -758,7 +828,7 @@ public final class AndroidPlaybackService extends Service {
             if (url.startsWith("content://") || url.startsWith("file://")) {
                 candidate.setDataSource(this, Uri.parse(url));
             } else if (url.startsWith("http://") || url.startsWith("https://")) {
-                LocalOnlyMode.requireOnline(this);
+                PluginMedia.requireOnline(this,trackMetadata);
                 candidate.setDataSource(this, Uri.parse(url), sourceHeaders(intent));
             } else {
                 candidate.setDataSource(url);
@@ -840,6 +910,10 @@ public final class AndroidPlaybackService extends Service {
         if (!requestFocus()) { publishError(PlaybackFailure.of("audio_focus")); return; }
         applyTuning();
         player.start(); playing = true; enqueueStartedAudio(token);
+        if (pluginStartedGeneration!=generation && PluginMedia.isPlugin(trackMetadata)) {
+            pluginStartedGeneration=generation;lastPluginReportTime=SystemClock.elapsedRealtime();lastPluginPlaying=true;
+            PluginPlaybackReporter.report(this,trackMetadata,"start",relativePosition(),duration,true);
+        }
         armSegmentWatchdog(token); persistPosition(); publish();
     }
 
@@ -1029,7 +1103,7 @@ public final class AndroidPlaybackService extends Service {
 
     private void resume() {
         resumeOnFocusGain = false;
-        if (remotePlayback && LocalOnlyMode.enabled(this)) { publishError("已切换为本地模式"); return; }
+        if (remotePlayback && !PluginMedia.networkAllowed(this, trackMetadata)) { publishError("已切换为本地模式"); return; }
         desiredPlayback = true;
         if (player == null) { resumeOrRestore(); return; }
         if (!playerPrepared || seeking) { persistPosition(); return; }
@@ -1064,6 +1138,12 @@ public final class AndroidPlaybackService extends Service {
     }
 
     private void releasePlayer() {
+        if (playerPrepared && pluginStartedGeneration==generation && pluginEndedGeneration!=generation && PluginMedia.isPlugin(trackMetadata)) {
+            pluginEndedGeneration=generation;
+            int position;
+            try {position=relativePosition();} catch(Exception expired){position=0;}
+            PluginPlaybackReporter.report(this,trackMetadata,"end",position,duration,false);
+        }
         cancelSegmentWatchdog(); seeking = false;
         MediaPlayer old = player; player = null;
         playerPrepared = false;
@@ -1104,6 +1184,11 @@ public final class AndroidPlaybackService extends Service {
         }
         long now = SystemClock.elapsedRealtime();
         saved.putInt("position", position).putLong("positionElapsedRealtime", now).apply();
+        if (playerPrepared) PlaylistProgress.save(this, trackMetadata, position, duration);
+        if (playerPrepared && PluginMedia.isPlugin(trackMetadata) && (now-lastPluginReportTime>=15000 || lastPluginPlaying!=playing)) {
+            lastPluginReportTime=now;lastPluginPlaying=playing;
+            PluginPlaybackReporter.report(this,trackMetadata,"progress",position,duration,playing);
+        }
         publication.checkpointSaved(now);
     }
 
@@ -1201,10 +1286,18 @@ public final class AndroidPlaybackService extends Service {
         if (artworkUrl.isEmpty()) { publish(); return; }
         final String requested = artworkUrl;
         final String fallback = ArtworkSource.coverUrl(trackMetadata);
-        ArtworkCache.enqueue(this, fallback.isEmpty() ? requested : fallback);
+        final String plugin = trackMetadata == null ? "" : trackMetadata.optString("pluginId");
+        final JSONObject pluginContext = trackMetadata == null ? null : trackMetadata.optJSONObject("pluginSourceContext");
+        if (plugin.isEmpty()) ArtworkCache.enqueue(this, fallback.isEmpty() ? requested : fallback);
         artworkWorker.execute(() -> {
-            Bitmap decoded = decodeArtwork(requested);
-            if (decoded == null && !fallback.isEmpty() && !fallback.equals(requested)) decoded = decodeArtwork(fallback);
+            Bitmap decoded;
+            if (!plugin.isEmpty()) {
+                try { decoded = decodeArtwork(PluginArtwork.resolve(this,plugin,fallback.isEmpty()?requested:fallback,pluginContext)); }
+                catch (Exception failure) { Log.w("VutronPlayback","Plugin notification artwork unavailable: "+failure.getClass().getSimpleName()); return; }
+            } else {
+                decoded = decodeArtwork(requested);
+                if (decoded == null && !fallback.isEmpty() && !fallback.equals(requested)) decoded = decodeArtwork(fallback);
+            }
             final Bitmap loaded = decoded;
             if (loaded == null || destroyed) return;
             progressHandler.post(() -> {

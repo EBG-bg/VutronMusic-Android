@@ -1,5 +1,6 @@
 import { registerPlugin, type Plugin } from '@capacitor/core'
 import type { VutronCommentTarget, VutronCommentQuery, VutronCommentPage } from './commentTypes'
+import type { PluginPlayback } from '../plugins/protocol'
 
 export interface VutronProfile { userId: number; nickname: string; avatarUrl?: string; isVip?: boolean }
 export interface VutronPlaylist { createTime?: number; id: number; name: string; coverImgUrl?: string; coverLocalUri?: string; trackCount?: number; copywriter?: string; creatorUserId?: number; subscribed?: boolean; privacy?: number; description?: string; tags?: string[]; specialType?: number; offlineSnapshot?: boolean; cacheOwnerId?: number }
@@ -11,6 +12,14 @@ export interface VutronLocalLibrary { folders: VutronLocalCollection[]; playlist
 export interface VutronLibraryTask { kind: string; running: boolean; cancelled?: boolean; done: number; total: number }
 export interface VutronLocalImportResult { cancelled?: boolean; playlist?: VutronLocalCollection; needsMode?: boolean; importToken?: string; audioCount?: number; canMatchOnline?: boolean; matched?: number; total?: number; failed?: number; matchingCancelled?: boolean; matchingPaused?: boolean; matchingFailed?: boolean }
 export interface VutronTrack {
+  pluginId?: string
+  pluginTrackId?: string
+  pluginAccountScope?: string
+  pluginSourceMethod?: string
+  pluginPlaylistContext?: Record<string, unknown>
+  pluginPlaylistOwner?: string
+  pluginSourceContext?: Record<string, unknown>
+  pluginTrack?: Record<string, unknown>
   cached?: boolean
   missingLocal?: boolean
   onlineOnly?: boolean
@@ -154,6 +163,9 @@ export interface VutronAppUpdateState {
 }
 
 export interface VutronMusicPlugin extends Plugin {
+  playMusicPlugin(options: PluginPlayback & { index?: number; position?: number }): Promise<{ track: VutronTrack }>
+  getMusicPluginPlaylistProgress(options: { pluginId: string; accountScope?: string; playlistKey: string }): Promise<{ available: boolean; trackId: string; sourcePluginId: string; position: number }>
+  queueMusicPlugin(options: { pluginId: string; accountScope?: string; track: PluginPlayback['track']; action: 'next' | 'append' }): Promise<VutronQueue>
   setSystemAppearance(options: { dark: boolean }): Promise<void>
   getPlaybackTuning(): Promise<VutronPlaybackTuning>
   updatePlaybackTuning(options: Partial<Pick<VutronPlaybackTuning, 'speed' | 'pitch' | 'prefetchWifi'>>): Promise<VutronPlaybackTuning>
@@ -193,7 +205,8 @@ export interface VutronMusicPlugin extends Plugin {
   search?(options: { category: VutronSearchCategory; keywords: string; page: number }): Promise<VutronSearchResult>
   getEntityTracks?(options: { category: 'albums' | 'artists'; id: number }): Promise<{ tracks: VutronTrack[] }>
   openMv?(options: { id: number }): Promise<void>
-  play(options: { track: VutronTrack; queue?: VutronTrack[]; index?: number }): Promise<void>
+  play(options: { track: VutronTrack; queue?: VutronTrack[]; index?: number; position?: number }): Promise<void>
+  getPlaylistProgress?(options: { scope: string; playlistKey: string }): Promise<{ trackId?: number; position?: number; duration?: number; cueTrackNo?: number; updatedAt?: number }>
   next(): Promise<void>
   previous(): Promise<void>
   getPlaybackQueue?(): Promise<VutronQueue>

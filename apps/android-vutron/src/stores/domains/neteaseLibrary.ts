@@ -17,7 +17,7 @@ interface Options {
   formatError(cause: unknown, fallback: string): string
 }
 export function onlineTrackId(track: VutronTrack): number {
-  if (track.missingLocal) return 0
+  if (track.missingLocal || track.pluginId) return 0
   const id = track.neteaseId || (!track.localUri && !track.localPath || track.cached ? track.id : 0)
   return Number.isSafeInteger(id) && id > 0 ? id : 0
 }

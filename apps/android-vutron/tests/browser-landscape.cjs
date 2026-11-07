@@ -45,7 +45,7 @@ module.exports = async ({ page, evaluate, wait, delay, root }) => {
   await navigate('player');
   const switchableVisual = await evaluate("Boolean(document.querySelector('.player-visual'))");
   if (switchableVisual) { await resize(1138,640);await screenshot('android15-landscape-cover.png'); }
-  if (switchableVisual) { await evaluate("document.querySelector('.player-view-tabs button:last-child').click()");await delay(500); }
+  if (switchableVisual) { await evaluate("(async()=>{(await import('/src/platform/interfacePreferences.ts')).playerLyrics.value=true})()");await delay(500); }
   await wait("document.querySelector('.original-lyrics-scroll')");
   if (switchableVisual) {
     const selector = '.landscape-lyric-offset .offset-slider';

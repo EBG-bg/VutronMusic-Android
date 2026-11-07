@@ -97,6 +97,7 @@ final class LyricOverlaySettings {
     /** Local replacement recordings can have different lead-in silence from the online track. */
     static String trackIdentity(JSONObject song) {
         if (song == null) return "";
+        if (PluginMedia.isPlugin(song)) return "plugin:" + song.optLong("id");
         String localUri = song.optString("localUri", "").trim();
         if (!localUri.isEmpty()) return "local-uri:" + localUri;
         String localPath = song.optString("localPath", "").trim();
@@ -108,6 +109,7 @@ final class LyricOverlaySettings {
     /** Generated local IDs must not be sent to the online lyric endpoint. */
     static long remoteLyricId(JSONObject song) {
         if (song == null) return 0;
+        if (PluginMedia.isPlugin(song)) return 0;
         long remoteId = song.optLong("neteaseId", 0);
         if (remoteId > 0) return remoteId;
         // Offline audio keeps the original online ID; its private file URI is

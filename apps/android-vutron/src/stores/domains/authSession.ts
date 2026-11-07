@@ -1,3 +1,4 @@
+import { translate as t } from '../../platform/i18n'
 import { computed, ref, type Ref } from 'vue'
 import { localOnlyMode, setLocalOnlyPreference } from '../../platform/localOnlyMode'
 import { vutronPlugin, type VutronProfile } from '../../platform/vutronPlugin'
@@ -79,7 +80,7 @@ export function createAuthSession(options: AuthSessionOptions) {
         else await options.loadOnlineState()
       }
     } catch (cause) {
-      if (request === networkRequest && generation === loginGeneration) options.error.value = options.formatError(cause, '读取网络状态失败')
+      if (request === networkRequest && generation === loginGeneration) options.error.value = options.formatError(cause, t('mobile.runtimeText.networkReadFailed'))
     }
   }
 
@@ -87,7 +88,7 @@ export function createAuthSession(options: AuthSessionOptions) {
   async function reconcileCancelledLogin() {
     if (localOnly.value) {
       try { await vutronPlugin.setLocalOnly({ enabled: true, manual: manualLocalOnly.value }) }
-      catch (cause) { options.error.value = options.formatError(cause, '恢复本地模式失败') }
+      catch (cause) { options.error.value = options.formatError(cause, t('mobile.runtimeText.localModeRestoreFailed')) }
     }
   }
 
@@ -112,7 +113,7 @@ export function createAuthSession(options: AuthSessionOptions) {
       if (generation !== loginGeneration) return
       setLocalOnlyPreference(true, false)
       options.resetToLocalLibrary()
-      options.error.value = options.formatError(cause, '无法连接 Android 原生适配器')
+      options.error.value = options.formatError(cause, t('mobile.runtimeText.nativeBridgeUnavailable'))
       try { await vutronPlugin.setLocalOnly({ enabled: true, manual: manualLocalOnly.value }) }
       catch { /* Keep the original bridge/session failure visible. */ }
     }
@@ -159,7 +160,7 @@ export function createAuthSession(options: AuthSessionOptions) {
       await options.restoreLocalState()
       options.startPlaybackPolling()
     } catch (cause) {
-      if (generation === loginGeneration) options.error.value = options.formatError(cause, '无法进入仅本地模式')
+      if (generation === loginGeneration) options.error.value = options.formatError(cause, t('mobile.runtimeText.localModeEnterFailed'))
     } finally { localModeLoading.value = false }
   }
 
@@ -174,7 +175,7 @@ export function createAuthSession(options: AuthSessionOptions) {
       manualLocalOnly.value = false
       setLocalOnlyPreference(localOnly.value, true, false)
       await refreshConnectivity()
-    } catch (cause) { if (generation === loginGeneration) options.error.value = options.formatError(cause, '恢复自动联网失败') }
+    } catch (cause) { if (generation === loginGeneration) options.error.value = options.formatError(cause, t('mobile.runtimeText.autoModeRestoreFailed')) }
     finally { localModeLoading.value = false }
   }
 
@@ -196,14 +197,14 @@ export function createAuthSession(options: AuthSessionOptions) {
     else options.resetToOnlineHome()
     qrLoginKey.value = ''
     qrLoginImage.value = ''
-    qrLoginStatus.value = '登录成功，正在载入音乐库…'
+    qrLoginStatus.value = t('mobile.runtimeText.loginLoadingLibrary')
     restored = true
     await Promise.all([options.restoreLocalState(), ...(onlineAvailable.value ? [options.loadOnlineState()] : [])])
     if (generation === loginGeneration) options.startPlaybackPolling()
   }
 
   async function login(cookie: string) {
-    if (!cookie.trim()) { options.error.value = '请输入网易云 Cookie'; return }
+    if (!cookie.trim()) { options.error.value = t('mobile.runtimeText.cookieRequired'); return }
     options.loading.value = true
     options.error.value = ''
     const generation = ++loginGeneration
@@ -211,15 +212,15 @@ export function createAuthSession(options: AuthSessionOptions) {
       const result = await vutronPlugin.loginWithCookie({ cookie: cookie.trim() })
       await completeLogin(result.profile, generation)
     } catch (cause) {
-      if (generation === loginGeneration) options.error.value = options.formatError(cause, '网易云登录失败')
+      if (generation === loginGeneration) options.error.value = options.formatError(cause, t('mobile.runtimeText.neteaseLoginFailed'))
     } finally { if (generation === loginGeneration) options.loading.value = false }
   }
 
   async function createQrLogin() {
-    if (!vutronPlugin.createQrLogin) { qrLoginStatus.value = '当前版本没有二维码登录支持'; return }
+    if (!vutronPlugin.createQrLogin) { qrLoginStatus.value = t('mobile.runtimeText.qrUnsupported'); return }
     qrLoginLoading.value = true
     const generation = ++loginGeneration
-    qrLoginStatus.value = '正在获取二维码…'
+    qrLoginStatus.value = t('mobile.runtimeText.qrLoading')
     const previousKey = qrLoginKey.value
     qrLoginKey.value = ''
     qrLoginImage.value = ''
@@ -236,9 +237,9 @@ export function createAuthSession(options: AuthSessionOptions) {
       }
       qrLoginKey.value = result.key
       qrLoginImage.value = result.imageData
-      qrLoginStatus.value = '请使用网易云音乐扫一扫并确认登录'
+      qrLoginStatus.value = t('mobile.runtimeText.qrScanHint')
     } catch (cause) {
-      if (generation === loginGeneration) qrLoginStatus.value = options.formatError(cause, '二维码获取失败，请检查网络后重试')
+      if (generation === loginGeneration) qrLoginStatus.value = options.formatError(cause, t('mobile.runtimeText.qrLoadFailed'))
     } finally { if (generation === loginGeneration) qrLoginLoading.value = false }
   }
 
@@ -257,12 +258,12 @@ export function createAuthSession(options: AuthSessionOptions) {
       else if (result.code === 800) {
         qrLoginKey.value = ''
         qrLoginImage.value = ''
-        qrLoginStatus.value = '二维码已过期，请刷新二维码'
-      } else if (result.code === 802) qrLoginStatus.value = '已扫描，请在网易云音乐中确认登录'
-      else if (result.code === 801) qrLoginStatus.value = '等待扫码…'
-      else qrLoginStatus.value = result.message || '正在检查登录状态…'
+        qrLoginStatus.value = t('mobile.runtimeText.qrExpired')
+      } else if (result.code === 802) qrLoginStatus.value = t('mobile.runtimeText.qrScanned')
+      else if (result.code === 801) qrLoginStatus.value = t('mobile.runtimeText.qrWaiting')
+      else qrLoginStatus.value = result.message || t('mobile.runtimeText.qrChecking')
     } catch (cause) {
-      if (generation === loginGeneration) qrLoginStatus.value = options.formatError(cause, '网络暂时不可用') + '，将继续检查'
+      if (generation === loginGeneration) qrLoginStatus.value = options.formatError(cause, t('mobile.runtimeText.networkUnavailable')) + t('mobile.runtimeText.qrContinueChecking')
     } finally { if (generation === loginGeneration) qrLoginLoading.value = false }
   }
 
@@ -271,7 +272,7 @@ export function createAuthSession(options: AuthSessionOptions) {
     await options.beforeLogout()
     await clearQrSession()
     try { await vutronPlugin.logout() }
-    catch (cause) { options.error.value = options.formatError(cause, '退出登录失败'); return }
+    catch (cause) { options.error.value = options.formatError(cause, t('mobile.runtimeText.logoutFailed')); return }
     profile.value = undefined
     options.clearOnlineState()
     options.resetToLocalLibrary()

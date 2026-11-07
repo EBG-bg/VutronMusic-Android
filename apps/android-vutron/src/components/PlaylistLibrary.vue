@@ -11,6 +11,7 @@ import LibraryLayoutControls from './LibraryLayoutControls.vue'
 import AppSelect from './AppSelect.vue'
 import TrackListPager from './TrackListPager.vue'
 import { reducedMotion } from '../platform/motion'
+import { playlistSortHints } from '../platform/interfacePreferences'
 const props = withDefaults(defineProps<{ entries: PlaylistEntry[]; scope: string; query?: string; loading?: boolean; removable?: boolean }>(), { query: '' })
 const emit = defineEmits<{ open: [key: string]; remove: [key: string] }>()
 const { t } = useI18n()
@@ -18,7 +19,8 @@ const { mode, ordered, commit, restore } = usePlaylistOrder(toRef(props, 'entrie
 const sortModes = ['original', 'name', 'created', 'recent', 'custom'] as const
 const filtered = computed(() => ordered.value.filter(item => item.name.toLocaleLowerCase().includes(props.query.toLocaleLowerCase())))
 const { visible, hasMore, showMore } = useProgressiveTracks(filtered, [toRef(props, 'scope'), toRef(props, 'query'), mode])
-const canDrag = computed(() => mode.value === 'custom' && !props.query && !props.loading)
+const editing = ref(false)
+const canDrag = computed(() => mode.value === 'custom' && editing.value && !props.query && !props.loading)
 const list = ref<HTMLElement>(), message = ref('')
 const drag = ref<{ key: string; pointer: number; x: number; y: number; sx: number; sy: number; active: boolean; anchor: string; after: boolean; width:number; grabX:number; grabY:number }>()
 const draggedItem = computed(() => drag.value?.active ? props.entries.find(item => item.key === drag.value?.key) : undefined)
@@ -95,6 +97,15 @@ function finish(event: PointerEvent) {
   cancel()
 }
 function open(key: string) { if (performance.now() < suppressClickUntil || drag.value?.active) return; emit('open', key) }
+function selectSort(value: string | number) {
+  if (!sortModes.includes(value as typeof sortModes[number])) return
+  cancel(); message.value=''
+  try { mode.value=value as typeof sortModes[number]; editing.value=value==='custom' }
+  catch { message.value=t('mobile.ordering.saveFailed') }
+}
+function finishEditing() { cancel(); editing.value=false; message.value='' }
+function restoreOriginal() { cancel();try { restore(); editing.value=false; message.value='' } catch { message.value=t('mobile.ordering.saveFailed') } }
+function back(event:Event) { if(event.defaultPrevented)return;if(drag.value){event.preventDefault();cancel()}else if(editing.value){event.preventDefault();finishEditing()} }
 function keyboard(event: KeyboardEvent, item: PlaylistEntry) {
   if (!canDrag.value || !['ArrowUp', 'ArrowDown'].includes(event.key)) return
   event.preventDefault(); const keys = ordered.value.map(x => x.key), index = keys.indexOf(item.key), next = keys[index+(event.key === 'ArrowUp' ? -1 : 1)]
@@ -102,13 +113,16 @@ function keyboard(event: KeyboardEvent, item: PlaylistEntry) {
 }
 function escape(event: KeyboardEvent) { if (event.key === 'Escape' && drag.value) { event.preventDefault(); event.stopImmediatePropagation(); suppressClickUntil = performance.now()+400; cancel() } }
 watch(() => [props.scope, props.entries, props.query, mode.value, playlistView.value], cancel)
-onMounted(() => document.addEventListener('keydown', escape, true))
-onUnmounted(() => { cancel(); document.removeEventListener('keydown', escape, true) })
+watch(() => props.scope, () => { editing.value=false; message.value='' })
+function visibilityChanged() { if (document.hidden) cancel() }
+onMounted(() => { document.addEventListener('keydown', escape, true); document.addEventListener('visibilitychange',visibilityChanged); window.addEventListener('vutron-playlist-order-back',back) })
+onUnmounted(() => { cancel(); document.removeEventListener('keydown', escape, true); document.removeEventListener('visibilitychange',visibilityChanged); window.removeEventListener('vutron-playlist-order-back',back) })
 </script>
 <template>
   <section class="playlist-library">
-    <div class="playlist-toolbar"><div class="playlist-primary-tools"><slot name="actions"></slot><div class="playlist-sort"><OriginalIcon name="sort" /><AppSelect v-model="mode" :label="$t('mobile.refinements.playlistSort')" :options="sortModes.map(value => ({ value, label: $t('mobile.refinements.sort_' + value) }))" /></div></div><LibraryLayoutControls /></div>
-    <div v-if="mode === 'custom'" class="local-order-hint"><span>{{ $t(query ? 'mobile.ordering.clearFilter' : playlistView === 'list' ? 'mobile.refinements.dragList' : 'mobile.refinements.dragCards') }}</span><button class="text-button" @click="cancel(); restore()">{{ $t('mobile.ordering.restore') }}</button><button v-if="drag?.active" class="secondary-button" @click="cancel">{{ $t('mobile.management.cancel') }}</button></div>
+    <div class="playlist-toolbar"><div class="playlist-primary-tools"><slot name="actions"></slot><div class="playlist-sort"><button v-if="mode==='custom'&&!editing" type="button" class="icon-button playlist-edit-order" :aria-label="$t('mobile.ordering.editSort')" :title="$t('mobile.ordering.editSort')" @click="selectSort('custom')"><OriginalIcon name="drag" /></button><OriginalIcon v-else name="sort" /><AppSelect :model-value="mode" :label="$t('mobile.refinements.playlistSort')" :options="sortModes.map(value => ({ value, label: $t('mobile.refinements.sort_' + value) }))" @update:model-value="selectSort" /></div></div><LibraryLayoutControls /></div>
+    <div v-if="editing" class="playlist-edit-tools"><button type="button" class="secondary-button playlist-finish-order" @click="finishEditing"><OriginalIcon name="check" />{{ $t('mobile.ordering.finishSort') }}</button><button type="button" class="text-button" @click="restoreOriginal">{{ $t('mobile.ordering.restore') }}</button><button v-if="drag?.active" type="button" class="text-button" @click="cancel">{{ $t('mobile.management.cancel') }}</button></div>
+    <div v-if="editing&&playlistSortHints" class="local-order-hint playlist-sort-hint"><span>{{ $t(query ? 'mobile.ordering.clearFilter' : playlistView === 'list' ? 'mobile.refinements.dragList' : 'mobile.refinements.dragCards') }}</span><button type="button" class="icon-button" :aria-label="$t('mobile.ordering.dismissSortHint')" @click="playlistSortHints=false"><OriginalIcon name="close" /></button></div>
     <p v-if="message" class="setting-note" role="status">{{ message }}</p>
     <div ref="list" class="playlist-list" @pointermove="move" @touchmove="touchMove" @pointerup="finish" @pointercancel="cancel" @lostpointercapture="cancel">
     <TransitionGroup name="playlist-reorder" tag="div" class="playlist-grid" :class="{ 'custom-playlists': canDrag }" :css="!reducedMotion">
@@ -117,7 +131,7 @@ onUnmounted(() => { cancel(); document.removeEventListener('keydown', escape, tr
           <span class="cover-wrap"><CoverImage v-if="item.cover || item.remoteCover" :src="item.cover" :remote-src="item.remoteCover" alt="" /><span v-else class="cover-fallback"><OriginalIcon name="library" /></span><span class="cover-play"><OriginalIcon name="play" /></span></span>
           <span class="playlist-copy"><b>{{ item.name }}</b><small>{{ $t('mobile.common.tracks', { count: item.count }) }}</small></span>
         </button>
-        <button v-if="mode === 'custom'" class="playlist-drag-handle icon-button" type="button" :disabled="!canDrag" :aria-label="$t('mobile.ordering.move', { name:item.name })" @pointerdown.stop="down($event,item,true)" @click.stop @keydown="keyboard($event,item)"><OriginalIcon name="drag" /></button>
+        <button v-if="canDrag" class="playlist-drag-handle icon-button" type="button" :aria-label="$t('mobile.ordering.move', { name:item.name })" @pointerdown.stop="down($event,item,true)" @click.stop @keydown="keyboard($event,item)"><OriginalIcon name="drag" /></button>
         <button v-if="removable" class="icon-button playlist-remove" type="button" :aria-label="$t('mobile.offline.deletePlaylist') + ' ' + item.name" @click="emit('remove',item.key)"><OriginalIcon name="close" /></button>
       </div>
       <div v-if="!displayed.length" key="empty" class="empty-state"><OriginalIcon name="empty" />{{ $t(loading ? 'mobile.ordering.loading' : 'mobile.ordering.noMatches') }}</div>
@@ -131,6 +145,7 @@ onUnmounted(() => { cancel(); document.removeEventListener('keydown', escape, tr
 </template>
 <style scoped>
 .playlist-primary-tools { min-width:0; flex-basis:auto; flex-shrink:0; max-width:100%; flex-wrap:nowrap; }
+.playlist-edit-tools { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin:5px 0; }.playlist-sort-hint { display:flex; align-items:center; gap:8px; }.playlist-sort-hint>span { flex:1; min-width:0; }.playlist-sort-hint>.icon-button { flex:0 0 40px; }.playlist-edit-order { padding:5px; width:32px; min-width:32px; height:40px; }
 .playlist-sort { min-width:0; flex-shrink:1; }.playlist-sort :deep(.app-select-trigger) { min-height:40px; max-width:170px; }.playlist-sort :deep(.app-select-trigger > span) { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 .playlist-toolbar > .library-layout-controls { flex-shrink:0; margin-left:auto; max-width:100%; }
 .playlist-item { transition:opacity 180ms ease,box-shadow 200ms ease; }.playlist-item.playlist-moving { opacity:.22; transform:none; }
@@ -148,7 +163,7 @@ html[data-motion='reduced'] :is(.playlist-item,.playlist-reorder-move,.playlist-
 .playlist-remove { position:absolute; right:4px; top:4px; width:34px; height:34px; font-size:calc(18px * var(--ui-font-scale, 1)); border-radius:10px; }
 .playlist-anchor { outline:2px solid var(--accent); outline-offset:3px; border-radius:12px; }
 .custom-playlists .playlist-card { touch-action:pan-y; }.custom-playlists .playlist-copy { padding-right:34px; }
-.playlist-layout-list .playlist-card { padding-right:45px; }.playlist-layout-list .playlist-drag-handle { top:50%; bottom:auto; transform:translateY(-50%); }
-.playlist-layout-list .playlist-remove { right:43px; top:50%; transform:translateY(-50%); }.playlist-layout-list .playlist-item:has(.playlist-remove):has(.playlist-drag-handle) .playlist-card { padding-right:80px; }
+.playlist-layout-list .custom-playlists .playlist-card,.playlist-layout-list .playlist-item:has(.playlist-remove) .playlist-card { padding-right:45px; }.playlist-layout-list .playlist-drag-handle { top:50%; bottom:auto; transform:translateY(-50%); }
+.playlist-layout-list .playlist-remove { right:4px; top:50%; transform:translateY(-50%); }.playlist-layout-list .playlist-item:has(.playlist-drag-handle) .playlist-remove { right:43px; }.playlist-layout-list .playlist-item:has(.playlist-remove):has(.playlist-drag-handle) .playlist-card { padding-right:80px; }
 .library-layout-controls { margin:0; flex-wrap:wrap; }.empty-state .original-icon { display:block; margin:0 auto 10px; font-size:24px; }
 </style>

@@ -11,6 +11,8 @@ import pause from '../../../../src/renderer/assets/icons/pause.svg?url'
 import back from '../../../../src/renderer/assets/icons/arrow-left.svg?url'
 import refresh from '../../../../src/renderer/assets/icons/recovery.svg?url'
 import down from '../../../../src/renderer/assets/icons/arrow-down.svg?url'
+import up from '../../../../src/renderer/assets/icons/arrow-up.svg?url'
+import check from '../../../../src/renderer/assets/icons/checked.svg?url'
 import local from '../../../../src/renderer/assets/icons/local-music.svg?url'
 import folder from '../../../../src/renderer/assets/icons/folder.svg?url'
 import lyrics from '../../../../src/renderer/assets/icons/osd-lyrics.svg?url'
@@ -33,7 +35,7 @@ import update from '../assets/icons/update.svg?url'
 import empty from '../assets/icons/empty.svg?url'
 import error from '../assets/icons/error.svg?url'
 
-const icons = { logo, library, search, settings, previous, next, play, pause, back, refresh, down, local, folder, lyrics, close, explore, list, repeat, repeatOne, shuffle, more, heart, heartSolid, plus, palette, timer, sort, drag, storage, update, empty, error }
+const icons = { logo, library, search, settings, previous, next, play, pause, back, refresh, down, up, check, local, folder, lyrics, close, explore, list, repeat, repeatOne, shuffle, more, heart, heartSolid, plus, palette, timer, sort, drag, storage, update, empty, error }
 const props = defineProps<{ name: keyof typeof icons }>()
 const iconStyle = computed(() => ({ '--original-icon': `url("${icons[props.name]}")` }))
 </script>

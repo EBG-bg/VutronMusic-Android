@@ -1,3 +1,4 @@
+import { translate as t } from './i18n'
 import { Capacitor } from '@capacitor/core'
 import { artworkRequestUrl } from '@vutronmusic/core/artwork'
 import { vutronPlugin } from './vutronPlugin'
@@ -17,7 +18,7 @@ export function fetchArtwork(source: string): Promise<string> {
   const existing = pending.get(url)
   if (existing) return existing
   const request = vutronPlugin.getArtwork({ url }).then(result => {
-    if (!result.uri) throw new Error('封面缓存返回空路径')
+    if (!result.uri) throw new Error(t('mobile.runtimeText.artworkPathEmpty'))
     return displayArtworkUri(result.uri)
   }).finally(() => { pending.delete(url) })
   pending.set(url, request)

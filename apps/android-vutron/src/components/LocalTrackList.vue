@@ -9,6 +9,7 @@ import TrackMenuButton from './TrackMenuButton.vue'
 import TrackListPager from './TrackListPager.vue'
 import OriginalIcon from './OriginalIcon.vue'
 import AppSelect from './AppSelect.vue'
+import PlaylistContinueButton from './PlaylistContinueButton.vue'
 
 const props = withDefaults(defineProps<{ tracks: VutronTrack[]; collectionKey: string; query?: string; loading?: boolean; localOnly?: boolean }>(), { query: '' })
 const emit = defineEmits<{ play: [track: VutronTrack, queue: VutronTrack[]]; menu: [track: VutronTrack]; orderChange: [keys: string[]] }>()
@@ -103,6 +104,7 @@ onBeforeUnmount(() => { cancelDrag(); document.removeEventListener('keydown', ke
 
 <template>
   <div class="local-track-section">
+    <PlaylistContinueButton :tracks="playable" :playlist-key="collectionKey" scope="local:device" />
     <div class="local-order-tools">
       <button class="text-button" type="button" :disabled="!playable.length || loading" @click="playable[0] && play(playable[0])"><OriginalIcon name="play" />{{ $t('mobile.ordering.playAll', { count: playable.length }) }}</button>
       <div class="local-order-select"><span>{{ $t('mobile.library.sort') }}</span><AppSelect :model-value="mode" :label="$t('mobile.library.sortLabel')" :options="sortModes.map(value => ({ value, label: $t(sortLabels[value]) }))" @update:model-value="changeMode" /></div>

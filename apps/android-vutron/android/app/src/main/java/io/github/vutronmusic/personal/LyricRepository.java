@@ -58,6 +58,11 @@ final class LyricRepository {
             pairedTranslations = original.pairTranslations(translation);
         }
 
+        Lyrics(LyricTimeline original, LyricTimeline translation, boolean local) {
+            this.original = original; this.translation = translation; this.local = local;
+            pairedTranslations = original.pairTranslations(translation);
+        }
+
         String translationAt(int index) {
             return index >= 0 && index < pairedTranslations.size() ? pairedTranslations.get(index) : "";
         }
@@ -77,6 +82,7 @@ final class LyricRepository {
     static Lyrics loadForTrack(Context context, JSONObject song) throws IOException {
         Lyrics local = LocalLyricSource.load(context, song);
         if (local != null) return local;
+        if (PluginMedia.isPlugin(song)) return PluginMedia.lyrics(context, song);
         long id = LyricOverlaySettings.remoteLyricId(song);
         return id > 0 ? load(context, id) : new Lyrics(new JSONObject());
     }

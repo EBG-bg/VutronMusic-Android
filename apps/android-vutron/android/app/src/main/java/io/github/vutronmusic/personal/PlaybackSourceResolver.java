@@ -7,7 +7,6 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.IOException;
-import java.io.InterruptedIOException;
 import java.util.Locale;
 import java.util.function.Consumer;
 import java.util.function.BooleanSupplier;
@@ -31,45 +30,35 @@ public final class PlaybackSourceResolver {
         if (trackId <= 0) throw new IOException("歌曲 ID 无效");
         Context app = context.getApplicationContext();
         BooleanSupplier onlineAllowed = () -> !LocalOnlyMode.enabled(app) && permitted.getAsBoolean() && !Thread.currentThread().isInterrupted();
-        JSONObject location = resolveSources(onlineAllowed, () -> {
+        NeteasePlaybackPolicy.Gate gate = () -> requireOnline(onlineAllowed);
+        NeteasePlaybackPolicy.check(gate);
+        return resolveSession(app, trackId, SessionStore.load(app), status, gate);
+    }
+
+    /** Cookie is chosen by the caller's account owner, never by this shared policy. */
+    static JSONObject resolveSession(Context context, long trackId, String cookie, Consumer<String> status,
+            NeteasePlaybackPolicy.Gate gate) throws IOException {
+        if (trackId <= 0) throw new IOException("歌曲 ID 无效");
+        Context app = context.getApplicationContext();
+        JSONObject location = NeteasePlaybackPolicy.resolveSources(gate, () -> {
             status.accept("正在获取网易云播放地址…");
-            return fullTrack(new NeteaseApi(SessionStore.load(app), onlineAllowed).songUrl(trackId), "netease");
+            return fullTrack(new NeteaseApi(cookie, () -> NeteasePlaybackPolicy.permitted(gate)).songUrl(trackId), "netease");
         }, () -> SourceSettings.autoMatch(app), () -> {
             JSONObject result = EmbeddedSources.songUrl(app, trackId, status);
             return fullTrack(result, result.optString("source", "其它音源"));
         });
-        requireOnline(onlineAllowed);
-        return EmbeddedSources.playable(app, location);
+        NeteasePlaybackPolicy.check(gate);
+        JSONObject playable = EmbeddedSources.playable(app, location);
+        NeteasePlaybackPolicy.check(gate);
+        return playable;
     }
 
-    interface Source { JSONObject load() throws IOException; }
+    interface Source extends NeteasePlaybackPolicy.Source { }
 
     /** The gate is re-read between providers; switching mode cannot start a fallback search. */
     static JSONObject resolveSources(BooleanSupplier onlineAllowed, Source official,
             BooleanSupplier autoMatch, Source fallback) throws IOException {
-        requireOnline(onlineAllowed);
-        IOException officialFailure;
-        try {
-            JSONObject result = official.load();
-            requireOnline(onlineAllowed);
-            return result;
-        } catch (IOException failure) {
-            officialFailure = failure;
-        }
-        checkInterrupted();
-        requireOnline(onlineAllowed);
-        if (!autoMatch.getAsBoolean()) throw officialFailure;
-        try {
-            requireOnline(onlineAllowed);
-            JSONObject result = fallback.load();
-            requireOnline(onlineAllowed);
-            return result;
-        } catch (IOException matchingFailure) {
-            IOException failure = new IOException("网易云与其它音源均无法提供完整歌曲。网易云："
-                    + message(officialFailure) + "；其它音源：" + message(matchingFailure), matchingFailure);
-            failure.addSuppressed(officialFailure);
-            throw failure;
-        }
+        return NeteasePlaybackPolicy.resolveSources(() -> requireOnline(onlineAllowed), official, autoMatch, fallback);
     }
 
     private static void requireOnline(BooleanSupplier allowed) throws IOException {
@@ -78,9 +67,7 @@ public final class PlaybackSourceResolver {
 
     /** Match the full-track rule used by the legacy PlaybackService. */
     static JSONObject fullTrack(JSONObject location, String defaultSource) throws IOException {
-        if (location == null) throw new IOException("音源未返回歌曲地址");
-        Object trial = location.opt("freeTrialInfo");
-        if (trial != null && trial != JSONObject.NULL) throw new IOException("网易云仅返回试听地址");
+        NeteasePlaybackPolicy.requireCompleteAudio(location);
         String url = validatePlaybackUrl(location.optString("url", ""));
         try {
             location.put("url", url);
@@ -105,12 +92,4 @@ public final class PlaybackSourceResolver {
                 ? uri.buildUpon().scheme("https").build().toString() : value;
     }
 
-    private static void checkInterrupted() throws InterruptedIOException {
-        if (Thread.currentThread().isInterrupted()) throw new InterruptedIOException("音源查找已取消");
-    }
-
-    private static String message(IOException error) {
-        String value = error.getMessage();
-        return value == null || value.trim().isEmpty() ? error.getClass().getSimpleName() : value;
-    }
 }

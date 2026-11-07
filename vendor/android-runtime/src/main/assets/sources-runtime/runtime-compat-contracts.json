@@ -1,0 +1,38 @@
+{
+  "format": 1,
+  "generator": "scripts/runtime-regex-compat.cjs",
+  "regexpuCore": "6.5.4",
+  "unicodeVersion": "18.0.0",
+  "files": [
+    {
+      "file": "node_modules/zod/v4/core/regexes.cjs",
+      "sourceSha256": "0f597e9323d68371224cf7080d31e87e8f420dae4629e044a88b921470cb03d2",
+      "outputSha256": "865cbcd4dfeb85672633e92430c624b87b2add90d5637432b32dd95ed2316a9c",
+      "expressions": [
+        {
+          "kind": "constructor",
+          "line": 79,
+          "pattern": "^(?=[\\s\\S]*[\\p{Extended_Pictographic}\\p{Regional_Indicator}\\u20E3])[\\p{Extended_Pictographic}\\p{Emoji_Component}]+$",
+          "flags": "u",
+          "outputFlags": "u",
+          "outputSha256": "205fd4cad52004614c1aa0ea1197e841b869a0d62f70d6c4e3bb46b092014e38"
+        }
+      ]
+    },
+    {
+      "file": "plugin-core-lyrics.cjs",
+      "sourceSha256": "fa2af2db971645204e905d48e5671466976e958a68e0d629752aac633f6b7669",
+      "outputSha256": "1b6bf159d331122197037225d05dbc4e4ceda34022427544e8dbfaae1cc09f1c",
+      "expressions": [
+        {
+          "kind": "literal",
+          "line": 123,
+          "pattern": "[\\p{L}\\p{N}]",
+          "flags": "u",
+          "outputFlags": "u",
+          "outputSha256": "1568ee8a157bc0202d52977f4ec19748765fe94673517fa20a6b5b840a251b8e"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+<!doctype html><html lang="zh-CN"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app"></div><script type="module">
+import '@fontsource-variable/noto-sans-sc'
+import '../visual/font.css'
+import '/src/main.ts'
+import { useAndroidShellStore } from '/src/stores/androidShell'
+import { musicSourcesBackend, musicPluginBridge } from './music-sources-integration-native.mock.js'
+const store = useAndroidShellStore()
+window.musicSourcesHarness = { store, backend: musicSourcesBackend, bridge: musicPluginBridge }
+const restore = store.restore
+store.restore = async () => { await restore(); window.musicSourcesReady = true }
+</script></body></html>

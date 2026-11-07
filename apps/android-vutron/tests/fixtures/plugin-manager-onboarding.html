@@ -1,0 +1,15 @@
+<!doctype html><html lang="zh-CN"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app"></div><script type="module">
+import {createApp,h,ref} from 'vue'
+import {createPinia} from 'pinia'
+import {i18n} from '/src/platform/i18n'
+import '/src/style.css'
+import '/src/platform/appearance'
+import '/src/platform/motion'
+import PluginManagerView from '/src/components/PluginManagerView.vue'
+import ActionDialog from '/src/components/ActionDialog.vue'
+import {onboardingBackend} from '/tests/fixtures/plugin-manager-onboarding-native.mock.js'
+const localOnly=ref(false),opened=ref(''),instance=ref(),revision=ref(0)
+window.onboardingHarness={backend:onboardingBackend,localOnly,opened,instance,revision,back(){return instance.value.handleBack()},refresh(){return instance.value.refresh()}}
+createApp({render:()=>h('main',{class:'app-shell'},[h(PluginManagerView,{key:revision.value,ref:instance,localOnly:localOnly.value,onOpen:id=>opened.value=id}),h(ActionDialog)])}).use(createPinia()).use(i18n).mount('#app')
+window.onboardingReady=true
+</script></body></html>

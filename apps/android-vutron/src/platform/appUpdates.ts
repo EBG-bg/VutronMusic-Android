@@ -1,3 +1,4 @@
+import { translate as t } from './i18n'
 import { computed, reactive, ref } from 'vue'
 import { App } from '@capacitor/app'
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core'
@@ -29,7 +30,7 @@ let generation = 0
 function applyState(state: VutronAppUpdateState) { Object.assign(appUpdateState, state) }
 function showError(cause: unknown) {
   appUpdateState.status = 'error'
-  appUpdateState.error = cause instanceof Error ? cause.message : '无法完成更新操作，请重试'
+  appUpdateState.error = cause instanceof Error ? cause.message : t('mobile.runtimeText.updateFailed')
 }
 
 export async function checkAppUpdates(manual = true) {

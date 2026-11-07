@@ -1,3 +1,4 @@
+import { translate as t } from '../platform/i18n'
 import { reactive, ref, watch, onScopeDispose, type Ref } from 'vue'
 import { vutronPlugin } from '../platform/vutronPlugin'
 import type { VutronComment, VutronCommentPage, VutronCommentTarget } from '../platform/commentTypes'
@@ -5,13 +6,13 @@ import type { VutronComment, VutronCommentPage, VutronCommentTarget } from '../p
 export function createCommentThread(target: Ref<VutronCommentTarget>, account: Ref<string>, enabled: Ref<boolean>) {
   const comments = ref<VutronComment[]>([]), total = ref(0), sort = ref<99 | 2 | 3>(99)
   const loading = ref(false), busy = ref(false), error = ref(''), more = ref(true), expired = ref(false)
-  const floors = reactive<Record<string, { rows: VutronComment[]; cursor: string; more: boolean; loading: boolean; error: string }>>({})
+  const floors = reactive<Record<string, { rows: VutronComment[]; cursor: string; more: boolean; loading: boolean; error: string; expanded: boolean }>>({})
   let generation = 0, page = 1, cursor = '0'
   const valid = (token: number) => token === generation && enabled.value && !expired.value
   function failure(value: unknown) {
     const code = String((value as { code?: string })?.code ?? '')
-    if (['301', '401'].includes(code)) { expired.value = true; return '登录已失效，请在设置中重新登录网易云' }
-    return value instanceof Error ? value.message : typeof (value as { message?: unknown })?.message === 'string' ? (value as { message: string }).message : '评论请求失败，请重试'
+    if (['301', '401'].includes(code)) { expired.value = true; return t('mobile.runtimeText.commentsAuthExpired') }
+    return value instanceof Error ? value.message : typeof (value as { message?: unknown })?.message === 'string' ? (value as { message: string }).message : t('mobile.runtimeText.commentsFailed')
   }
   function append(rows: VutronComment[], response: VutronCommentPage) {
     const ids = new Set(rows.map(row => row.id))
@@ -45,7 +46,7 @@ export function createCommentThread(target: Ref<VutronCommentTarget>, account: R
   }
   async function loadFloor(parent: VutronComment) {
     if (!enabled.value || expired.value) return
-    if (!floors[parent.id]) floors[parent.id] = { rows: [], cursor: '0', more: true, loading: false, error: '' }
+    if (!floors[parent.id]) floors[parent.id] = { rows: [], cursor: '0', more: true, loading: false, error: '', expanded: true }
     const floor = floors[parent.id]
     if (floor.loading || !floor.more) return
     const token = generation; floor.loading = true; floor.error = ''
@@ -55,6 +56,11 @@ export function createCommentThread(target: Ref<VutronCommentTarget>, account: R
       floor.more = append(floor.rows, response); floor.cursor = response.cursor
     } catch (value) { if (token === generation) floor.error = failure(value) }
     finally { if (token === generation) floor.loading = false }
+  }
+  async function toggleFloor(parent: VutronComment) {
+    const floor = floors[parent.id]
+    if (floor) { floor.expanded = !floor.expanded; return }
+    await loadFloor(parent)
   }
   async function like(row: VutronComment) {
     if (!enabled.value || expired.value || busy.value || row.deleted) return
@@ -67,7 +73,7 @@ export function createCommentThread(target: Ref<VutronCommentTarget>, account: R
   async function submit(action: 'add' | 'reply' | 'delete', text: string, row?: VutronComment) {
     if (!enabled.value || expired.value || busy.value) return false
     const content = text.trim()
-    if (action !== 'delete' && (!content || Array.from(content).length > 140)) { error.value = '评论应为 1–140 个字'; return false }
+    if (action !== 'delete' && (!content || Array.from(content).length > 140)) { error.value = t('mobile.runtimeText.commentLength'); return false }
     if (action === 'delete' && (!row || row.userId !== account.value)) return false
     const token = generation; busy.value = true; error.value = ''
     try {
@@ -83,5 +89,5 @@ export function createCommentThread(target: Ref<VutronCommentTarget>, account: R
   }
   watch([() => JSON.stringify(target.value), account, enabled], () => { reset(); if (enabled.value) void load() }, { immediate: true, flush: 'sync' })
   onScopeDispose(() => { generation++ })
-  return { comments, total, sort, loading, busy, error, more, expired, floors, load, loadFloor, like, submit }
+  return { comments, total, sort, loading, busy, error, more, expired, floors, load, loadFloor, toggleFloor, like, submit }
 }

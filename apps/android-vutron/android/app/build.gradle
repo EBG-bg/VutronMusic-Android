@@ -31,6 +31,23 @@ def syncVutronRuntimeSources = tasks.register('syncVutronRuntimeSources', Sync) 
     }
     into(reusedRuntimeSources)
 }
+def stagedRuntimeAssets = layout.buildDirectory.dir('generated/vutron-runtime/assets')
+def syncVutronRuntimeAssets = tasks.register('syncVutronRuntimeAssets', Sync) {
+    from(new File(legacyAndroidMain, 'assets')) {
+        exclude 'NOTICE.txt'
+        exclude 'sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/@tokenizer/token/**'
+        exclude 'sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/gzip/**'
+        exclude 'sources-runtime/node_modules/@neteasecloudmusicapienhanced/api/node_modules/https/**'
+        exclude '**/node_modules/secure-json-parse/benchmarks/**'
+        exclude 'sources-runtime/node_modules/zod/**'
+    }
+    from(new File(legacyAndroidMain, 'assets/sources-runtime/node_modules/zod')) {
+        // Whitelist the CommonJS entry and license; omit stale declarations and tests.
+        include 'index.cjs', 'package.json', 'LICENSE', 'v4/**/*.cjs'
+        into('sources-runtime/node_modules/zod')
+    }
+    into(stagedRuntimeAssets)
+}
 def publicLegalAssets = layout.buildDirectory.dir('generated/mobile-legal-assets')
 def syncMobileLegal = tasks.register('syncMobileLegal', Sync) {
     into(publicLegalAssets)
@@ -96,8 +113,7 @@ android {
     sourceSets {
         main.java.srcDirs += [file('../../../../android/shared/src/main/java')]
         main.java.srcDir(reusedRuntimeSources)
-        main.assets.srcDir(new File(legacyAndroidMain, 'assets'))
-        main.assets.exclude 'NOTICE.txt'
+        main.assets.srcDir(stagedRuntimeAssets)
         main.assets.srcDir(publicLegalAssets)
         main.jniLibs.srcDir(new File(legacyAndroidMain, 'jniLibs'))
     }
@@ -108,7 +124,7 @@ android {
     }
 }
 
-tasks.named('preBuild').configure { dependsOn(syncVutronRuntimeSources, syncMobileLegal) }
+tasks.named('preBuild').configure { dependsOn(syncVutronRuntimeSources, syncVutronRuntimeAssets, syncMobileLegal) }
 
 repositories {
     flatDir{

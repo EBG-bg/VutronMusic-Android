@@ -1,0 +1,29 @@
+<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app"></div><script type="module">
+import {createApp,h,ref,computed} from 'vue'
+import {i18n,setAppLocale} from '/src/platform/i18n'
+import '/src/style.css'
+import '/src/platform/appearance'
+import '/src/platform/motion'
+import PluginTrackActions from '/src/components/PluginTrackActions.vue'
+import ActionDialog from '/src/components/ActionDialog.vue'
+import {musicPluginBridge,pluginBackend} from '/tests/fixtures/music-plugin-native.mock.js'
+import {sharedPluginLikes} from '/src/plugins/usePluginLikes'
+import {fontScale} from '/src/platform/interfacePreferences'
+await musicPluginBridge.manageMusicPlugin({action:'enable',id:'fixture'})
+const sources=ref((await musicPluginBridge.listMusicPlugins()).plugins),active=ref('fixture'),localOnly=ref(false),track=ref(pluginBackend.tracks[0])
+const source=computed(()=>sources.value.find(row=>row.id===active.value)),accountScope=computed(()=>source.value?.accountScope)
+setAppLocale('en')
+window.likeHarness={backend:pluginBackend,sources,active,localOnly,track,fontScale,
+ async refresh(force=true){await sharedPluginLikes.load(source.value,()=>!localOnly.value,force)},
+ async account(scope){pluginBackend.plugins.find(row=>row.id===active.value).accountScope=scope;sources.value=(await musicPluginBridge.listMusicPlugins()).plugins},
+ async instance(){await musicPluginBridge.manageMusicPlugin({action:'instance',id:'fixture',name:'Second instance'});sources.value=(await musicPluginBridge.listMusicPlugins()).plugins;active.value='fixture:instance'},
+ switchSource(id){active.value=id},setLocale:setAppLocale}
+createApp({render:()=>h('main',{class:'likes-fixture',style:{maxWidth:'600px',margin:'0 auto',padding:'16px'}},[
+ h('h1',{style:{fontSize:'22px'}},'Shared liked status'),
+ ...[0,1].map(index=>h('details',{class:'likes-row',style:{padding:'12px',border:'1px solid var(--line)',borderRadius:'16px',marginBottom:'12px'}},[
+  h('summary',{style:{minHeight:'44px',cursor:'pointer'}},'Track menu '+(index+1)),
+  h(PluginTrackActions,{track:{...track.value,pluginId:active.value},pluginId:active.value,accountScope:accountScope.value,plugins:sources.value,localOnly:localOnly.value})
+ ])),h(ActionDialog)
+])}).use(i18n).mount('#app')
+window.likeReady=true
+</script></body></html>

@@ -29,6 +29,7 @@ function evaluate(source, filename, dependencies) {
     console,
     require(name) {
       if (Object.hasOwn(dependencies, name)) return dependencies[name]
+      if (name === './i18n') return mobileI18n
       throw new Error('Unexpected dependency in ' + filename + ': ' + name)
     }
   }

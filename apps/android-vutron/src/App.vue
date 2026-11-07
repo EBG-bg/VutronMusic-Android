@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { formatBytes } from './utils/formatting'
 import { buildInfo } from './platform/buildInfo'
-import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, toRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { App as CapacitorApp } from '@capacitor/app'
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core'
 import CoverImage from './components/CoverImage.vue'
+import PluginArtwork from './components/PluginArtwork.vue'
+import MusicSourceSwitcher from './components/MusicSourceSwitcher.vue'
+import LibrarySidebarPanel from './components/LibrarySidebarPanel.vue'
 import OriginalIcon from './components/OriginalIcon.vue'
 import originalBrandLogo from '../../../src/renderer/assets/images/vutronmusic-icon.png?url'
 import TrackListPager from './components/TrackListPager.vue'
@@ -26,6 +29,7 @@ import CollapsibleSettingsCard from './components/CollapsibleSettingsCard.vue'
 import ThumbRange from './components/ThumbRange.vue'
 import SideNavItem from '../../../packages/ui/src/SideNavItem.vue'
 import PlayerVisual from './components/PlayerVisual.vue'
+import PlaylistContinueButton from './components/PlaylistContinueButton.vue'
 import PlaybackModeControl from './components/PlaybackModeControl.vue'
 import PlaylistLibrary from './components/PlaylistLibrary.vue'
 import { playlistView, playlistColumns } from './platform/libraryLayout'
@@ -42,10 +46,70 @@ import TrackMenuButton from './components/TrackMenuButton.vue'
 import { useTrackActionMenu } from './composables/trackActionMenu'
 import { useAndroidShellStore } from './stores/androidShell'
 import { vutronPlugin, type VutronTrack, type VutronPlaylist, type VutronSearchCategory, type VutronSearchEntity } from './platform/vutronPlugin'
+import type { PluginPlayback } from './plugins/protocol'
+import { requestPluginNavigation, type PluginNavigation } from './plugins/navigation'
+import { appNavigation } from './composables/navigationGuard'
+import { useMusicSources } from './plugins/useMusicSources'
 
 const store = useAndroidShellStore()
+const musicSources = useMusicSources(undefined, toRef(store, 'activeMusicSourceId'))
 const AppSettingsView = defineAsyncComponent(() => import('./components/AppSettingsView.vue'))
 const AppAboutView = defineAsyncComponent(() => import('./components/AppAboutView.vue'))
+const PluginManagerView = defineAsyncComponent(() => import('./components/PluginManagerView.vue'))
+const PluginLibraryView = defineAsyncComponent(() => import('./components/PluginLibraryView.vue'))
+const pluginSurface = ref<{ handleBack(): boolean; refresh?(): Promise<void>; goRoot?(): void }>()
+const pluginViewState = ref({ isDetail: false, canGoBack: false, caption: '', loading: false })
+const pageTransitioning = ref(false)
+const pendingSurfaceAction = ref<{ key: string; action: 'root' | 'back' }>()
+const integratedSourceVisible = computed(() => Boolean(musicSources.selected.value) && ['home', 'library', 'search'].includes(store.activeTab))
+const integratedSection = computed(() => store.activeTab === 'home' ? 'home' : store.activeTab === 'search' ? 'search' : 'library')
+const mainOnlineNavigation = computed(() => store.onlineAvailable || Boolean(musicSources.selected.value))
+const trackMenuSurface = ref<{ handleBack(): boolean }>()
+async function playFromPlugin(value: PluginPlayback) { await store.playPlugin(value) }
+function navigateTo(tab: Parameters<typeof store.navigateTo>[0]) {
+  if (tab === store.activeTab && integratedSourceVisible.value) {
+    if (pageTransitioning.value || pluginViewState.value.loading) pendingSurfaceAction.value = { key: pageKey.value, action: 'root' }
+    else void pluginSurface.value?.goRoot?.()
+    return
+  }
+  if (tab === store.activeTab && !(tab === 'library' && store.selectedPlaylist)) return
+  appNavigation.run(() => store.navigateTo(tab))
+}
+function openPluginSource(value: Omit<PluginNavigation, 'key'>) {
+  appNavigation.run(() => {
+    requestPluginNavigation(value)
+    if (value.pluginId && musicSources.hasSource(value.pluginId)) store.selectMusicSource(value.pluginId)
+    else store.openPlugins(value.pluginId)
+  })
+}
+async function openManagedLibrary(id: string) {
+  if (!musicSources.hasSource(id)) await musicSources.refresh()
+  appNavigation.run(() => {
+    if (id && musicSources.hasSource(id)) store.selectMusicSource(id)
+    else store.openPlugins(id)
+  })
+}
+function selectMainSource(value: string) {
+  sidebarOpen.value = false
+  appNavigation.run(() => {
+    if (value.startsWith('plugin:')) {
+      const id = value.slice(7)
+      if (musicSources.hasSource(id)) store.selectMusicSource(id)
+    } else if (value.startsWith('native:')) {
+      const section = value.slice(7)
+      if (section === 'netease' && !store.onlineAvailable) return
+      libraryMode.value = section === 'local' || section === 'offline' ? section : 'playlists'
+      store.selectMusicSource('', 'library')
+    }
+  })
+}
+function enterPlugins() {
+  sidebarOpen.value = false
+  appNavigation.run(async () => {
+    if (!store.hasAccess || store.loginVisible) { await store.enterLocalOnly(); await store.useAutomaticMode() }
+    store.openPlugins()
+  })
+}
 const libraryManagement = useLibraryManagement()
 const { t } = useI18n()
 const { trackAction, openTrackMenu, closeTrackMenu, vTrackMenu, trackMenuReturnFocus } = useTrackActionMenu()
@@ -60,10 +124,21 @@ function openComments(track: VutronTrack, trigger?: HTMLElement) {
 }
 watch(() => [store.profile?.userId, store.onlineAvailable], () => { commentTrack.value = undefined })
 const sidebarOpen = ref(false)
+const sidebarTrigger = ref<HTMLElement>()
 const libraryMode = ref<'playlists' | 'local' | 'offline'>('playlists')
-const { headerRefreshLabel, headerRefreshing, refreshCurrentView } = usePageRefresh(store, libraryMode)
+const selectedMainSource = computed(() => store.activeMusicSourceId ? 'plugin:' + store.activeMusicSourceId : 'native:' + (libraryMode.value === 'playlists' ? 'netease' : libraryMode.value))
+const { headerRefreshLabel: nativeRefreshLabel, headerRefreshing: nativeRefreshing, refreshCurrentView: refreshNativeView } = usePageRefresh(store, libraryMode)
+const headerRefreshLabel = computed(() => integratedSourceVisible.value
+  ? (!store.manualLocalOnly && store.networkConnected || musicSources.selected.value?.type === 'local' ? t('mobile.plugins.refreshSource') : '')
+  : nativeRefreshLabel.value)
+const headerRefreshing = computed(() => integratedSourceVisible.value ? pageTransitioning.value || pluginViewState.value.loading : nativeRefreshing.value)
+async function refreshCurrentView() {
+  if (headerRefreshing.value) return
+  if (integratedSourceVisible.value) await pluginSurface.value?.refresh?.()
+  else await refreshNativeView()
+}
 const reloadErrorPage = computed<(() => Promise<unknown>) | undefined>(() => {
-  if (store.loginVisible || !store.onlineAvailable) return undefined
+    if (store.loginVisible || !store.onlineAvailable || store.activeMusicSourceId) return undefined
   // Read-only recovery: never repeat like/create/delete or other write requests.
   if (store.activeTab === 'home') return async () => { store.error = ''; await store.loadHomeData() }
   if (store.activeTab === 'search' && store.searchKeywords.trim()) return async () => { store.error = ''; await store.runSearch() }
@@ -79,9 +154,10 @@ let qrPollTimer: ReturnType<typeof setTimeout> | undefined
 let qrPollPending = false
 let backButtonListener: PluginListenerHandle | undefined
 let noticeTimer: ReturnType<typeof setTimeout> | undefined
-const pageKey = computed(() => store.activeTab === 'library'
+const pageKey = computed(() => integratedSourceVisible.value ? `source:${musicSources.selectionKey.value}:${store.activeTab}` : store.activeTab === 'library'
   ? `library:${store.selectedPlaylist?.id ?? 'root'}`
   : store.activeTab === 'localCollection' ? `local:${store.selectedLocalCollection?.id}`
+  : store.activeTab === 'plugins' ? `plugins:${store.activePluginId}`
   : store.activeTab === 'entity' ? `entity:${store.selectedEntity?.category}:${store.selectedEntity?.id}` : store.activeTab)
 const transitionName = computed(() => store.activeTab === 'player' ? 'player-open' : store.navigationDirection === 'back' ? 'page-back' : 'page-forward')
 const searchCategories = computed(() => [
@@ -89,7 +165,7 @@ const searchCategories = computed(() => [
   { key: 'albums', label: t('nav.album') },
   { key: 'artists', label: t('nav.artist') },
   { key: 'playlists', label: t('nav.playlist') },
-  { key: 'mvs', label: 'MV' }
+  { key: 'mvs', label: t('mobile.shellUi.categoryMvs') }
 ] as const)
 const currentTrack = computed<VutronTrack>(() => {
   const id = store.playback.trackId
@@ -140,6 +216,7 @@ onMounted(async () => {
     })
   }
   await store.restore()
+  await musicSources.refresh()
   if (store.hasAccess) {
     if (store.localOnly) libraryMode.value = store.manualLocalOnly && (store.localTracks.length || store.localLibrary.playlists.length) ? 'local' : 'offline'
     store.startPlaybackPolling()
@@ -174,12 +251,30 @@ watch(() => store.queueNotice, text => {
   if (text) noticeTimer = setTimeout(() => { store.queueNotice = '' }, 2200)
 })
 
-watch(() => store.activeTab, tab => {
+watch(() => [store.activeTab, store.activeMusicSourceId] as const, ([tab, source]) => {
   if (tab === 'player') void loadPlaybackTuning()
-  if (tab === 'home' && store.onlineAvailable) {
+  if (tab === 'home' && store.onlineAvailable && !source) {
     if (!store.homeData.banners.length && !store.homeData.playlists.length) void store.loadHomeData()
     startHeroRotation()
   } else stopHeroRotation()
+})
+watch(pageKey, () => { pageTransitioning.value = true; pluginViewState.value = { isDetail: false, canGoBack: false, caption: '', loading: false } })
+watch([pageTransitioning, () => pluginViewState.value.loading, pageKey], () => {
+  const pending = pendingSurfaceAction.value
+  if (!pending) return
+  if (pending.key !== pageKey.value) { pendingSurfaceAction.value = undefined; return }
+  if (pageTransitioning.value || pluginViewState.value.loading) return
+  pendingSurfaceAction.value = undefined
+  if (pending.action === 'root') void pluginSurface.value?.goRoot?.()
+  else if (!pluginSurface.value?.handleBack()) appNavigation.run(() => store.navigateBack())
+}, { flush: 'post' })
+watch(() => musicSources.sources.value.map(source => source.id), ids => { if (musicSources.loaded.value) store.retainMusicSources(ids) })
+watch(() => store.activeMusicSourceId, (id, previous) => {
+  if (!id && previous && musicSources.loaded.value && !musicSources.hasSource(previous)) {
+    store.discardMusicSource(previous)
+    libraryMode.value = store.onlineAvailable ? 'playlists' : 'offline'
+    store.queueNotice = t('mobile.plugins.sourceUnavailable')
+  }
 })
 
 watch(() => store.homeData.banners, () => { heroIndex.value = 0; startHeroRotation() })
@@ -187,12 +282,14 @@ watch(() => store.homeData.banners, () => { heroIndex.value = 0; startHeroRotati
 function restorePageScroll() {
   window.scrollTo({ top: store.navigationScrollY, behavior: 'instant' as ScrollBehavior })
 }
+function finishPageTransition() { pageTransitioning.value = false; restorePageScroll() }
 
 function onVisibilityChange() {
   if (document.visibilityState === 'hidden') { void store.flushLiveSettings(); store.stopPlaybackPolling() }
   refreshOverlaySettings()
   if (document.visibilityState === 'visible' && store.hasAccess) {
     void store.refreshConnectivity()
+    void musicSources.refresh()
     void store.loadLocalMusic()
     store.startPlaybackPolling()
   }
@@ -202,7 +299,7 @@ function onVisibilityChange() {
 
 function startHeroRotation() {
   stopHeroRotation()
-  if (!store.onlineAvailable) return
+  if (!store.onlineAvailable || store.activeMusicSourceId) return
   if (document.visibilityState !== 'visible' || store.activeTab !== 'home' || store.homeData.banners.length < 2) return
   heroTimer = setInterval(() => moveHero(1), 8000)
 }
@@ -239,16 +336,20 @@ async function refreshQrLogin() {
   if (store.qrLoginKey) scheduleQrPoll(500)
 }
 
-async function enterLocalMode() {
-  stopQrPolling()
-  await store.enterLocalOnly()
-  if (store.localOnly) libraryMode.value = store.localTracks.length || store.localLibrary.playlists.length ? 'local' : 'offline'
+function enterLocalMode() {
+  appNavigation.run(async () => {
+    stopQrPolling()
+    await store.enterLocalOnly()
+    if (store.localOnly) libraryMode.value = store.localTracks.length || store.localLibrary.playlists.length ? 'local' : 'offline'
+  })
 }
 
 function requestOnlineLogin() {
   sidebarOpen.value = false
-  store.requestLogin()
-  if (Capacitor.isNativePlatform()) void refreshQrLogin()
+  appNavigation.run(() => {
+    store.requestLogin()
+    if (Capacitor.isNativePlatform()) void refreshQrLogin()
+  })
 }
 
 function moveHero(direction: -1 | 1) {
@@ -282,9 +383,9 @@ function activateHero(offset: -1 | 0 | 1) {
   if (offset !== 0) { moveHero(offset); return }
   const banner = heroAt(0)
   if (!banner) return
-  if (banner.type === 'track') void store.play({ id: banner.id, name: banner.typeTitle || '推荐歌曲', picUrl: banner.picUrl })
-  else if (banner.type === 'playlist') void store.openPlaylist({ id: banner.id, name: banner.typeTitle || '推荐歌单', coverImgUrl: banner.picUrl })
-  else if (banner.type === 'album') void store.openEntityTracks('albums', banner.id, banner.typeTitle || '推荐专辑', banner.picUrl)
+  if (banner.type === 'track') void store.play({ id: banner.id, name: banner.typeTitle || t('mobile.shellUi.recommendedTrack'), picUrl: banner.picUrl })
+  else if (banner.type === 'playlist') void store.openPlaylist({ id: banner.id, name: banner.typeTitle || t('mobile.shellUi.recommendedPlaylist'), coverImgUrl: banner.picUrl })
+  else if (banner.type === 'album') void store.openEntityTracks('albums', banner.id, banner.typeTitle || t('mobile.shellUi.recommendedAlbum'), banner.picUrl)
   else if (banner.type === 'mv') void store.openMv(banner.id)
   else if (banner.url) window.open(banner.url, '_blank', 'noopener,noreferrer')
 }
@@ -296,25 +397,36 @@ function handleBack(): boolean {
   if (commentTrack.value) { commentTrack.value = undefined; return true }
   if (store.onlinePlaylistDialog) { store.closeOnlinePlaylistDialog(); return true }
   if (store.loginVisible && store.hasAccess) { void enterLocalMode(); return true }
-  if (trackAction.value) { closeTrackMenu(); return true }
+  if (trackAction.value) { if (!trackMenuSurface.value?.handleBack()) closeTrackMenu(); return true }
   if (store.queueOpen) { store.queueOpen = false; return true }
   if (sidebarOpen.value) { sidebarOpen.value = false; return true }
+  if (appNavigation.pending.value) return true
+  if (appNavigation.cancelInteraction()) return true
+  const reorderBack=new Event('vutron-playlist-order-back',{cancelable:true});window.dispatchEvent(reorderBack)
+  if(reorderBack.defaultPrevented)return true
+  if (integratedSourceVisible.value && (pageTransitioning.value || pluginViewState.value.loading)) {
+    pendingSurfaceAction.value = { key: pageKey.value, action: 'back' }; return true
+  }
+  if ((store.activeTab === 'plugins' || integratedSourceVisible.value) && pluginSurface.value?.handleBack()) return true
   const openDetails = Array.from(document.querySelectorAll<HTMLDetailsElement>('details[open]:not([data-closing])')).at(-1)
   if (openDetails) {
     if (openDetails.classList.contains('settings-collapse')) openDetails.dispatchEvent(new Event('vutron-settings-close'))
     else openDetails.open = false
     return true
   }
-  if (!store.localOnly && store.activeTab === 'library' && !store.selectedPlaylist && libraryMode.value !== 'playlists') {
+  if (!store.activeMusicSourceId && !store.localOnly && store.activeTab === 'library' && !store.selectedPlaylist && libraryMode.value !== 'playlists') {
     libraryMode.value = 'playlists'; query.value = ''; return true
   }
+  if (appNavigation.intercept(() => store.navigateBack())) return true
   return store.navigateBack()
 }
 function openLibrarySection(section: 'playlists' | 'local' | 'offline') {
   if (store.localOnly && section === 'playlists') return
-  libraryMode.value = section
-  store.navigateTo('library')
   sidebarOpen.value = false
+  appNavigation.run(() => {
+    libraryMode.value = section
+    store.selectMusicSource('', 'library')
+  })
 }
 function openSidebarCollection(collection: typeof store.localLibrary.folders[number]) {
   sidebarOpen.value = false
@@ -323,7 +435,7 @@ function openSidebarCollection(collection: typeof store.localLibrary.folders[num
     void store.pickMusicFolder()
     return
   }
-  void store.openLocalCollection(collection)
+  appNavigation.run(() => { store.selectMusicSource('', 'library'); void store.openLocalCollection(collection) })
 }
 async function pickFolderFromSidebar() { sidebarOpen.value = false; await store.pickMusicFolder(); openLibrarySection('local') }
 async function importFromSidebar() { sidebarOpen.value = false; await store.importLocalPlaylist() }
@@ -331,7 +443,7 @@ async function importFromSidebar() { sidebarOpen.value = false; await store.impo
 function submitSearch() {
   const keywords = store.searchKeywords.trim()
   if (!keywords) return
-  store.navigateTo('search')
+  navigateTo('search')
   void store.runSearch(store.searchCategory, keywords, true)
 }
 
@@ -377,14 +489,14 @@ function previewSeek(event: Event) {
 </script>
 
 <template>
-  <main class="app-shell" :inert="Boolean(commentTrack) || store.queueOpen || tuningOpen" :class="[`playlist-layout-${playlistView}`, { 'settings-surface': ['settings', 'about'].includes(store.activeTab) }]" :style="{ '--playlist-columns': playlistColumns }">
+  <main class="app-shell" :inert="Boolean(commentTrack) || store.queueOpen || tuningOpen || Boolean(actionDialog)" :class="[`playlist-layout-${playlistView}`, { 'settings-surface': ['settings', 'about'].includes(store.activeTab) }]" :style="{ '--playlist-columns': playlistColumns }">
     <header class="app-header">
-      <button v-if="store.hasAccess && !store.loginVisible" class="icon-button sidebar-toggle" type="button" :aria-label="$t('mobile.library.openSidebar')" :aria-expanded="sidebarOpen" @click="sidebarOpen = !sidebarOpen"><OriginalIcon name="list" /></button>
-      <button v-if="store.canNavigateBack" class="icon-button header-back" type="button" :aria-label="$t('mobile.common.back')" @click="handleBack"><OriginalIcon name="back" /></button>
+      <button v-if="store.hasAccess && !store.loginVisible" ref="sidebarTrigger" class="icon-button sidebar-toggle" type="button" :aria-label="$t('mobile.library.openSidebar')" :aria-expanded="sidebarOpen" @click="sidebarOpen = !sidebarOpen"><OriginalIcon name="list" /></button>
+      <button v-if="store.canNavigateBack || integratedSourceVisible && pluginViewState.canGoBack" class="icon-button header-back" type="button" :aria-label="$t('mobile.common.back')" @click="handleBack"><OriginalIcon name="back" /></button>
       <div v-if="!store.hasAccess" class="brand-mark original-brand"><img :src="originalBrandLogo" :alt="buildInfo.displayName" /></div>
       <div class="brand-copy">
         <h1>{{ buildInfo.displayName }}</h1>
-        <p>{{ store.localOnly ? $t(store.manualLocalOnly ? 'mobile.network.manualOffline' : !store.networkConnected ? 'mobile.network.automaticOffline' : 'mobile.network.localGuest') : store.profile?.nickname || $t('mobile.common.mobilePlayer') }}</p>
+        <p>{{ musicSources.selected.value ? musicSources.selected.value.name : store.localOnly ? $t(store.manualLocalOnly ? 'mobile.network.manualOffline' : !store.networkConnected ? 'mobile.network.automaticOffline' : 'mobile.network.localGuest') : store.profile?.nickname || $t('mobile.common.mobilePlayer') }}</p>
       </div>
       <button v-if="headerRefreshLabel" class="icon-button header-refresh" :class="{ 'is-refreshing': headerRefreshing }" type="button" :aria-label="headerRefreshing ? $t('mobile.home.refreshing') : headerRefreshLabel" :title="headerRefreshLabel" :aria-busy="headerRefreshing" :disabled="headerRefreshing" @click="refreshCurrentView"><OriginalIcon name="refresh" /></button>
       <button v-if="store.hasAccess && store.activeTab === 'player'" class="secondary-button playback-tuning-button" type="button" :aria-label="$t('mobile.advancedPlayback.quickTitle')" aria-haspopup="dialog" :aria-expanded="tuningOpen" @click="tuningOpen = true; loadPlaybackTuning()">{{ playbackTuning.speed.toFixed(2) }}×</button>
@@ -398,15 +510,16 @@ function previewSeek(event: Event) {
       <div v-if="Capacitor.isNativePlatform()" class="qr-login-card">
         <div class="qr-image-frame">
           <img v-if="store.qrLoginImage" :src="store.qrLoginImage" :alt="$t('mobile.login.qrAlt')" />
-          <div v-else class="qr-image-placeholder">{{ store.qrLoginLoading ? '正在生成二维码…' : '二维码暂不可用' }}</div>
+          <div v-else class="qr-image-placeholder">{{ store.qrLoginLoading ? t('mobile.shellUi.qrGenerating') : t('mobile.shellUi.qrUnavailable') }}</div>
         </div>
-        <p class="qr-login-status" role="status">{{ store.qrLoginStatus || '点击获取二维码，或选择仅本地模式' }}</p>
+        <p class="qr-login-status" role="status">{{ store.qrLoginStatus || t('mobile.shellUi.qrStartHint') }}</p>
         <button class="primary-button full-button" type="button" :disabled="store.qrLoginLoading" @click="refreshQrLogin">
-          {{ store.qrLoginImage ? $t('mobile.login.qrRefresh') : '获取二维码' }}
+          {{ store.qrLoginImage ? $t('mobile.login.qrRefresh') : t('mobile.shellUi.qrGet') }}
         </button>
         <p class="qr-login-hint">{{ $t('mobile.login.qrTip') }}</p>
       </div>
-      <button class="secondary-button full-button" type="button" :disabled="store.localModeLoading" @click="enterLocalMode()">{{ store.localModeLoading ? '正在读取本地音乐…' : '仅本地模式（无需登录）' }}</button>
+      <button class="secondary-button full-button" type="button" :disabled="store.localModeLoading" @click="enterLocalMode()">{{ store.localModeLoading ? t('mobile.shellUi.localLoading') : t('mobile.shellUi.localEntry') }}</button>
+      <button class="text-button full-button" type="button" :disabled="store.localModeLoading" @click="enterPlugins">{{ $t('mobile.plugins.title') }}</button>
       <p class="setting-note">{{ $t('mobile.login.localHint') }}</p>
       <CollapsibleSettingsCard class="cookie-login-details" section-id="cookie-login" :title="$t('mobile.login.cookieFallback')" :remember="false">
         <form class="login-form" @submit.prevent="store.login(cookie)">
@@ -417,70 +530,76 @@ function previewSeek(event: Event) {
           </button>
         </form>
       </CollapsibleSettingsCard>
-      <AppErrorNotice v-if="store.error" :message="store.error" inline @close="store.error = ''" @login="requestOnlineLogin" @folders="store.pickMusicFolder" @storage="store.navigateTo('settings')" />
+      <AppErrorNotice v-if="store.error" :message="store.error" inline @close="store.error = ''" @login="requestOnlineLogin" @folders="store.pickMusicFolder" @storage="navigateTo('settings')" />
     </section>
 
     <template v-else>
+      <Transition name="notice-fade"><MusicSourceSwitcher v-if="musicSources.sources.value.length && ['home', 'library', 'search'].includes(store.activeTab)" :model-value="selectedMainSource" :sources="musicSources.sources.value" :online-available="store.onlineAvailable" @select="selectMainSource" @manage="enterPlugins" /></Transition>
+      <AppErrorNotice v-if="musicSources.error.value" :message="musicSources.error.value" :retry="musicSources.refresh" inline @close="musicSources.error.value = ''" />
       <Teleport to="body"><PlaybackQueuePanel /></Teleport>
-      <Teleport to="body"><Transition name="track-menu" :duration="reducedMotion ? 0 : { enter: 320, leave: 240 }"><TrackActionMenu v-if="trackAction" :track="trackAction" :suspended="Boolean(commentTrack)" @close="closeTrackMenu" @comments="openComments($event, trackMenuReturnFocus())" /></Transition></Teleport>
+      <Teleport to="body"><Transition name="track-menu" :duration="reducedMotion ? 0 : { enter: 320, leave: 240 }"><TrackActionMenu v-if="trackAction" ref="trackMenuSurface" :track="trackAction" :suspended="Boolean(commentTrack)" @close="closeTrackMenu" @comments="openComments($event, trackMenuReturnFocus())" /></Transition></Teleport>
       <Teleport to="body"><Transition name="track-menu" :duration="reducedMotion ? 0 : { enter: 320, leave: 240 }"><CommentSheet v-if="commentTrack" :track="commentTrack" :return-focus="commentReturnFocus" @close="commentTrack = undefined" /></Transition></Teleport>
-      <Transition name="sidebar">
-        <div v-if="sidebarOpen" class="sidebar-layer" @click.self="sidebarOpen = false">
-          <aside class="library-sidebar" role="dialog" aria-modal="true" :aria-label="$t('mobile.library.sidebar')">
+      <Teleport to="body"><Transition name="sidebar">
+        <LibrarySidebarPanel v-if="sidebarOpen" :return-focus="sidebarTrigger" @close="sidebarOpen = false">
             <div class="sidebar-heading"><img :src="originalBrandLogo" alt="" /><b>{{ buildInfo.displayName }}</b><button type="button" class="icon-button" :aria-label="$t('mobile.library.closeSidebar')" @click="sidebarOpen = false"><OriginalIcon name="close" /></button></div>
-            <button type="button" v-if="store.onlineAvailable" @click="openLibrarySection('playlists')"><OriginalIcon name="library" />{{ $t('mobile.library.netease') }}</button>
+            <button type="button" v-if="store.onlineAvailable" data-music-source-native="netease" @click="openLibrarySection('playlists')"><OriginalIcon name="library" />{{ $t('mobile.library.netease') }}</button>
             <button v-if="store.onlineAvailable" type="button" :disabled="store.onlineMutationBusy" @click="sidebarOpen = false; store.openCreateOnlinePlaylist()"><OriginalIcon name="plus" />{{ $t('mobile.netease.create') }}</button>
             <button type="button" @click="pickFolderFromSidebar"><OriginalIcon name="folder" />{{ $t('mobile.library.chooseLocalFolder') }}</button>
             <button type="button" :disabled="store.libraryLoading" @click="importFromSidebar"><OriginalIcon name="down" />{{ $t('mobile.library.importDesktop') }}</button>
-            <button type="button" @click="openLibrarySection('local')"><OriginalIcon name="local" />{{ $t('mobile.library.allLocal') }}</button>
-            <button type="button" @click="openLibrarySection('offline')"><OriginalIcon name="down" />{{ $t('mobile.offline.library') }}</button>
+            <button type="button" data-music-source-native="local" @click="openLibrarySection('local')"><OriginalIcon name="local" />{{ $t('mobile.library.allLocal') }}</button>
+            <button type="button" data-music-source-native="offline" @click="openLibrarySection('offline')"><OriginalIcon name="down" />{{ $t('mobile.offline.library') }}</button>
+            <h3 v-if="musicSources.sources.value.length">{{ $t('mobile.plugins.sourcesSection') }}</h3>
+            <button v-for="source in musicSources.sources.value" :key="source.id" type="button" :data-music-source-id="source.id" :aria-current="store.activeMusicSourceId === source.id ? 'page' : undefined" @click="selectMainSource('plugin:' + source.id)"><OriginalIcon name="library" /><span>{{ source.name }}</span></button>
+            <button type="button" @click="enterPlugins"><OriginalIcon name="settings" />{{ $t('mobile.plugins.manageSources') }}</button>
             <button type="button" :disabled="store.localScanLoading" @click="store.loadLocalMusic(true)"><OriginalIcon name="refresh" />{{ $t('mobile.library.scan') }}</button>
             <h3 v-if="store.localLibrary.folders.length">{{ $t('mobile.library.myLocal') }}</h3>
             <div v-for="folder in store.localLibrary.folders" :key="folder.id" class="sidebar-managed-row"><button type="button" @click="openSidebarCollection(folder)"><OriginalIcon name="folder" /><span>{{ folder.name }}<small>{{ folder.permissionGranted === false ? $t('mobile.library.reauthorize') : $t('mobile.common.tracks', { count: folder.trackCount }) }}</small></span></button><button class="icon-button collection-delete" type="button" :aria-label="$t('mobile.management.forgetFolder') + ' ' + folder.name" @click="libraryManagement.removeCollection(folder, 'forgetFolder')"><OriginalIcon name="close" /></button></div>
             <h3 v-if="store.localLibrary.playlists.length">{{ $t('mobile.library.imported') }}</h3>
             <div v-for="playlist in store.localLibrary.playlists" :key="playlist.id" class="sidebar-managed-row"><button type="button" @click="openSidebarCollection(playlist)"><OriginalIcon name="library" /><span>{{ playlist.name }}<small>{{ $t('mobile.common.tracks', { count: playlist.trackCount }) }}</small></span></button><button class="icon-button collection-delete" type="button" :aria-label="$t('mobile.management.deletePlaylist') + ' ' + playlist.name" @click="libraryManagement.removeCollection(playlist, 'deletePlaylist')"><OriginalIcon name="close" /></button></div>
-          </aside>
-        </div>
-      </Transition>
-      <Transition :name="transitionName" mode="out-in" @after-enter="restorePageScroll">
+        </LibrarySidebarPanel>
+      </Transition></Teleport>
+      <Transition :name="transitionName" mode="out-in" @after-enter="finishPageTransition">
       <div :key="pageKey" class="page-stage">
-      <section v-if="store.activeTab === 'home'" class="page home-page">
-        <div class="home-greeting"><div><div class="eyebrow">VUTRON MUSIC</div><h2>{{ $t('mobile.home.forYou') }}</h2></div><button class="home-search-shortcut" type="button" aria-label="搜索音乐" @click="store.navigateTo('search')"><OriginalIcon name="search" /></button></div>
-        <div v-if="store.homeData.banners.length" class="hero-carousel" aria-label="推荐轮播" @touchstart.passive="heroTouchStart = $event.touches[0]?.clientX ?? 0" @touchend.passive="endHeroSwipe">
+      <PluginLibraryView v-if="integratedSourceVisible" :key="musicSources.selectionKey.value + ':' + store.activeTab" ref="pluginSurface" :plugin-id="store.activeMusicSourceId" integrated :section="integratedSection" :local-only="store.manualLocalOnly || !store.networkConnected" @view-state="pluginViewState = $event" @back="handleBack" @manage="enterPlugins" @open-source="openPluginSource" @play="playFromPlugin" @next="store.queuePlugin($event, 'next')" @append="store.queuePlugin($event, 'append')" @radio-trash="store.pluginRadioTrash" />
+      <PluginManagerView v-else-if="store.activeTab === 'plugins' && !store.activePluginId" ref="pluginSurface" :local-only="store.manualLocalOnly || !store.networkConnected" @open="openManagedLibrary" @back="store.navigateBack" />
+      <PluginLibraryView v-else-if="store.activeTab === 'plugins'" :key="store.activePluginId" ref="pluginSurface" :plugin-id="store.activePluginId" :local-only="store.manualLocalOnly || !store.networkConnected" @back="store.navigateBack" @manage="store.openPlugins()" @open-source="openPluginSource" @play="playFromPlugin" @next="store.queuePlugin($event, 'next')" @append="store.queuePlugin($event, 'append')" @radio-trash="store.pluginRadioTrash" />
+      <section v-else-if="store.activeTab === 'home'" class="page home-page">
+        <div class="home-greeting"><div><div class="eyebrow">VUTRON MUSIC</div><h2>{{ $t('mobile.home.forYou') }}</h2></div><button class="home-search-shortcut" type="button" :aria-label="$t('mobile.shellUi.searchMusic')" @click="navigateTo('search')"><OriginalIcon name="search" /></button></div>
+        <div v-if="store.homeData.banners.length" class="hero-carousel" :aria-label="$t('mobile.shellUi.carousel')" @touchstart.passive="heroTouchStart = $event.touches[0]?.clientX ?? 0" @touchend.passive="endHeroSwipe">
           <button v-for="(banner, index) in store.homeData.banners" :key="`${banner.id}-${index}`" class="hero-card" :class="heroPosition(index)" :tabindex="heroPosition(index) === 'hero-hidden' ? -1 : 0" :aria-hidden="heroPosition(index) === 'hero-hidden'" type="button" @click="clickHero(index)">
             <CoverImage :src="banner.picLocalUri || banner.picUrl" :remote-src="banner.picUrl" loading="eager" alt="" /><span class="hero-shade"></span><span class="hero-label">{{ banner.typeTitle || $t('mobile.home.daily') }}</span>
           </button>
-          <div class="hero-dots"><button v-for="(banner, index) in store.homeData.banners" :key="`${banner.id}-${index}`" type="button" :class="{ active: index === heroIndex }" :aria-label="`第 ${index + 1} 张推荐`" @click="heroIndex = index; startHeroRotation()"></button></div>
+          <div class="hero-dots"><button v-for="(banner, index) in store.homeData.banners" :key="`${banner.id}-${index}`" type="button" :class="{ active: index === heroIndex }" :aria-label="$t('mobile.shellUi.carouselItem', { count: index + 1 })" @click="heroIndex = index; startHeroRotation()"></button></div>
         </div>
-        <div v-else class="hero-placeholder"><span class="eyebrow">YOUR MUSIC, YOUR WAY</span><b>{{ $t('mobile.home.discover') }}</b><button class="text-button" type="button" :disabled="store.homeLoading" @click="refreshCurrentView">{{ store.homeLoading ? '正在载入…' : '刷新推荐' }}</button></div>
+        <div v-else class="hero-placeholder"><span class="eyebrow">YOUR MUSIC, YOUR WAY</span><b>{{ $t('mobile.home.discover') }}</b><button class="text-button" type="button" :disabled="store.homeLoading" @click="refreshCurrentView">{{ store.homeLoading ? t('mobile.shellUi.loading') : t('mobile.shellUi.refreshRecommendations') }}</button></div>
 
         <section v-if="store.homeData.playlists.length" class="home-section">
-          <div class="home-section-title"><div><span class="eyebrow">MADE FOR YOU</span><h3>{{ $t('home.recommendPlaylist') }}</h3></div><button class="text-button" type="button" @click="store.navigateTo('library')">{{ $t('mobile.common.more') }}</button></div>
-          <div class="horizontal-cards"><button v-for="item in store.homeData.playlists" :key="item.id" class="home-cover-card" type="button" @click="store.openPlaylist(item)"><span class="home-cover"><CoverImage v-if="coverOf(item)" :src="coverOf(item)" :remote-src="remoteCoverOf(item)" alt="" loading="lazy" /><span v-else><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span></span><b>{{ item.name }}</b><small>{{ item.copywriter || `${item.trackCount ?? 0} 首歌曲` }}</small></button></div>
+          <div class="home-section-title"><div><span class="eyebrow">MADE FOR YOU</span><h3>{{ $t('home.recommendPlaylist') }}</h3></div><button class="text-button" type="button" @click="navigateTo('library')">{{ $t('mobile.common.more') }}</button></div>
+          <div class="horizontal-cards"><button v-for="item in store.homeData.playlists" :key="item.id" class="home-cover-card" type="button" @click="store.openPlaylist(item)"><span class="home-cover"><CoverImage v-if="coverOf(item)" :src="coverOf(item)" :remote-src="remoteCoverOf(item)" alt="" loading="lazy" /><span v-else><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span></span><b>{{ item.name }}</b><small>{{ item.copywriter || t('mobile.shellUi.songs', { count: item.trackCount ?? 0 }) }}</small></button></div>
         </section>
         <section v-if="store.homeData.dailyTracks.length" class="home-section">
           <div class="home-section-title"><div><span class="eyebrow">DAILY MIX</span><h3>{{ $t('mobile.home.daily') }}</h3></div></div>
-          <div class="home-track-strip"><div v-for="track in store.homeData.dailyTracks.slice(0, 8)" :key="track.id" class="home-track-card" role="button" tabindex="0" v-track-menu="() => openTrackMenu(track)" @click="store.play(track)" @keydown.enter.self.prevent="store.play(track)" @keydown.space.self.prevent="store.play(track)"><CoverImage v-if="coverOf(track)" :src="coverOf(track)" :remote-src="track.picUrl" alt="" loading="lazy" /><span v-else class="home-track-fallback"><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span><span><b>{{ track.name }}</b><small>{{ track.artists?.join(' / ') || track.album || '网易云音乐' }}</small></span><TrackMenuButton :name="track.name" @open="openTrackMenu(track)" /></div></div>
+          <div class="home-track-strip"><div v-for="track in store.homeData.dailyTracks.slice(0, 8)" :key="track.id" class="home-track-card" role="button" tabindex="0" v-track-menu="() => openTrackMenu(track)" @click="store.play(track)" @keydown.enter.self.prevent="store.play(track)" @keydown.space.self.prevent="store.play(track)"><CoverImage v-if="coverOf(track)" :src="coverOf(track)" :remote-src="track.picUrl" alt="" loading="lazy" /><span v-else class="home-track-fallback"><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span><span><b>{{ track.name }}</b><small>{{ track.artists?.join(' / ') || track.album || t('mobile.shellUi.neteaseMusic') }}</small></span><TrackMenuButton :name="track.name" @open="openTrackMenu(track)" /></div></div>
         </section>
-        <section v-if="store.homeData.artists.length" class="home-section"><div class="home-section-title"><div><span class="eyebrow">ARTISTS</span><h3>推荐歌手</h3></div></div><div class="horizontal-cards artist-cards"><button v-for="item in store.homeData.artists.slice(0, 12)" :key="item.id" class="home-cover-card artist-card" type="button" @click="store.openEntityTracks('artists', item.id, item.name, item.picUrl)"><span class="home-cover artist-cover"><CoverImage v-if="coverOf(item)" :src="coverOf(item)" :remote-src="remoteCoverOf(item)" alt="" loading="lazy" /><span v-else><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span></span><b>{{ item.name }}</b></button></div></section>
-        <section v-if="store.homeData.albums.length" class="home-section"><div class="home-section-title"><div><span class="eyebrow">NEW RELEASES</span><h3>{{ $t('nav.newAlbum') }}</h3></div></div><div class="horizontal-cards"><button v-for="item in store.homeData.albums" :key="item.id" class="home-cover-card" type="button" @click="store.openEntityTracks('albums', item.id, item.name, item.picUrl)"><span class="home-cover"><CoverImage v-if="coverOf(item)" :src="coverOf(item)" :remote-src="remoteCoverOf(item)" alt="" loading="lazy" /><span v-else><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span></span><b>{{ item.name }}</b><small>{{ item.artists?.map(artist => artist.name).join(' / ') || '新发行' }}</small></button></div></section>
-        <section v-if="store.homeData.charts.length" class="home-section home-bottom-section"><div class="home-section-title"><div><span class="eyebrow">TOP CHARTS</span><h3>{{ $t('nav.chart') }}</h3></div></div><div class="horizontal-cards"><button v-for="item in store.homeData.charts" :key="item.id" class="home-cover-card" type="button" @click="store.openPlaylist(item)"><span class="home-cover"><CoverImage v-if="coverOf(item)" :src="coverOf(item)" :remote-src="remoteCoverOf(item)" alt="" loading="lazy" /><span v-else><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span></span><b>{{ item.name }}</b><small>{{ item.copywriter || '网易云音乐榜单' }}</small></button></div></section>
+        <section v-if="store.homeData.artists.length" class="home-section"><div class="home-section-title"><div><span class="eyebrow">ARTISTS</span><h3>{{ $t('mobile.shellUi.recommendedArtists') }}</h3></div></div><div class="horizontal-cards artist-cards"><button v-for="item in store.homeData.artists.slice(0, 12)" :key="item.id" class="home-cover-card artist-card" type="button" @click="store.openEntityTracks('artists', item.id, item.name, item.picUrl)"><span class="home-cover artist-cover"><CoverImage v-if="coverOf(item)" :src="coverOf(item)" :remote-src="remoteCoverOf(item)" alt="" loading="lazy" /><span v-else><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span></span><b>{{ item.name }}</b></button></div></section>
+        <section v-if="store.homeData.albums.length" class="home-section"><div class="home-section-title"><div><span class="eyebrow">NEW RELEASES</span><h3>{{ $t('nav.newAlbum') }}</h3></div></div><div class="horizontal-cards"><button v-for="item in store.homeData.albums" :key="item.id" class="home-cover-card" type="button" @click="store.openEntityTracks('albums', item.id, item.name, item.picUrl)"><span class="home-cover"><CoverImage v-if="coverOf(item)" :src="coverOf(item)" :remote-src="remoteCoverOf(item)" alt="" loading="lazy" /><span v-else><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span></span><b>{{ item.name }}</b><small>{{ item.artists?.map(artist => artist.name).join(' / ') || t('mobile.shellUi.newRelease') }}</small></button></div></section>
+        <section v-if="store.homeData.charts.length" class="home-section home-bottom-section"><div class="home-section-title"><div><span class="eyebrow">TOP CHARTS</span><h3>{{ $t('nav.chart') }}</h3></div></div><div class="horizontal-cards"><button v-for="item in store.homeData.charts" :key="item.id" class="home-cover-card" type="button" @click="store.openPlaylist(item)"><span class="home-cover"><CoverImage v-if="coverOf(item)" :src="coverOf(item)" :remote-src="remoteCoverOf(item)" alt="" loading="lazy" /><span v-else><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span></span><b>{{ item.name }}</b><small>{{ item.copywriter || t('mobile.shellUi.neteaseCharts') }}</small></button></div></section>
         <div v-if="store.homeLoading" class="home-loading"><i></i><i></i><i></i><span>{{ $t('mobile.home.updating') }}</span></div>
       </section>
 
       <section v-else-if="store.activeTab === 'search'" class="page search-page">
-        <div class="section-heading"><div><div class="eyebrow">DISCOVER</div><h2>搜索音乐</h2></div></div>
-        <form class="remote-search-box" @submit.prevent="submitSearch"><span><OriginalIcon name="search" /></span><input v-model="store.searchKeywords" type="search" autocomplete="off" placeholder="歌曲、歌手、专辑或歌单" /><button type="submit" :disabled="store.searchLoading || !store.searchKeywords.trim()">{{ $t('nav.search') }}</button></form>
-        <div class="search-categories" role="tablist" aria-label="搜索分类"><button v-for="category in searchCategories" :key="category.key" type="button" role="tab" :aria-selected="store.searchCategory === category.key" :class="{ selected: store.searchCategory === category.key }" @click="changeSearchCategory(category.key)">{{ category.label }}</button></div>
-        <div class="search-result-heading" v-if="store.searchKeywords"><b>“{{ store.searchKeywords }}”</b><small>{{ store.searchCount ? `${store.searchCount} 条结果` : (store.searchLoading ? '正在搜索…' : '搜索结果') }}</small></div>
+        <div class="section-heading"><div><div class="eyebrow">DISCOVER</div><h2>{{ $t('mobile.shellUi.searchMusic') }}</h2></div></div>
+        <form class="remote-search-box" @submit.prevent="submitSearch"><span><OriginalIcon name="search" /></span><input v-model="store.searchKeywords" type="search" autocomplete="off" :placeholder="$t('mobile.shellUi.searchPlaceholder')" /><button type="submit" :disabled="store.searchLoading || !store.searchKeywords.trim()">{{ $t('nav.search') }}</button></form>
+        <div class="search-categories" role="tablist" :aria-label="$t('mobile.shellUi.searchCategories')"><button v-for="category in searchCategories" :key="category.key" type="button" role="tab" :aria-selected="store.searchCategory === category.key" :class="{ selected: store.searchCategory === category.key }" @click="changeSearchCategory(category.key)">{{ category.label }}</button></div>
+        <div class="search-result-heading" v-if="store.searchKeywords"><b>“{{ store.searchKeywords }}”</b><small>{{ store.searchCount ? t('mobile.shellUi.resultsCount', { count: store.searchCount }) : (store.searchLoading ? t('mobile.shellUi.searching') : t('mobile.shellUi.searchResults')) }}</small></div>
         <Transition name="content-switch" mode="out-in">
         <div :key="store.searchCategory" class="content-switch-stage">
         <LibraryLayoutControls v-if="store.searchCategory === 'playlists'" />
-        <div v-if="store.searchCategory === 'tracks'" class="track-list search-track-list"><div v-for="(track, index) in visibleSearchTracks" :key="track.id" class="track-row" role="button" tabindex="0" v-track-menu="() => openTrackMenu(track)" @click="store.play(track)" @keydown.enter.self.prevent="store.play(track)" @keydown.space.self.prevent="store.play(track)"><span class="track-index">{{ String(index + 1).padStart(2, '0') }}</span><span class="track-copy"><b>{{ track.name }}</b><small>{{ track.artists?.join(' / ') || track.album || '网易云音乐' }}</small></span><TrackMenuButton :name="track.name" @open="openTrackMenu(track)" /></div></div>
-        <div v-else-if="store.searchCategory === 'playlists'" class="playlist-grid search-playlist-grid"><button v-for="item in visibleSearchPlaylists" :key="item.id" class="playlist-card" type="button" @click="store.openPlaylist(item)"><span class="cover-wrap"><CoverImage v-if="coverOf(item)" :src="coverOf(item)" :remote-src="remoteCoverOf(item)" alt="" loading="lazy" /><span v-else class="cover-fallback"><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span><span class="cover-play"><OriginalIcon name="play" /></span></span><span class="playlist-copy"><b>{{ item.name }}</b><small>{{ item.trackCount ?? 0 }} 首歌曲</small></span></button></div>
-        <div v-else class="search-entity-list"><button v-for="item in visibleSearchEntities" :key="item.id" class="search-entity-row" type="button" @click="store.searchCategory === 'mvs' ? store.openMv(item.id) : openSearchEntity(item)"><CoverImage v-if="coverOf(item)" :src="coverOf(item)" :remote-src="remoteCoverOf(item)" alt="" loading="lazy" /><span v-else class="entity-fallback"><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span><span class="entity-copy"><b>{{ item.name }}</b><small>{{ entityArtists(item) || (store.searchCategory === 'mvs' ? '音乐视频' : '网易云音乐') }}</small></span><span class="entity-type">{{ searchCategories.find(category => category.key === store.searchCategory)?.label }}</span></button></div>
-        <div v-if="store.searchLoading && !store.searchResults.length" class="empty-state">正在搜索…</div><div v-else-if="store.searchKeywords && !store.searchLoading && !store.searchResults.length" class="empty-state">没有找到相关内容</div>
-        <button v-if="store.searchNextPage || moreSearchResults" class="load-more-button" type="button" :disabled="store.searchLoading" @click="loadMoreSearchResults()">{{ store.searchLoading ? '正在载入…' : '加载更多' }}</button><div v-else-if="store.searchResults.length" class="search-end">已经到底了</div>
+        <div v-if="store.searchCategory === 'tracks'" class="track-list search-track-list"><div v-for="(track, index) in visibleSearchTracks" :key="track.id" class="track-row" role="button" tabindex="0" v-track-menu="() => openTrackMenu(track)" @click="store.play(track)" @keydown.enter.self.prevent="store.play(track)" @keydown.space.self.prevent="store.play(track)"><span class="track-index">{{ String(index + 1).padStart(2, '0') }}</span><span class="track-copy"><b>{{ track.name }}</b><small>{{ track.artists?.join(' / ') || track.album || t('mobile.shellUi.neteaseMusic') }}</small></span><TrackMenuButton :name="track.name" @open="openTrackMenu(track)" /></div></div>
+        <div v-else-if="store.searchCategory === 'playlists'" class="playlist-grid search-playlist-grid"><button v-for="item in visibleSearchPlaylists" :key="item.id" class="playlist-card" type="button" @click="store.openPlaylist(item)"><span class="cover-wrap"><CoverImage v-if="coverOf(item)" :src="coverOf(item)" :remote-src="remoteCoverOf(item)" alt="" loading="lazy" /><span v-else class="cover-fallback"><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span><span class="cover-play"><OriginalIcon name="play" /></span></span><span class="playlist-copy"><b>{{ item.name }}</b><small>{{ $t('mobile.shellUi.songs', { count: item.trackCount ?? 0 }) }}</small></span></button></div>
+        <div v-else class="search-entity-list"><button v-for="item in visibleSearchEntities" :key="item.id" class="search-entity-row" type="button" @click="store.searchCategory === 'mvs' ? store.openMv(item.id) : openSearchEntity(item)"><CoverImage v-if="coverOf(item)" :src="coverOf(item)" :remote-src="remoteCoverOf(item)" alt="" loading="lazy" /><span v-else class="entity-fallback"><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span><span class="entity-copy"><b>{{ item.name }}</b><small>{{ entityArtists(item) || (store.searchCategory === 'mvs' ? t('mobile.shellUi.musicVideo') : t('mobile.shellUi.neteaseMusic')) }}</small></span><span class="entity-type">{{ searchCategories.find(category => category.key === store.searchCategory)?.label }}</span></button></div>
+        <div v-if="store.searchLoading && !store.searchResults.length" class="empty-state">{{ $t('mobile.shellUi.searching') }}</div><div v-else-if="store.searchKeywords && !store.searchLoading && !store.searchResults.length" class="empty-state">{{ $t('mobile.shellUi.noResults') }}</div>
+        <button v-if="store.searchNextPage || moreSearchResults" class="load-more-button" type="button" :disabled="store.searchLoading" @click="loadMoreSearchResults()">{{ store.searchLoading ? t('mobile.shellUi.loading') : t('mobile.shellUi.loadMore') }}</button><div v-else-if="store.searchResults.length" class="search-end">{{ $t('mobile.shellUi.endOfList') }}</div>
         </div>
         </Transition>
       </section>
@@ -491,8 +610,8 @@ function previewSeek(event: Event) {
       </section>
       <section v-else-if="store.activeTab === 'entity'" class="page library-page">
         <div class="section-heading"><div><div class="eyebrow">{{ store.selectedEntity?.category === 'artists' ? 'ARTIST' : 'ALBUM' }}</div><h2>{{ store.selectedEntity?.name }}</h2></div><button class="text-button" type="button" @click="handleBack">{{ $t('mobile.common.back') }}</button></div>
-        <div class="playlist-hero"><CoverImage v-if="store.selectedEntity?.picUrl" :src="store.selectedEntity.picUrl" alt="" /><span v-else class="cover-fallback"><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span><div><div class="eyebrow">{{ store.selectedEntity?.category === 'artists' ? $t('nav.artist') : $t('nav.album') }}</div><h3>{{ store.selectedEntity?.name }}</h3><p>{{ store.tracks.length }} 首歌曲</p></div></div>
-        <div class="track-list playlist-tracks"><div v-for="(track, index) in visibleCollectionTracks" :key="track.id" class="track-row" role="button" tabindex="0" v-track-menu="() => openTrackMenu(track)" @click="store.play(track)" @keydown.enter.self.prevent="store.play(track)" @keydown.space.self.prevent="store.play(track)"><span class="track-index">{{ String(index + 1).padStart(2, '0') }}</span><span class="track-copy"><b>{{ track.name }}</b><small>{{ track.artists?.join(' / ') || track.album }}</small></span><TrackMenuButton :name="track.name" @open="openTrackMenu(track)" /></div><div v-if="store.loading" class="empty-state">正在读取歌曲…</div>
+        <div class="playlist-hero"><CoverImage v-if="store.selectedEntity?.picUrl" :src="store.selectedEntity.picUrl" alt="" /><span v-else class="cover-fallback"><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span><div><div class="eyebrow">{{ store.selectedEntity?.category === 'artists' ? $t('nav.artist') : $t('nav.album') }}</div><h3>{{ store.selectedEntity?.name }}</h3><p>{{ $t('mobile.shellUi.songs', { count: store.tracks.length }) }}</p></div></div>
+        <div class="track-list playlist-tracks"><div v-for="(track, index) in visibleCollectionTracks" :key="track.id" class="track-row" role="button" tabindex="0" v-track-menu="() => openTrackMenu(track)" @click="store.play(track)" @keydown.enter.self.prevent="store.play(track)" @keydown.space.self.prevent="store.play(track)"><span class="track-index">{{ String(index + 1).padStart(2, '0') }}</span><span class="track-copy"><b>{{ track.name }}</b><small>{{ track.artists?.join(' / ') || track.album }}</small></span><TrackMenuButton :name="track.name" @open="openTrackMenu(track)" /></div><div v-if="store.loading" class="empty-state">{{ $t('mobile.shellUi.loadingTracks') }}</div>
 <TrackListPager :more="moreCollectionTracks" @more="showMoreCollectionTracks" />
 </div>
       </section>
@@ -507,7 +626,7 @@ function previewSeek(event: Event) {
           <p v-if="store.localOnly" class="library-mode-description" role="status">{{ $t(store.manualLocalOnly ? 'mobile.network.manualHint' : !store.networkConnected ? 'mobile.network.automaticHint' : 'mobile.network.guestHint') }} <button v-if="store.manualLocalOnly" class="text-button" type="button" :disabled="store.localModeLoading" @click="store.useAutomaticMode">{{ $t('mobile.network.useAutomatic') }}</button></p>
           <div class="library-shortcuts">
             <button v-if="store.onlineAvailable" class="shortcut-card favorite-shortcut" type="button" @click="libraryMode = 'playlists'">
-              <span class="shortcut-icon"><OriginalIcon name="library" /></span><span><b>{{ $t('mobile.library.myPlaylists') }}</b><small>{{ store.playlists.length }} 个歌单</small></span>
+              <span class="shortcut-icon"><OriginalIcon name="library" /></span><span><b>{{ $t('mobile.library.myPlaylists') }}</b><small>{{ $t('mobile.shellUi.playlists', { count: store.playlists.length }) }}</small></span>
             </button>
             <button class="shortcut-card local-shortcut" type="button" @click="libraryMode = 'local'">
               <span class="shortcut-icon"><OriginalIcon name="local" /></span><span><b>{{ $t('mobile.offline.deviceMusic') }}</b><small>{{ $t('mobile.offline.deviceSummary', { count: store.localTracks.length, playlists: store.localLibrary.playlists.length }) }}</small></span>
@@ -519,8 +638,8 @@ function previewSeek(event: Event) {
             <button type="button" :class="{ selected: libraryMode === 'offline' }" @click="libraryMode = 'offline'">{{ $t('mobile.offline.library') }}</button>
           </div>
           <p v-if="libraryMode !== 'playlists'" class="library-mode-description">{{ $t(libraryMode === 'local' ? 'mobile.offline.deviceHint' : 'mobile.offline.cacheHint') }}</p>
-          <label class="search-box"><span><OriginalIcon name="search" /></span><input v-model="query" type="search" :placeholder="libraryMode === 'playlists' ? '搜索歌单' : '搜索歌曲'" /></label>
-          <p v-if="store.localScanLoading" class="setting-note" role="status">正在后台扫描音乐并更新索引…</p>
+          <label class="search-box"><span><OriginalIcon name="search" /></span><input v-model="query" type="search" :placeholder="libraryMode === 'playlists' ? t('mobile.shellUi.searchPlaylists') : t('mobile.shellUi.searchTracks')" /></label>
+          <p v-if="store.localScanLoading" class="setting-note" role="status">{{ $t('mobile.shellUi.backgroundScan') }}</p>
           <Transition name="content-switch" mode="out-in">
           <div :key="libraryMode" class="content-switch-stage">
 
@@ -533,7 +652,7 @@ function previewSeek(event: Event) {
           <div v-else-if="libraryMode === 'offline'" class="offline-content">
 
             <PlaylistLibrary :entries="offlinePlaylistEntries" :scope="'netease:' + playlistOwner" :query="libraryQuery" removable @open="openOfflinePlaylistKey" @remove="removeOfflinePlaylistKey" />
-            <h3 class="offline-track-heading">已缓存歌曲 · {{ store.cachedTracks.length }} 首</h3>
+            <h3 class="offline-track-heading">{{ $t('mobile.shellUi.cachedTracks', { count: store.cachedTracks.length }) }}</h3>
             <LocalLibrarySort v-model="libraryOrder" />
             <div class="track-list">
               <div v-for="(track, index) in visibleCachedTracks" :key="`${track.id}-${index}`" class="track-row" role="button" tabindex="0" v-track-menu="() => openTrackMenu(track, 'cache:all')" @click="store.play(track, 'cache:all', orderedCachedTracks)" @keydown.enter.self.prevent="store.play(track, 'cache:all', orderedCachedTracks)" @keydown.space.self.prevent="store.play(track, 'cache:all', orderedCachedTracks)">
@@ -541,7 +660,7 @@ function previewSeek(event: Event) {
                 <span class="track-copy"><b>{{ track.name }}</b><small>{{ track.artists?.join(' / ') || track.album }}</small></span>
                 <span class="offline-badge">{{ $t('mobile.common.offline') }}</span><TrackMenuButton :name="track.name" @open="openTrackMenu(track, 'cache:all')" />
               </div>
-              <div v-if="!visibleCachedTracks.length" class="empty-state">还没有离线缓存歌曲</div>
+              <div v-if="!visibleCachedTracks.length" class="empty-state">{{ $t('mobile.shellUi.noCachedTracks') }}</div>
 
 <TrackListPager :more="moreCachedTracks" @more="showMoreCachedTracks" />
 </div>
@@ -559,18 +678,19 @@ function previewSeek(event: Event) {
           <div class="playlist-hero">
             <CoverImage v-if="coverOf(store.selectedPlaylist)" :src="coverOf(store.selectedPlaylist)" :remote-src="store.selectedPlaylist.coverImgUrl" alt="" />
             <span v-else class="cover-fallback"><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span>
-            <div><div class="eyebrow">PLAYLIST</div><h3>{{ store.selectedPlaylist.name }}</h3><p>{{ store.tracks.length }} 首歌曲</p></div>
+            <div><div class="eyebrow">PLAYLIST</div><h3>{{ store.selectedPlaylist.name }}</h3><p>{{ $t('mobile.shellUi.songs', { count: store.tracks.length }) }}</p></div>
             <button v-if="store.selectedPlaylist.offlineSnapshot" class="icon-button" type="button" :aria-label="$t('mobile.offline.deletePlaylist')" @click="libraryManagement.deleteOfflinePlaylist(store.selectedPlaylist)"><OriginalIcon name="close" /></button>
             <button v-else-if="store.canManageOnlinePlaylist(store.selectedPlaylist)" class="icon-button" type="button" :disabled="store.onlineMutationBusy" :aria-label="$t('mobile.netease.more')" @click="store.openOnlinePlaylistMore(store.selectedPlaylist)"><OriginalIcon name="more" /></button>
           </div>
-          <button class="play-all-button" type="button" :disabled="!store.tracks.length" @click="store.tracks[0] && store.play(store.tracks[0])"><span><OriginalIcon name="play" /></span> 播放全部</button>
+          <button class="play-all-button" type="button" :disabled="!store.tracks.length" @click="store.tracks[0] && store.play(store.tracks[0])"><span><OriginalIcon name="play" /></span>{{ $t('mobile.shellUi.playAll') }}</button>
+          <PlaylistContinueButton :tracks="store.tracks" :playlist-key="'netease:' + store.selectedPlaylist.id" :scope="'netease:' + (store.selectedPlaylist.cacheOwnerId || store.profile?.userId || 0)" />
           <div class="track-list playlist-tracks">
             <div v-for="(track, index) in visibleCollectionTracks" :key="track.id" class="track-row" role="button" tabindex="0" v-track-menu="() => openTrackMenu(track)" @click="store.play(track)" @keydown.enter.self.prevent="store.play(track)" @keydown.space.self.prevent="store.play(track)">
               <span class="track-index">{{ String(index + 1).padStart(2, '0') }}</span>
               <span class="track-copy"><b>{{ track.name }}</b><small>{{ track.artists?.join(' / ') || track.album }}</small></span>
               <TrackMenuButton :name="track.name" @open="openTrackMenu(track)" />
             </div>
-            <div v-if="store.loading" class="empty-state">正在读取歌曲…</div>
+            <div v-if="store.loading" class="empty-state">{{ $t('mobile.shellUi.loadingTracks') }}</div>
 
 <TrackListPager :more="moreCollectionTracks" @more="showMoreCollectionTracks" />
 </div>
@@ -578,14 +698,14 @@ function previewSeek(event: Event) {
       </section>
 
       <section v-else-if="store.activeTab === 'player'" class="page player-page">
-        <div class="player-overline"><span>NOW PLAYING</span><span class="quality-chip">{{ store.playback.quality || '待播放' }}</span></div>
-        <PlayerVisual :cover="currentCover" :remote-cover="currentTrack.picUrl" />
+        <div class="player-overline"><span>NOW PLAYING</span><span class="quality-chip">{{ store.playback.quality || t('mobile.shellUi.waitingToPlay') }}</span></div>
+        <PlayerVisual :cover="currentCover" :remote-cover="currentTrack.picUrl" :plugin-id="currentTrack.pluginId" :plugin-context="currentTrack.pluginSourceContext" />
         <div class="player-title-row">
           <div class="player-title"><h2>{{ currentTrack.name }}</h2><p>{{ currentTrack.artists?.join(' / ') || store.playback.artist || buildInfo.displayName }}</p></div>
           <TrackMenuButton v-if="currentTrack.id > 0" :name="currentTrack.name" @open="openTrackMenu(currentTrack)" />
         </div>
         <div class="progress-control">
-          <ThumbRange min="0" :max="Math.max(1, store.playback.duration)" :value="seeking ? seekValue : store.playback.position" :disabled="!store.playback.duration" aria-label="播放进度" @input="previewSeek" @change="seekFromInput" />
+          <ThumbRange min="0" :max="Math.max(1, store.playback.duration)" :value="seeking ? seekValue : store.playback.position" :disabled="!store.playback.duration" :aria-label="$t('mobile.shellUi.playbackProgress')" @input="previewSeek" @change="seekFromInput" />
           <div><span>{{ formatTime(seeking ? seekValue : store.playback.position) }}</span><span>{{ formatTime(store.playback.duration) }}</span></div>
         </div>
         <div class="transport-controls">
@@ -595,49 +715,49 @@ function previewSeek(event: Event) {
             <OriginalIcon :name="store.playback.playing ? 'pause' : 'play'" />
           </button>
           <button class="icon-button transport-small" type="button" :aria-label="$t('player.next')" @click="playAdjacent(1)"><OriginalIcon name="next" /></button>
-          <button class="icon-button cache-current" type="button" aria-label="缓存当前歌曲" @click="store.cacheCurrent"><OriginalIcon name="down" /></button>
+          <button class="icon-button collapse-player" type="button" :aria-label="$t('mobile.collapsePlayer')" :title="$t('mobile.collapsePlayer')" @click="store.navigateBack()"><OriginalIcon name="down" /></button>
         </div>
         <PlaybackErrorNotice @login="requestOnlineLogin" @offline="openLibrarySection('offline')" />
-        <button class="wide-outline-button playback-queue-button" type="button" @click="store.showPlaybackQueue()"><OriginalIcon name="list" />播放队列 · {{ store.playback.queueCount ?? 0 }} 首{{ store.playback.upNextCount ? ` · 插队 ${store.playback.upNextCount}` : '' }}</button>
+        <button class="wide-outline-button playback-queue-button" type="button" @click="store.showPlaybackQueue()"><OriginalIcon name="list" />{{ $t('mobile.shellUi.queueCount', { count: store.playback.queueCount ?? 0 }) }}{{ store.playback.upNextCount ? $t('mobile.shellUi.upNextCount', { count: store.playback.upNextCount }) : '' }}</button>
         <button v-if="store.onlineAvailable && onlineTrackId(currentTrack) > 0" class="wide-outline-button" type="button" @click="openComments(currentTrack, $event.currentTarget as HTMLElement)"><OriginalIcon name="list" />{{ $t('mobile.comments.title') }}</button>
         <p v-if="store.playback.rate && store.playback.rate !== 1" class="setting-note">{{ store.playback.rate }}×</p>
-        <CollapsibleSettingsCard class="volume-settings" section-id="playback-volume" title="单曲与歌单音量">
-          <template #heading><div><h3>单曲与歌单音量</h3><p>实际比例 {{ Math.round((store.playback.trackVolumePercent ?? 100) * (store.playback.playlistVolumePercent ?? 100) / 100) }}%</p></div></template>
+        <CollapsibleSettingsCard class="volume-settings" section-id="playback-volume" :title="$t('mobile.shellUi.volumeTitle')">
+          <template #heading><div><h3>{{ $t('mobile.shellUi.volumeTitle') }}</h3><p>{{ $t('mobile.shellUi.actualVolume', { percent: Math.round((store.playback.trackVolumePercent ?? 100) * (store.playback.playlistVolumePercent ?? 100) / 100) }) }}</p></div></template>
           <div class="volume-control">
-            <label for="track-volume">当前歌曲</label>
+            <label for="track-volume">{{ $t('mobile.shellUi.currentTrack') }}</label>
             <ThumbRange id="track-volume" min="0" max="100" :value="store.playback.trackVolumePercent ?? 100" :disabled="!store.playback.trackId" @input="store.setCurrentTrackVolume(Number(($event.target as HTMLInputElement).value))" @change="store.flushLiveSettings()" />
-            <label class="percent-input"><input type="number" min="0" max="100" inputmode="numeric" aria-label="单曲音量百分比" :value="store.playback.trackVolumePercent ?? 100" :disabled="!store.playback.trackId" @change="store.setCurrentTrackVolume(Number(($event.target as HTMLInputElement).value))" /><span>%</span></label>
+            <label class="percent-input"><input type="number" min="0" max="100" inputmode="numeric" :aria-label="$t('mobile.shellUi.trackVolumePercent')" :value="store.playback.trackVolumePercent ?? 100" :disabled="!store.playback.trackId" @change="store.setCurrentTrackVolume(Number(($event.target as HTMLInputElement).value))" /><span>%</span></label>
           </div>
           <div class="volume-control">
-            <label for="playlist-volume">{{ store.playback.track?.playlistVolumeName || '当前歌单' }}</label>
+            <label for="playlist-volume">{{ store.playback.track?.playlistVolumeName || t('mobile.shellUi.currentPlaylist') }}</label>
             <ThumbRange id="playlist-volume" min="0" max="100" :value="store.playback.playlistVolumePercent ?? 100" :disabled="!store.playback.track?.playlistVolumeKey" @input="store.setCurrentPlaylistVolume(Number(($event.target as HTMLInputElement).value))" @change="store.flushLiveSettings()" />
-            <label class="percent-input"><input type="number" min="0" max="100" inputmode="numeric" aria-label="歌单音量百分比" :value="store.playback.playlistVolumePercent ?? 100" :disabled="!store.playback.track?.playlistVolumeKey" @change="store.setCurrentPlaylistVolume(Number(($event.target as HTMLInputElement).value))" /><span>%</span></label>
+            <label class="percent-input"><input type="number" min="0" max="100" inputmode="numeric" :aria-label="$t('mobile.shellUi.playlistVolumePercent')" :value="store.playback.playlistVolumePercent ?? 100" :disabled="!store.playback.track?.playlistVolumeKey" @change="store.setCurrentPlaylistVolume(Number(($event.target as HTMLInputElement).value))" /><span>%</span></label>
           </div>
-          <p class="setting-note">自动保存。实际比例为单曲音量 × 歌单音量，系统媒体音量另外生效。</p>
+          <p class="setting-note">{{ $t('mobile.shellUi.volumeHint') }}</p>
         </CollapsibleSettingsCard>
 
       </section>
 
       <AppAboutView v-else-if="store.activeTab === 'about'" />
-      <AppSettingsView v-else @request-login="requestOnlineLogin" @local-mode="enterLocalMode" @open-offline="openLibrarySection('offline')" />
+      <AppSettingsView v-else @request-login="requestOnlineLogin" @local-mode="enterLocalMode" @open-offline="openLibrarySection('offline')" @open-plugins="enterPlugins" />
 
       </div>
       </Transition>
-      <Transition name="notice-fade"><AppErrorNotice v-if="store.error && !store.loginVisible" :message="store.error" :offline="store.hasAccess" :retry="reloadErrorPage" @close="store.error = ''" @login="requestOnlineLogin" @folders="store.pickMusicFolder" @storage="store.navigateTo('settings')" @offline="openLibrarySection('offline')" /></Transition>
+      <Transition name="notice-fade"><AppErrorNotice v-if="store.error && !store.loginVisible" :message="store.error" :offline="store.hasAccess" :retry="reloadErrorPage" @close="store.error = ''" @login="requestOnlineLogin" @folders="store.pickMusicFolder" @storage="navigateTo('settings')" @offline="openLibrarySection('offline')" /></Transition>
       <Transition name="notice-fade"><div v-if="store.queueNotice" class="queue-notice" role="status">{{ store.queueNotice }}</div></Transition>
       <Transition name="mini-player">
-      <div v-if="store.playback.trackId && !['player', 'settings', 'about'].includes(store.activeTab)" class="mini-player" role="button" tabindex="0" aria-label="打开正在播放" @click="store.navigateTo('player')" @keydown.enter.prevent="store.navigateTo('player')" @keydown.space.prevent="store.navigateTo('player')">
-        <CoverImage v-if="currentCover" :src="currentCover" :remote-src="currentTrack.picUrl" loading="eager" alt="" /><span v-else class="mini-cover-fallback"><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span>
+      <div v-if="store.playback.trackId && !['player', 'settings', 'about'].includes(store.activeTab)" class="mini-player" role="button" tabindex="0" :aria-label="$t('mobile.shellUi.openPlayer')" @click="navigateTo('player')" @keydown.enter.prevent="navigateTo('player')" @keydown.space.prevent="navigateTo('player')">
+        <PluginArtwork v-if="currentTrack.pluginId" :plugin-id="currentTrack.pluginId" :uri="currentTrack.picUrl" eager /><CoverImage v-else-if="currentCover" :src="currentCover" :remote-src="currentTrack.picUrl" loading="eager" alt="" /><span v-else class="mini-cover-fallback"><img class="original-cover-placeholder" :src="originalBrandLogo" alt="" /></span>
         <span class="mini-copy"><b>{{ currentTrack.name }}</b><small>{{ currentTrack.artists?.join(' / ') || store.playback.artist }}</small></span>
         <button class="mini-action" type="button" :aria-label="store.playback.playing ? $t('player.pause') : $t('contextMenu.play')" @click.stop="store.playback.playing ? store.pause() : store.resume()" @keydown.enter.stop @keydown.space.stop><OriginalIcon :name="store.playback.playing ? 'pause' : 'play'" /></button>
       </div>
       </Transition>
-      <nav class="bottom-nav" :style="{ gridTemplateColumns: store.onlineAvailable ? 'repeat(5, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))' }" aria-label="主导航">
-        <SideNavItem v-if="store.onlineAvailable" variant="mobile" type="button" :active="store.activeTab === 'home'" @click="store.navigateTo('home')"><span><OriginalIcon name="logo" /></span><small>{{ $t('nav.home') }}</small></SideNavItem>
-        <SideNavItem variant="mobile" type="button" :active="store.activeTab === 'library'" @click="store.navigateTo('library')"><span><OriginalIcon name="library" /></span><small>{{ $t('nav.library') }}</small></SideNavItem>
-        <SideNavItem v-if="store.onlineAvailable" variant="mobile" type="button" :active="store.activeTab === 'search'" @click="store.navigateTo('search')"><span><OriginalIcon name="search" /></span><small>{{ $t('nav.search') }}</small></SideNavItem>
-        <SideNavItem variant="mobile" type="button" :active="store.activeTab === 'player'" @click="store.navigateTo('player')"><span><OriginalIcon name="play" /></span><small>{{ $t('mobile.common.playing') }}</small></SideNavItem>
-        <SideNavItem variant="mobile" type="button" :active="store.activeTab === 'settings' || store.activeTab === 'about'" @click="store.navigateTo('settings')"><span><OriginalIcon name="settings" /></span><small>{{ $t('nav.settings') }}</small></SideNavItem>
+      <nav class="bottom-nav" :style="{ gridTemplateColumns: mainOnlineNavigation ? 'repeat(5, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))' }" :aria-label="$t('mobile.shellUi.mainNavigation')">
+        <SideNavItem v-if="mainOnlineNavigation" variant="mobile" type="button" :active="store.activeTab === 'home'" @click="navigateTo('home')"><span><OriginalIcon name="logo" /></span><small>{{ $t('nav.home') }}</small></SideNavItem>
+        <SideNavItem variant="mobile" type="button" :active="store.activeTab === 'library'" @click="navigateTo('library')"><span><OriginalIcon name="library" /></span><small>{{ $t('nav.library') }}</small></SideNavItem>
+        <SideNavItem v-if="mainOnlineNavigation" variant="mobile" type="button" :active="store.activeTab === 'search'" @click="navigateTo('search')"><span><OriginalIcon name="search" /></span><small>{{ $t('nav.search') }}</small></SideNavItem>
+        <SideNavItem variant="mobile" type="button" :active="store.activeTab === 'player'" @click="navigateTo('player')"><span><OriginalIcon name="play" /></span><small>{{ $t('mobile.common.playing') }}</small></SideNavItem>
+        <SideNavItem variant="mobile" type="button" :active="store.activeTab === 'settings' || store.activeTab === 'about'" @click="navigateTo('settings')"><span><OriginalIcon name="settings" /></span><small>{{ $t('nav.settings') }}</small></SideNavItem>
       </nav>
     </template>
     <AppUpdateNotice />

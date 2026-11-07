@@ -34,10 +34,15 @@ final class LocalOnlyMode {
     static synchronized void setEnabled(Context context, boolean enabled, boolean manual) throws IOException {
         SharedPreferences preferences = preferences(context);
         boolean previous = enabled(preferences);
-        if (previous == enabled && preferences.getBoolean(MANUAL_KEY, !manual) == manual) return;
+        boolean previousManual = manual(preferences);
+        if (previous == enabled && preferences.getBoolean(MANUAL_KEY, !manual) == manual) {
+            AndroidPluginManager.onNetworkPolicyChanged(context);
+            return;
+        }
         save(preferences, enabled, manual);
+        AndroidPluginManager.onNetworkPolicyChanged(context);
         AndroidPlaybackService.invalidatePrefetchForPolicyChange();
-        if (enabled && !previous) {
+        if (enabled && (!previous || manual && !previousManual)) {
             AudioCache.cancelNetworkDownloads();
             ArtworkCache.cancelNetworkDownloads();
             // A temporary outage must not release a buffered player or its cursor.

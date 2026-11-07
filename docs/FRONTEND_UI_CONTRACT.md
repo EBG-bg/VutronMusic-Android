@@ -6,7 +6,7 @@
 
 主题来源是 `apps/android-vutron/src/platform/appearance.ts` 和上游主题资源；`src/style.css` 已提供颜色、表面、阴影及动效变量。选项、滑条、折叠卡片、图标和弹层已有共享实现，应先复用。圆角、间距、字级和阴影层级仍有分散定义，需要随相关控件的修改集中整理，避免再增加同类局部覆盖。
 
-截至 2026-11-02，已有浏览器焦点、返回、手势、拖动、字号及横竖屏检查，但截图分散保存在各检查中，没有统一的已确认视觉基线与自动差异比较。`.github/workflows/mobile.yml` 执行单元检查和构建，尚未执行浏览器交互与截图比较。以下规范不是所有页面已经验收的声明。
+2026-11-07 起，`apps/android-vutron/tests/visual/` 提供五类真实页面、八组固定场景的 PNG 基线与自动像素比较，锁定 Chromium 和测试字体，并使用合成资料隔离真实账号。`.github/workflows/mobile.yml` 的 `visual` 任务运行比较；基线更新须人工查看并明确执行，普通检查不自动接受新图。已有焦点、返回、手势、拖动、字号及横竖屏交互检查继续覆盖对应行为。配置接入、一次实际比较通过和远端 CI 通过须分开报告，截图不能证明动效或真机性能；以下规范也不表示所有页面组合均已验收。
 
 ## 优先检查的页面与状态
 
@@ -79,7 +79,7 @@ CSS、Vue Transition、Web Animations 和 requestAnimationFrame 都遵守三种�
 
 先确认每个场景的正确截图，再建立基线与差异比较；变化须能对应到本次预期，不能直接批量接受新图。合成基线可作为测试夹具，运行截图与差异图放 `_analysis/`，不包含真实用户资料。截图生成、人工查看和自动基线比较须分别说明。
 
-现有 `tests/browser-personal-ui.cjs`、`browser-app-select.cjs`、`browser-landscape.cjs`、`browser-timer-wheel.cjs`、`browser-sheet-gestures.cjs` 及 `browser-features.cjs` 可复用交互和合成数据。后续仍需统一场景入口、确认基线并接入 CI，完成前不能宣称已具备自动视觉回归。
+现有 `tests/browser-personal-ui.cjs`、`browser-app-select.cjs`、`browser-landscape.cjs`、`browser-timer-wheel.cjs`、`browser-sheet-gestures.cjs` 及 `browser-features.cjs` 可复用交互和合成数据。固定视觉入口为 `apps/android-vutron` 下的 `npm run test:visual`，维护与基线更新方法见 `tests/visual/README.md`。当前自动比较使用 Windows 渲染环境，不能把该结果表述为 Android 系统界面或原生渲染验收。
 
 ## 每次修改的完成条件
 

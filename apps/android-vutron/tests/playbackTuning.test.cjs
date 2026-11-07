@@ -1,4 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),ts=require('typescript'),vue=require('vue');
+const mobileI18n=require('./helpers/i18n.cjs').loadMobileI18n();
 const deferred=()=>{let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no});return {promise,resolve,reject}};
 function fixture(){
  const state={speed:1,pitch:1,prefetchWifi:false,actualSpeed:1,actualPitch:1,warning:''},store={playback:{}},writes=[];
@@ -7,7 +8,7 @@ function fixture(){
  const live=evaluate('platform/liveSettingWrites.ts',{});
   const lifecycle=evaluate('platform/liveSettingsLifecycle.ts',{});
  const plugin={getPlaybackTuning:()=>read(),updatePlaybackTuning:patch=>{writes.push({...patch});return write(patch)}};
-  const tuning=evaluate('composables/playbackTuning.ts',{'vue':vue,'../platform/vutronPlugin':{vutronPlugin:plugin},'../platform/liveSettingWrites':live,'../platform/liveSettingsLifecycle':lifecycle,'../stores/androidShell':{useAndroidShellStore:()=>store}}).usePlaybackTuning();
+  const tuning=evaluate('composables/playbackTuning.ts',{'vue':vue,'../platform/i18n':mobileI18n,'../platform/vutronPlugin':{vutronPlugin:plugin},'../platform/liveSettingWrites':live,'../platform/liveSettingsLifecycle':lifecycle,'../stores/androidShell':{useAndroidShellStore:()=>store}}).usePlaybackTuning();
   return {tuning,state,store,writes,lifecycle,read:handler=>read=handler,write:handler=>write=handler};
 }
 test('speed and pitch edits merge into serialized native writes and retain the final value',async()=>{

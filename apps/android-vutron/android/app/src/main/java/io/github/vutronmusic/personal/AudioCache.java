@@ -283,7 +283,7 @@ public final class AudioCache {
 
     private static boolean enqueue(Context context, JSONObject song, JSONObject location, boolean manual) {
         Context app = context.getApplicationContext();
-        if (LocalOnlyMode.enabled(app)) return false;
+        if (!PluginMedia.networkAllowed(app, song)) return false;
         if ((!manual && !isEnabled(app)) || song == null || location == null || song.optLong("id") <= 0) return false;
         synchronized (LOCK) {
             if (!initialize(app)) return false;
@@ -476,7 +476,8 @@ public final class AudioCache {
                     || (job.expectedSize > 0 && job.expectedSize != job.downloadedBytes))
                 throw new IOException("Audio download is incomplete");
             check(job, deadline);
-            AudioInfo info = inspect(part, duration(job.song), job, deadline);
+            AudioInfo info = inspect(part, expectedSourceDuration(job.song), job, deadline);
+            validateCueSource(job.song, info.durationMs);
             String digest = hash(part, job, deadline);
             synchronized (LOCK) {
                 check(job, deadline);
@@ -525,7 +526,7 @@ public final class AudioCache {
             connection.setRequestProperty("Accept", "audio/*,application/octet-stream;q=0.9,*/*;q=0.1");
             for (Map.Entry<String, String> header : job.headers.entrySet())
                 connection.setRequestProperty(header.getKey(), header.getValue());
-            LocalOnlyMode.requireOnline(job.context);
+            PluginMedia.requireOnline(job.context, job.song);
             int code = connection.getResponseCode();
             if (code != 301 && code != 302 && code != 303 && code != 307 && code != 308) return connection;
             String target = connection.getHeaderField("Location");
@@ -824,9 +825,9 @@ public final class AudioCache {
         for (String key : new String[]{"picUrl", "coverImgUrl", "cover", "albumPicUrl"}) {
             if (song.opt(key) instanceof String) saved.put(key, text(song.optString(key), 2048));
         }
-        for (String key : new String[]{"dt", "duration"}) {
+        for (String key : new String[]{"dt", "duration", "cueTrackNo", "cueOffsetMs", "cueDurationMs"}) {
             long number = song.optLong(key);
-            if (number > 0 && number <= 24L * 60 * 60 * 1000) saved.put(key, number);
+            if (number >= 0 && song.has(key) && number <= 24L * 60 * 60 * 1000) saved.put(key, number);
         }
         for (String key : new String[]{"ar", "artists"}) {
             JSONArray artists = song.optJSONArray(key);
@@ -843,7 +844,20 @@ public final class AudioCache {
             if (album != null) saved.put(key, namedMetadata(album));
             else if (song.opt(key) instanceof String) saved.put(key, text(song.optString(key), 500));
         }
+        for (String key : new String[]{"pluginId", "pluginTrackId", "pluginAccountScope", "pluginSourceMethod", "pluginPlaylistOwner", "playlistVolumeKey", "playlistVolumeName", "playlistOrderScope", "playlistOrderKey"}) if (song.has(key)) saved.put(key,text(song.optString(key),2048));
+        for (String key : new String[]{"pluginSourceContext", "pluginTrack", "pluginPlaylistContext"}) if (song.optJSONObject(key)!=null) saved.put(key,new JSONObject(song.getJSONObject(key).toString()));
         return saved;
+    }
+
+    static long expectedSourceDuration(JSONObject song) {
+        return song.optInt("cueTrackNo") > 0 ? 0 : duration(song);
+    }
+
+    static void validateCueSource(JSONObject song, long sourceDurationMs) throws IOException {
+        if (song.optInt("cueTrackNo") <= 0) return;
+        long offset = song.optLong("cueOffsetMs", -1), length = song.optLong("cueDurationMs", -1);
+        if (offset < 0 || length <= 0 || offset >= sourceDurationMs || length > sourceDurationMs - offset + 1500)
+            throw new IOException("Cached audio does not contain the complete CUE segment");
     }
 
     private static JSONObject namedMetadata(JSONObject value) throws JSONException {
@@ -891,7 +905,7 @@ public final class AudioCache {
     }
 
     private static void check(Download job, long deadline) throws IOException {
-        if (job != null) LocalOnlyMode.requireOnline(job.context);
+        if (job != null) PluginMedia.requireOnline(job.context, job.song);
         if (Thread.currentThread().isInterrupted() || job != null && job.cancelled)
             throw new InterruptedIOException("Audio cache cancelled");
         if (SystemClock.elapsedRealtime() >= deadline) throw new InterruptedIOException("Audio cache timed out");

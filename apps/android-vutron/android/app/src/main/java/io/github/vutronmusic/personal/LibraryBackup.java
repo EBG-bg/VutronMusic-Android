@@ -78,7 +78,7 @@ final class LibraryBackup {
             return ("speed".equals(key) || "pitch".equals(key)) && value instanceof Number
                     && Double.isFinite(((Number)value).doubleValue()) && ((Number)value).doubleValue()>=.5 && ((Number)value).doubleValue()<=2;
         }
-        if ("playback_volume".equals(pref)) return key.matches("track:id:[1-9][0-9]*|track:local:[a-f0-9]{64}|playlist:key:[a-f0-9]{64}") && value instanceof Number && ((Number) value).doubleValue() == ((Number) value).intValue() && ((Number) value).intValue() >= 0 && ((Number) value).intValue() <= 100;
+        if ("playback_volume".equals(pref)) return key.matches("track:id:[1-9][0-9]*|track:local:[a-f0-9]{64}|playlist:key:[a-f0-9]{64}|plugin:[1-9][0-9]{0,15}") && value instanceof Number && ((Number) value).doubleValue() == ((Number) value).intValue() && ((Number) value).intValue() >= 0 && ((Number) value).intValue() <= 100;
         if ("lyric_overlay".equals(pref)) {
             if (LYRIC_BOOLEANS.contains(key)) return value instanceof Boolean;
             if (key.matches("lyric_offset_ms_[a-f0-9]{64}")) return value instanceof Number && Math.abs(((Number) value).longValue()) <= 30000;
@@ -123,7 +123,8 @@ final class LibraryBackup {
         for (int i = 0; i < collections.length(); i++) {
             JSONObject item = collections.getJSONObject(i);
             result.put(new JSONObject().put("id", item.getString("id")).put("name", item.getString("name"))
-                    .put("trackCount", item.getJSONArray("tracks").length()).put("isLocalBundle", true).put("isRestored", true));
+                    .put("trackCount", item.getJSONArray("tracks").length()).put("isLocalBundle", true).put("isRestored", true)
+                    .put("description",item.optString("description")).put("createTime",item.optLong("createTime")));
         }
         return result;
     }
@@ -197,13 +198,16 @@ final class LibraryBackup {
         JSONArray bundles = LocalPlaylistStore.list(new File(c.getFilesDir(), "local-bundles"));
         for (int i = 0; i < bundles.length(); i++) { JSONObject item = bundles.getJSONObject(i); collections.put(portableCollection(c, item.getString("id"), item.getString("name"), item.getJSONArray("localTracks"), orders).put("createTime",item.optLong("createTime",0))); }
         JSONArray restored = list(c);
-        for (int i = 0; i < restored.length(); i++) { JSONObject item = restored.getJSONObject(i); collections.put(portableCollection(c, item.getString("id"), item.getString("name"), tracks(c, item.getString("id")), orders).put("createTime",item.optLong("createTime",0))); }
+        for (int i = 0; i < restored.length(); i++) { JSONObject item = restored.getJSONObject(i); collections.put(portableCollection(c, item.getString("id"), item.getString("name"), tracks(c, item.getString("id")), orders).put("createTime",item.optLong("createTime",0)).put("description",item.optString("description"))); }
+        JSONArray pluginLocal = PluginLocalBackup.collections(c);
+        for (int i=0;i<pluginLocal.length();i++) collections.put(pluginLocal.getJSONObject(i));
         PlaybackQueue.Snapshot queue = PlaybackQueue.load(c);
         if (queue != null) {
             JSONArray rows = new JSONArray(); for (JSONArray lane : new JSONArray[]{queue.songs, queue.upNext}) for (int i = 0; i < lane.length(); i++) rows.put(lane.getJSONObject(i));
             collections.put(portableCollection(c, "backup:queue", "恢复的播放队列", rows, new JSONObject()));
         }
-        return new JSONObject().put("format", 1).put("generator", GENERATOR).put("settings", safePreferences(preferences)).put("frontend", safeFrontend(frontend)).put("collections", collections);
+        return new JSONObject().put("format", 1).put("generator", GENERATOR).put("settings", safePreferences(preferences)).put("frontend", safeFrontend(frontend)).put("collections", collections)
+                .put("pluginSourcePriorities",PluginSourceRegistry.priorities(c));
     }
     static JSONObject safeFrontend(JSONObject value) throws Exception {
         JSONObject result = new JSONObject();
@@ -213,6 +217,7 @@ final class LibraryBackup {
         allowed.put("vutron:local-track-order", "original|title|artist|album");
         allowed.put("vutron:font-scale", "1(?:[0-4][0-9]|50)");
         allowed.put("vutron:player-lyrics", "true|false");
+        allowed.put("vutron:playlist-sort-hints", "true|false");
         allowed.put("vutron:timer-preset", "(?:[1-9][0-9]{0,3}|1[0-7][0-9]{3}|18000)");
         for (Map.Entry<String, String> item : allowed.entrySet()) if (value.opt(item.getKey()) instanceof String && value.getString(item.getKey()).matches(item.getValue())) result.put(item.getKey(), value.getString(item.getKey()));
         String orders = value.optString("vutron:playlist-orders:v1", "");
@@ -254,7 +259,7 @@ final class LibraryBackup {
         if (collections == null || collections.length() > 250) throw new IOException("备份歌单数量无效");
         for (int i = 0; i < collections.length(); i++) {
             JSONObject item = collections.getJSONObject(i); JSONArray tracks = item.getJSONArray("tracks"), cleaned = new JSONArray();
-            if ((count += tracks.length()) > 20000 || item.getString("name").length() > 1024) throw new IOException("备份曲目或名称超过限制");
+            if ((count += tracks.length()) > 20000 || item.getString("name").length() > 1024 || item.optString("description").length()>4096) throw new IOException("备份曲目或名称超过限制");
             for (int j = 0; j < tracks.length(); j++) {
                 JSONObject row = tracks.getJSONObject(j), track = portableTrack(row);
                 track.put("key", digest(fingerprint(track) + ":" + j));
@@ -265,13 +270,15 @@ final class LibraryBackup {
             }
             String mode = item.optString("sortMode", "original"); if (!Arrays.asList("original", "title", "artist", "album", "custom").contains(mode)) mode = "original";
             JSONObject collection = new JSONObject().put("name", item.getString("name")).put("sortMode", mode).put("tracks", cleaned).put("volume", Math.max(0, Math.min(100, item.optInt("volume", 100))));
+            if (item.has("description")) collection.put("description",item.optString("description"));
             String key = item.optString("collectionKey", "");
             if (key.matches("[a-zA-Z0-9:_-]{1,200}")) collection.put("collectionKey", key);
             if (item.opt("createTime") instanceof Number && item.optLong("createTime") > 0) collection.put("createTime",item.getLong("createTime"));
             safe.put(collection);
         }
         return new JSONObject().put("collections", safe).put("frontend", safeFrontend(input.optJSONObject("frontend") == null ? new JSONObject() : input.getJSONObject("frontend")))
-                .put("settings", safePreferences(input.optJSONObject("settings") == null ? new JSONObject() : input.getJSONObject("settings")));
+                .put("settings", safePreferences(input.optJSONObject("settings") == null ? new JSONObject() : input.getJSONObject("settings")))
+                .put("pluginSourcePriorities",PluginSourceRegistry.sanitizePriorities(input.optJSONObject("pluginSourcePriorities")==null ? new JSONObject() : input.getJSONObject("pluginSourcePriorities")));
     }
     static final class RestorePlan {
         final JSONObject document,safe,orders;
@@ -314,6 +321,7 @@ final class LibraryBackup {
     static JSONObject restore(Context c, JSONObject input) throws Exception {
         RestorePlan plan=planRestore(load(c),input);
         LibraryFiles.writeBytes(file(c),plan.encoded);
+        PluginSourceRegistry.setPriorities(c,plan.safe.getJSONObject("pluginSourcePriorities"));
         for(JSONObject item:plan.added) PlaybackVolume.setPlaylistPercent(c,item.getString("id"),item.getInt("volume"));
         JSONObject settings = plan.safe.getJSONObject("settings");
         for (String pref : PREFS) {

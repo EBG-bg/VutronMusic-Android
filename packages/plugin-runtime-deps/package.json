@@ -1,0 +1,12 @@
+{
+  "name": "vutron-plugin-runtime-dependencies",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "@neteasecloudmusicapienhanced/api": "4.36.1"
+  },
+  "overrides": {
+    "@unblockneteasemusic/server": "0.28.0",
+    "basic-ftp": "6.2.6"
+  }
+}

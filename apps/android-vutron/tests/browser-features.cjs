@@ -7,11 +7,11 @@ async function main(){
  const profile=fs.mkdtempSync(path.join(root,'ui-features-'));
  const {createServer}=await import('vite');
   const bridgeFixture=['personal-ui','polish','timer-wheel','sheet-gestures'].includes(process.env.VUTRON_TEST_SCENARIO)?'personal-ui-native.mock.js':['sliders','playback-ui','refinements','landscape'].includes(process.env.VUTRON_TEST_SCENARIO)?'sliders-native.mock.js':'features-native.mock.js';
- const server=await createServer({root:app,optimizeDeps:{entries:['tests/fixtures/features.html']},plugins:[{name:'feature-fixture',enforce:'pre',transform(code,id){if(id.replaceAll('\\','/').endsWith('/src/platform/vutronPlugin.ts'))return "export { vutronPlugin } from '/tests/fixtures/"+bridgeFixture+"'"}}],server:{host:'127.0.0.1',port:0},logLevel:'error'});
+ const server=await createServer({root:app,optimizeDeps:{entries:['tests/fixtures/features.html']},plugins:[{name:'feature-fixture',enforce:'pre',transform(code,id){if(process.env.VUTRON_TEST_SCENARIO==='priority-leave'&&id.replaceAll('\\','/').endsWith('/src/plugins/bridge.ts'))return "export { musicPluginBridge } from '/tests/fixtures/music-plugin-native.mock.js'";if(id.replaceAll('\\','/').endsWith('/src/platform/vutronPlugin.ts'))return "export { vutronPlugin } from '/tests/fixtures/"+bridgeFixture+"'"}}],server:{host:'127.0.0.1',port:0},logLevel:'error'});
  await server.listen();
  const child=spawn(process.env.EDGE_PATH||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',['--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'],{windowsHide:true,stdio:'ignore'});
  let page,browser;
- async function connect(url){const ws=new WebSocket(url),pending=new Map();let sequence=0;await new Promise((yes,no)=>{ws.addEventListener('open',yes,{once:true});ws.addEventListener('error',no,{once:true})});ws.addEventListener('message',e=>{const m=JSON.parse(e.data),p=pending.get(m.id);if(!p)return;pending.delete(m.id);m.error?p.no(new Error(m.error.message)):p.yes(m.result)});return {ws,send:(method,params={})=>new Promise((yes,no)=>{const id=++sequence;pending.set(id,{yes,no});ws.send(JSON.stringify({id,method,params}))})}}
+ async function connect(url){const ws=new WebSocket(url),pending=new Map(),events=[];let sequence=0;await new Promise((yes,no)=>{ws.addEventListener('open',yes,{once:true});ws.addEventListener('error',no,{once:true})});ws.addEventListener('message',e=>{const m=JSON.parse(e.data),p=pending.get(m.id);if(!p){if(process.env.VUTRON_TEST_SCENARIO==='priority-leave'&&events.length<20){if(m.method==='Network.loadingFailed')events.push({method:m.method,requestId:m.params.requestId,type:m.params.type,error:m.params.errorText});else if(m.method==='Network.responseReceived'&&m.params.response.status>=400)events.push({method:m.method,url:m.params.response.url,status:m.params.response.status});else if(m.method==='Runtime.exceptionThrown')events.push({method:m.method,error:m.params.exceptionDetails.text,description:m.params.exceptionDetails.exception?.description})}return}pending.delete(m.id);m.error?p.no(new Error(m.error.message)):p.yes(m.result)});return {ws,events,send:(method,params={})=>new Promise((yes,no)=>{const id=++sequence;pending.set(id,{yes,no});ws.send(JSON.stringify({id,method,params}))})}}
  try{
   const portFile=path.join(profile,'DevToolsActivePort');let port;
   for(let i=0;i<100;i++){
@@ -23,9 +23,14 @@ async function main(){
   const info=await(await fetch('http://127.0.0.1:'+port+'/json/version')).json();
   browser=await connect(info.webSocketDebuggerUrl);
   const target=await(await fetch('http://127.0.0.1:'+port+'/json/new?about:blank',{method:'PUT'})).json();page=await connect(target.webSocketDebuggerUrl);
+  // Initialize the target's page lifecycle before installing document scripts
+  // and navigating the fixture.
+  await page.send('Page.enable');await page.send('Runtime.enable');await page.send('Page.stopLoading');
+  if(process.env.VUTRON_TEST_SCENARIO==='priority-leave')await page.send('Network.enable');
   const evaluate=async expression=>{const r=await page.send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw new Error(r.exceptionDetails.exception?.description||r.exceptionDetails.text);return r.result.value};
+  if(process.env.VUTRON_TEST_SCENARIO==='priority-leave')await page.send('Page.addScriptToEvaluateOnNewDocument',{source:'window.priorityBootErrors=[];addEventListener("error",e=>priorityBootErrors.push({message:e.message,file:e.filename,line:e.lineno}));addEventListener("unhandledrejection",e=>priorityBootErrors.push({rejection:String(e.reason?.stack||e.reason)}))'});
   await page.send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
-  await page.send('Page.navigate',{url:server.resolvedUrls.local[0]+'tests/fixtures/features.html'});
+  const navigation=await page.send('Page.navigate',{url:server.resolvedUrls.local[0]+'tests/fixtures/features.html'});if(navigation.errorText)throw new Error('Fixture navigation failed: '+navigation.errorText);
   const wait=async expression=>{for(let i=0;i<100;i++){if(await evaluate(expression))return;await delay(100)}throw new Error('Timed out: '+expression)};
   await wait('window.featureReady===true');
   if(process.env.VUTRON_TEST_SCENARIO==='icons'){
@@ -35,6 +40,15 @@ async function main(){
   }
   if(process.env.VUTRON_TEST_SCENARIO==='landscape'){
     await require('./browser-landscape.cjs')({page,evaluate,wait,delay,root});return;
+  }
+  if(process.env.VUTRON_TEST_SCENARIO==='playback-review'){
+    await require('./browser-playback-review.cjs')({page,evaluate,wait,delay,root});return;
+  }
+  if(process.env.VUTRON_TEST_SCENARIO==='sorting-review'){
+    await require('./browser-sorting-review.cjs')({page,evaluate,wait,delay,root});return;
+  }
+  if(process.env.VUTRON_TEST_SCENARIO==='priority-leave'){
+    await require('./browser-priority-leave.cjs')({page,evaluate,wait,delay,root});return;
   }
   if(process.env.VUTRON_TEST_SCENARIO==='sheet-gestures'){
     await require('./browser-sheet-gestures.cjs')({page,evaluate,wait,delay,root});return;
@@ -166,7 +180,7 @@ async function main(){
   assert.equal(await evaluate('document.activeElement===window.queueReturnFocus'),true);
   assert.equal(await evaluate("document.querySelector('.app-shell').inert"),false);
   console.log('PASS: real App cache refresh keeps 160 rows; search query snapshots prevent mixed pages; queue keyboard/focus/inert; comment 300 cap and existing interactions');
- }catch(error){console.error('Feature interaction:',error.message);throw error}finally{
+ }catch(error){console.error('Feature interaction:',error.message);if(page&&process.env.VUTRON_TEST_SCENARIO==='priority-leave')try{const diagnostic=await page.send('Runtime.evaluate',{expression:'JSON.stringify({href:location.href,ready:document.readyState,errors:window.priorityBootErrors,harness:!!window.featureHarness,tab:window.featureHarness?.store.activeTab,html:document.documentElement.outerHTML.slice(0,1500),body:document.body.innerText.slice(-2500),resources:performance.getEntriesByType("resource").map(r=>({url:r.name,duration:r.duration})).slice(-12)})',returnByValue:true});console.error('Priority leave diagnostic:',diagnostic.result.value);console.error('Priority leave browser events:',JSON.stringify(page.events))}catch{}throw error}finally{
   if(browser){try{await browser.send('Browser.close')}catch{}browser.ws.close()}if(page)page.ws.close();await server.close();
   for(let i=0;child.exitCode===null&&i<30;i++)await delay(100);if(child.exitCode===null)child.kill();await delay(500);
   const resolved=path.resolve(profile);if(path.dirname(resolved)!==root||!path.basename(resolved).startsWith('ui-features-'))throw new Error('Unexpected temporary path');

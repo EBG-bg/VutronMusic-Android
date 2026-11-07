@@ -1,0 +1,108 @@
+{
+  "format": 1,
+  "generator": "scripts/runtime-regex-compat.cjs",
+  "regexpuCore": "6.5.4",
+  "unicodeVersion": "18.0.0",
+  "files": [
+    {
+      "file": "node_modules/@neteasecloudmusicapienhanced/api/node_modules/cliui/node_modules/string-width/index.js",
+      "sourceSha256": "16421893c66e7c45a68251f0708caaa8d49d74e9570ae574371d21356e9d30a6",
+      "outputSha256": "bfd5febc00df5e1fa4acefbea417d9e35fe0b2a8ddcf04c9e0ece67c6544658a",
+      "expressions": [
+        {
+          "kind": "literal",
+          "line": 7,
+          "pattern": "^\\p{Default_Ignorable_Code_Point}$",
+          "flags": "u",
+          "outputFlags": "u",
+          "outputSha256": "f3143276beb7258b8371730d75d488f3fba9af309398d3e00454730f06398e29"
+        }
+      ]
+    },
+    {
+      "file": "node_modules/@neteasecloudmusicapienhanced/api/node_modules/path-to-regexp/dist/index.js",
+      "sourceSha256": "f8e7946ca3a4dcc2ed1ea46e3bcffaef014e4abc359a7469a16817f1f79df62f",
+      "outputSha256": "775c2281ce8f79f5b73ca6c8ba6e8cacfdc9e0f8e1c964c6152af0d56822e010",
+      "expressions": [
+        {
+          "kind": "literal",
+          "line": 11,
+          "pattern": "^[$_\\p{ID_Start}]$",
+          "flags": "u",
+          "outputFlags": "u",
+          "outputSha256": "dd36af6b656bf5afb629646caa723ca1fa91abe33892e3fd3f7b4b2717124056"
+        },
+        {
+          "kind": "literal",
+          "line": 12,
+          "pattern": "^[$\\u200c\\u200d\\p{ID_Continue}]$",
+          "flags": "u",
+          "outputFlags": "u",
+          "outputSha256": "43f08b73fcda032f10c30a5b6e0fb5118e9dd4d4016afff859e70e3f59c1929e"
+        },
+        {
+          "kind": "literal",
+          "line": 13,
+          "pattern": "^[$_\\p{ID_Start}][$\\u200c\\u200d\\p{ID_Continue}]*$",
+          "flags": "u",
+          "outputFlags": "u",
+          "outputSha256": "ccc075dc2d66cb3aba8d2f3941d11a5441f62603d8b24ea596dbfb4ac544a02c"
+        }
+      ]
+    },
+    {
+      "file": "node_modules/@neteasecloudmusicapienhanced/api/node_modules/string-width/index.js",
+      "sourceSha256": "abc20775da6b552188b098688ebec671e29f5416d6339d3534bb7b016174003e",
+      "outputSha256": "4afde1ad9ecd9d61685b769f4bf7b2fb7167b30672de814154a716744a96f330",
+      "expressions": [
+        {
+          "kind": "literal",
+          "line": 20,
+          "pattern": "[^\\p{Default_Ignorable_Code_Point}\\p{Control}\\p{Format}\\p{Nonspacing_Mark}\\p{Enclosing_Mark}\\p{Surrogate}]",
+          "flags": "v",
+          "outputFlags": "u",
+          "outputSha256": "17628b3b6151a374afcf895bd53cb394ba4a991fad293766e002f1ff36cecfb5"
+        },
+        {
+          "kind": "literal",
+          "line": 21,
+          "pattern": "\\p{Spacing_Mark}",
+          "flags": "v",
+          "outputFlags": "u",
+          "outputSha256": "1b06e21a1a48057ab79d255e9a9943b954f7648fb962a0078b5055734b4e74e4"
+        },
+        {
+          "kind": "literal",
+          "line": 24,
+          "pattern": "^\\p{RGI_Emoji}$",
+          "flags": "v",
+          "outputFlags": "u",
+          "outputSha256": "6fd5a50740069293dff5cdecf894408b53b281bd59aadb9bb5fc2cad9194dd3a"
+        },
+        {
+          "kind": "literal",
+          "line": 28,
+          "pattern": "\\p{Extended_Pictographic}",
+          "flags": "gu",
+          "outputFlags": "gu",
+          "outputSha256": "fe8ceae16a7fb5cd25e2a17a58a4908fa2bac3f09040334aeb5d536542648ef0"
+        }
+      ]
+    },
+    {
+      "file": "node_modules/@neteasecloudmusicapienhanced/api/node_modules/wrap-ansi/node_modules/string-width/index.js",
+      "sourceSha256": "16421893c66e7c45a68251f0708caaa8d49d74e9570ae574371d21356e9d30a6",
+      "outputSha256": "bfd5febc00df5e1fa4acefbea417d9e35fe0b2a8ddcf04c9e0ece67c6544658a",
+      "expressions": [
+        {
+          "kind": "literal",
+          "line": 7,
+          "pattern": "^\\p{Default_Ignorable_Code_Point}$",
+          "flags": "u",
+          "outputFlags": "u",
+          "outputSha256": "f3143276beb7258b8371730d75d488f3fba9af309398d3e00454730f06398e29"
+        }
+      ]
+    }
+  ]
+}

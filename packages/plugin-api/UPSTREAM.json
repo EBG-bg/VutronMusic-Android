@@ -1,0 +1,51 @@
+{
+  "upstreamRepository": "https://github.com/stark81/VutronMusic",
+  "androidRuntimeDependencies": {
+    "zod": {
+      "upstreamVersion": "4.3.6",
+      "version": "4.6.6",
+      "reason": "Android runtime security update; the original schemas and plugin sources remain byte-for-byte unchanged.",
+      "releaseSource": "https://github.com/colinhacks/zod/releases/tag/v4.6.6",
+      "securityScopeSource": "https://github.com/colinhacks/zod/issues/6643",
+      "reviewedOn": "2026-11-07"
+    }
+  },
+  "sourceFiles": {
+    "src/types/schemas.ts": {
+      "target": "packages/plugin-api/src/schemas.ts",
+      "sha256": "24119dc4d31a99e5d5135d0105e2e0165b0ef18e783c647fdea021a27892b525"
+    },
+    "src/types/plugin.ts": {
+      "target": "packages/plugin-api/src/plugin.ts",
+      "sha256": "749a0e5bd549d664af673d2f10bfc0dd55dbf07c7cfe8703d20eccd3b0ae0dad"
+    },
+    "src/public/plugin/netease.js": {
+      "target": "vendor/android-runtime/src/main/assets/sources-runtime/plugins/netease.js",
+      "sha256": "b54e6441873bbff27c947d717611ef92842ed1712955be1cf8bd77e79a82dfb1"
+    },
+    "src/public/plugin/kugou.js": {
+      "target": "vendor/android-runtime/src/main/assets/sources-runtime/plugins/kugou.js",
+      "sha256": "a08f8b21211d26b656d08b6b37df303ad9c873aa82f9f9277a92b9d6cfd66b9e"
+    },
+    "src/public/plugin/local.js": {
+      "target": "vendor/android-runtime/src/main/assets/sources-runtime/plugins/local.js",
+      "sha256": "af2dfbf646dc0df2e4f5269d8fe1b566fe32d4c760a7e765d0832f9e824c6e17"
+    },
+    "src/public/plugin/navidrome.js": {
+      "target": "vendor/android-runtime/src/main/assets/sources-runtime/plugins/navidrome.js",
+      "sha256": "830ae6ff1d50987dfa95b178c8fd079cfc3762a139cf8e1dea26e5d14bd340df"
+    },
+    "src/public/plugin/emby.js": {
+      "target": "vendor/android-runtime/src/main/assets/sources-runtime/plugins/emby.js",
+      "sha256": "ee5196532ab7c0ff5f94a85a1afff879d4f3f4076b4faf99ec90107d88a69f10"
+    },
+    "src/public/plugin/jellyfin.js": {
+      "target": "vendor/android-runtime/src/main/assets/sources-runtime/plugins/jellyfin.js",
+      "sha256": "22429c0620540d8ef0e4b51cc62ba1941a369bcdba247a88be5480cb60319a11"
+    },
+    "src/public/plugin/demo.js": {
+      "target": "vendor/android-runtime/src/main/assets/sources-runtime/plugins/demo.js",
+      "sha256": "459aa4addb326bc3179f5c7052d25066a9b3b3be88614886a2cac9e9c3cfb138"
+    }
+  }
+}

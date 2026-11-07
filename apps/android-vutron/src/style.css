@@ -327,8 +327,9 @@ button, input, textarea { color: inherit; }
 .sidebar-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
 .sidebar-heading img { width: 32px; height: 32px; }
 .sidebar-heading b { flex: 1; }
-.library-sidebar > button { width: 100%; min-height: 42px; display: flex; align-items: center; gap: 12px; padding: 8px 12px; border: 0; border-radius: 8px; color: var(--color-text); background: transparent; text-align: left; font-size: calc(13px * var(--ui-font-scale, 1)); }
-.library-sidebar > button:active { background: var(--accent-soft); color: var(--accent); }
+.library-sidebar > button, .sidebar-managed-row > button { width: 100%; min-height: 42px; display: flex; align-items: center; gap: 12px; padding: 8px 12px; border: 0; border-radius: 8px; color: var(--color-text); background: transparent; text-align: left; font-size: calc(13px * var(--ui-font-scale, 1)); }
+.library-sidebar > button:active, .sidebar-managed-row > button:active { background: var(--accent-soft); color: var(--accent); }
+.library-sidebar > button[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .library-sidebar h3 { margin: 18px 12px 7px; font-size: calc(11px * var(--ui-font-scale, 1)); color: var(--muted); font-weight: 600; }
 .library-sidebar > button span:not(.original-icon) { min-width: 0; overflow-wrap: anywhere; }
 .library-sidebar small { display: block; margin-top: 3px; color: var(--muted); font-size: calc(11px * var(--ui-font-scale, 1)); }
@@ -386,20 +387,20 @@ button:enabled:active { transform: scale(.92); transition-duration: .2s; }
 /* Shared desktop-style lightening. Keep artwork and carousel transforms independent. */
 :is(.icon-button, .home-search-shortcut, .text-button, .secondary-button, .wide-outline-button,
 .play-all-button, .playlist-cache-button, .search-categories button, .segmented-control button,
-.timer-actions button, .library-layout-controls button, .library-sidebar > button, .queue-track,
+.timer-actions button, .library-layout-controls button, .library-sidebar > button, .sidebar-managed-row > button, .queue-track,
 .row-play[role='button'], .settings-collapse > summary, .cookie-login-details > summary,
 .cache-advanced > summary, .volume-settings > summary, .track-row, .home-track-card, .search-entity-row) {
   transition: background-color .15s ease-in, color .15s ease-in, box-shadow .15s ease-in, transform .2s ease;
 }
 :is(.icon-button, .home-search-shortcut, .text-button, .secondary-button, .wide-outline-button,
 .play-all-button, .playlist-cache-button, .search-categories button, .segmented-control button,
-.timer-actions button, .library-layout-controls button, .library-sidebar > button, .queue-track,
+.timer-actions button, .library-layout-controls button, .library-sidebar > button, .sidebar-managed-row > button, .queue-track,
 .row-play[role='button'], .settings-collapse > summary, .cookie-login-details > summary,
 .cache-advanced > summary, .volume-settings > summary, .track-row, .home-track-card, .search-entity-row):is([data-original-feedback], :focus-visible) { background-color: var(--accent-soft); }
 @media (hover: hover) and (pointer: fine) {
   :is(.icon-button, .home-search-shortcut, .text-button, .secondary-button, .wide-outline-button,
   .play-all-button, .playlist-cache-button, .search-categories button, .segmented-control button,
-  .timer-actions button, .library-layout-controls button, .library-sidebar > button, .queue-track,
+  .timer-actions button, .library-layout-controls button, .library-sidebar > button, .sidebar-managed-row > button, .queue-track,
   .row-play[role='button'], .settings-collapse > summary, .cookie-login-details > summary,
   .cache-advanced > summary, .volume-settings > summary, .track-row, .home-track-card, .search-entity-row):hover {
     background-color: var(--accent-soft);
@@ -466,3 +467,4 @@ label:has(> input[type='checkbox']) { min-height:44px; }
 .create-playlist-button { display:flex; align-items:center; gap:7px; padding:9px 12px; min-height:40px; }
 .settings-card :is(label,small,p),.playlist-copy b,.track-copy b { overflow-wrap:anywhere; }
 .settings-card select { max-width:100%; }
+.mini-player > .plugin-artwork { width:39px; height:39px; flex:0 0 39px; border-radius:11px; }

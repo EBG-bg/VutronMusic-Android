@@ -11,6 +11,9 @@ on:
       - 'vendor/java-compat/**'
       - 'scripts/build-mobile.*'
       - 'scripts/mobile-build.cjs'
+      - 'scripts/build-plugin-api.cjs'
+      - 'scripts/vendor-plugin-dependencies.cjs'
+      - 'scripts/runtime-regex-compat.cjs'
       - 'src/renderer/assets/**'
       - 'src/renderer/locales/**'
       - 'tools/**'
@@ -27,6 +30,48 @@ permissions:
   contents: read
 
 jobs:
+  visual:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+          cache: npm
+          cache-dependency-path: apps/android-vutron/package-lock.json
+      - name: Install UI check dependencies
+        working-directory: apps/android-vutron
+        run: npm ci --ignore-scripts
+      - name: Install pinned Chromium
+        working-directory: apps/android-vutron
+        run: npx playwright install chromium
+      - name: Compare reviewed UI baselines
+        working-directory: apps/android-vutron
+        run: npm run test:visual
+      - name: Check plugin installation guidance
+        working-directory: apps/android-vutron
+        run: |
+          $env:EDGE_PATH = node -p "require('playwright').chromium.executablePath()"
+          node tests/browser-plugin-manager-onboarding.cjs
+      - name: Check unsaved source-priority navigation
+        working-directory: apps/android-vutron
+        env:
+          VUTRON_TEST_SCENARIO: priority-leave
+        run: |
+          $env:EDGE_PATH = node -p "require('playwright').chromium.executablePath()"
+          node tests/browser-features.cjs
+      - name: Check shared plugin favorite state
+        working-directory: apps/android-vutron
+        run: |
+          $env:EDGE_PATH = node -p "require('playwright').chromium.executablePath()"
+          node tests/browser-plugin-likes.cjs
+      - name: Preserve synthetic UI differences
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mobile-synthetic-visual-differences
+          path: _analysis/visual-regression/
+          retention-days: 7
   android:
     runs-on: ubuntu-latest
     steps:
@@ -35,7 +80,10 @@ jobs:
         with:
           node-version: 22.16.0
           cache: npm
-          cache-dependency-path: apps/android-vutron/package-lock.json
+          cache-dependency-path: |
+            apps/android-vutron/package-lock.json
+            packages/plugin-api/package-lock.json
+            packages/plugin-runtime-deps/package-lock.json
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -46,16 +94,29 @@ jobs:
           log-accepted-android-sdk-licenses: false
       - name: Install Android platform
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Prepare Mobile and plugin dependencies
+        run: |
+          npm ci --prefix apps/android-vutron --ignore-scripts
+          npm ci --prefix packages/plugin-api --ignore-scripts
+          npm ci --prefix packages/plugin-runtime-deps --ignore-scripts --omit=dev
+          node scripts/build-plugin-api.cjs
+          node scripts/vendor-plugin-dependencies.cjs
       - name: Check shared core
         working-directory: packages/core
         run: node --experimental-strip-types --test
+      - name: Check shared plugin contract sources
+        run: |
+          node --test packages/plugin-api/test/*.test.cjs
+          node scripts/build-plugin-api.cjs --check
+          node scripts/vendor-plugin-dependencies.cjs --check
+          node scripts/runtime-regex-compat.cjs --check
       - name: Install exporter GUI test dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y python3-tk xvfb xauth
       - name: Desktop export checks
         run: xvfb-run -a python3 -m unittest discover -s tools/tests -p 'test_export*.py'
-      - name: Media gateway checks
+      - name: Plugin host and media gateway checks
         run: node --test vendor/android-runtime/tests/*.test.cjs
       - name: Check Vue SFC types and build Mobile
         run: sh scripts/build-mobile.sh Debug

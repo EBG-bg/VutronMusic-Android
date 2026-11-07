@@ -6,7 +6,7 @@ defineEmits<{ open: [] }>()
 </script>
 
 <template>
-  <ButtonIcon :prevent-blur="true" class="row-play track-menu-button" type="button" data-track-menu-button aria-haspopup="dialog" :aria-label="`歌曲菜单 ${name}`" @click.stop="$emit('open')" @keydown.enter.stop @keydown.space.stop>
+  <ButtonIcon :prevent-blur="true" class="row-play track-menu-button" type="button" data-track-menu-button aria-haspopup="dialog" :aria-label="$t('mobile.trackActions.menuFor', { name })" @click.stop="$emit('open')" @keydown.enter.stop @keydown.space.stop>
     <OriginalIcon name="more" />
   </ButtonIcon>
 </template>

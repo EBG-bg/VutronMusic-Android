@@ -1,0 +1,4 @@
+{
+  "format": 1,
+  "fallbackSources": ["bodian", "kuwo", "kugou", "qq", "bilibili", "pyncmd", "migu"]
+}

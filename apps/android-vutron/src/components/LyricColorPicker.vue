@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import ThumbRange from './ThumbRange.vue'
+import { translate as t } from '../platform/i18n'
 import {
   argbCss, argbHex, argbToHsv, clampUnit, hsvToArgb, lyricColorPresets, lyricColorTargets, parseArgbHex,
   type LyricColorKey, type LyricColorSettings
@@ -111,7 +112,7 @@ function editHex() {
 function finishHex() {
   hexFocused.value = false
   const parsed = parseArgbHex(hexInput.value)
-  if (parsed === undefined) { hexError.value = '请输入 #RRGGBB 或 #AARRGGBB'; return }
+  if (parsed === undefined) { hexError.value = t('mobile.colorUi.invalidHex'); return }
   applyColor(selected.value, parsed)
   hexInput.value = argbHex(parsed)
   emit('commit')

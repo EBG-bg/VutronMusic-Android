@@ -18,8 +18,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /** Small, durable artwork cache used by playlists, tracks and the player metadata. */
 final class ArtworkCache {
@@ -30,13 +28,11 @@ final class ArtworkCache {
     private static final String PREFS = "artwork_cache_settings";
     private static final long DEFAULT_CAPACITY_MB = 128;
     private static final Map<String, List<Result>> PENDING = new HashMap<>();
+    private static final Map<String, ArtworkTasks.Task> TASKS = new HashMap<>();
     private static final Object PENDING_LOCK = new Object();
     private static final java.util.Set<HttpURLConnection> CONNECTIONS = new java.util.HashSet<>();
-    private static final ExecutorService WORKER = Executors.newFixedThreadPool(3, r -> {
-        Thread thread = new Thread(r, "vutron-artwork-cache");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private static final ArtworkTasks WORKER = ArtworkTasks.create();
+    private static final java.util.concurrent.atomic.AtomicLong CACHE_REVISION = new java.util.concurrent.atomic.AtomicLong();
 
     private ArtworkCache() { }
 
@@ -49,6 +45,47 @@ final class ArtworkCache {
     interface Result {
         void success(String uri);
         void failure(Exception error);
+    }
+
+    interface OwnedLoader { byte[] load() throws Exception; }
+
+    static String resolveOwned(Context context, String key) {
+        File file = fileFor(context, key);
+        return file.isFile() && file.length() > 0 ? "file://" + file.getAbsolutePath() : "";
+    }
+
+    /** Plugin images use the same capacity, file accounting and priority lanes. */
+    static void fetchOwned(Context context, String key, OwnedLoader loader, Result result) {
+        String cached = resolveOwned(context, key);
+        if (!cached.isEmpty()) { result.success(cached); return; }
+        final long revision = CACHE_REVISION.get();
+        synchronized (PENDING_LOCK) {
+            List<Result> listeners = PENDING.get(key);
+            if (listeners != null) { listeners.add(result); ArtworkTasks.Task task = TASKS.get(key); if (task != null) task.promote(); return; }
+            listeners = new ArrayList<>(); listeners.add(result); PENDING.put(key, listeners);
+            TASKS.put(key, WORKER.submit(() -> {
+                String uri = null; Exception failure = null;
+                try {
+                    if (revision != CACHE_REVISION.get()) throw new IOException("Artwork cache was cleared");
+                    byte[] bytes = loader.load();
+                    if (bytes == null || bytes.length == 0 || bytes.length > MAX_BYTES) throw new IOException("Artwork exceeds its size limit or is empty");
+                    BitmapFactory.Options bounds = new BitmapFactory.Options(); bounds.inJustDecodeBounds = true;
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+                    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw new IOException("Artwork is not a decodable image");
+                    File directory = root(context); if (!directory.isDirectory() && !directory.mkdirs() && !directory.isDirectory()) throw new IOException("Artwork directory unavailable");
+                    File file = fileFor(context, key), partial = new File(file.getAbsolutePath() + ".part");
+                    try {
+                        try (FileOutputStream output = new FileOutputStream(partial)) { output.write(bytes); }
+                        if (revision != CACHE_REVISION.get()) throw new IOException("Artwork cache was cleared");
+                        if (!partial.renameTo(file)) throw new IOException("Artwork commit failed");
+                        trim(directory, capacityMiB(context) * 1024L * 1024L); uri = "file://" + file.getAbsolutePath();
+                    } finally { if (partial.isFile()) partial.delete(); }
+                } catch (Exception error) { failure = error; }
+                List<Result> completed;
+                synchronized (PENDING_LOCK) { completed = PENDING.remove(key); TASKS.remove(key); PENDING_LOCK.notifyAll(); }
+                for (Result listener : completed) { if (failure == null) listener.success(uri); else listener.failure(failure); }
+            }, true));
+        }
     }
 
     static void enqueue(Context context, String remoteUrl) {
@@ -80,29 +117,35 @@ final class ArtworkCache {
         synchronized (PENDING_LOCK) {
             List<Result> listeners = PENDING.get(url);
             if (listeners != null) {
-                if (result != null) listeners.add(result);
+                if (result != null) {
+                    listeners.add(result);
+                    ArtworkTasks.Task task = TASKS.get(url);
+                    if (task != null) task.promote();
+                }
                 return;
             }
             listeners = new ArrayList<>();
             if (result != null) listeners.add(result);
             PENDING.put(url, listeners);
-        }
-        WORKER.execute(() -> {
+            final long revision = CACHE_REVISION.get();
+            TASKS.put(url, WORKER.submit(() -> {
             String uri = null;
             Exception failure = null;
-            try { uri = download(context.getApplicationContext(), url); }
+            try { if (revision != CACHE_REVISION.get()) throw new IOException("Artwork cache was cleared"); uri = download(context.getApplicationContext(), url); }
             catch (Exception error) { failure = error; }
-            List<Result> listeners;
+            List<Result> completedListeners;
             synchronized (PENDING_LOCK) {
-                listeners = PENDING.remove(url);
+                completedListeners = PENDING.remove(url);
+                TASKS.remove(url);
                 PENDING_LOCK.notifyAll();
             }
             if (failure != null) Log.d(TAG, "Artwork cache request failed: " + failure.getMessage());
-            for (Result listener : listeners) {
+            for (Result listener : completedListeners) {
                 if (failure == null) listener.success(uri);
                 else listener.failure(failure);
             }
-        });
+            }, result != null));
+        }
     }
 
     /** Wait for queued cover downloads during an explicit bulk-cache action. */
@@ -152,12 +195,14 @@ final class ArtworkCache {
     }
 
     static void clear(Context context) {
+        CACHE_REVISION.incrementAndGet();
         File root = root(context);
         File[] files = root.listFiles();
         if (files != null) for (File file : files) if (file.isFile()) file.delete();
     }
 
     private static String download(Context context, String urlText) throws IOException {
+        long revision = CACHE_REVISION.get();
         File root = root(context);
         if (!root.isDirectory() && !root.mkdirs() && !root.isDirectory()) throw new IOException("Artwork directory unavailable");
         File target = fileFor(context, urlText);
@@ -194,6 +239,7 @@ final class ArtworkCache {
             bounds.inJustDecodeBounds = true;
             BitmapFactory.decodeFile(part.getAbsolutePath(), bounds);
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw new IOException("Artwork response is not a decodable image");
+            if (revision != CACHE_REVISION.get()) throw new IOException("Artwork cache was cleared");
             if (!part.renameTo(target)) throw new IOException("Artwork commit failed");
             trim(root, capacityMiB(context) * 1024L * 1024L);
             return "file://" + target.getAbsolutePath();

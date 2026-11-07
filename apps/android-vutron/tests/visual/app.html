@@ -1,0 +1,12 @@
+<!doctype html><html lang="zh-CN"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app"></div><script type="module">
+import '@fontsource-variable/noto-sans-sc'
+import './font.css'
+import '/src/main.ts'
+import { useAndroidShellStore } from '/src/stores/androidShell'
+import { pluginBackend, musicPluginBridge } from './plugin-bridge.mock.js'
+import { visualNativeBackend } from './native.mock.js'
+const store = useAndroidShellStore()
+window.visualHarness = { store, pluginBackend, musicPluginBridge, nativeBackend: visualNativeBackend }
+const restore = store.restore
+store.restore = async () => { await restore(); window.visualReady = true }
+</script></body></html>

@@ -15,6 +15,33 @@ try {
         & npm.cmd ci --ignore-scripts
         if ($LASTEXITCODE -ne 0) { throw "Mobile dependency installation failed." }
     }
+    Push-Location (Join-Path $repository 'packages/plugin-api')
+    try {
+        $pluginManifest = Get-Content -LiteralPath 'package.json' -Raw -Encoding UTF8 | ConvertFrom-Json
+        $pluginDependenciesReady = (Test-Path -LiteralPath 'node_modules/zod/package.json') -and (Test-Path -LiteralPath 'node_modules/regexpu-core/package.json')
+        if ($pluginDependenciesReady) {
+            $installedZod = Get-Content -LiteralPath 'node_modules/zod/package.json' -Raw -Encoding UTF8 | ConvertFrom-Json
+            $installedRegexpu = Get-Content -LiteralPath 'node_modules/regexpu-core/package.json' -Raw -Encoding UTF8 | ConvertFrom-Json
+            $pluginDependenciesReady = $installedZod.version -eq $pluginManifest.dependencies.zod -and $installedRegexpu.version -eq $pluginManifest.devDependencies.'regexpu-core'
+        }
+        if (-not $pluginDependenciesReady) {
+            & npm.cmd ci --ignore-scripts
+            if ($LASTEXITCODE -ne 0) { throw 'Plugin API dependency installation failed.' }
+        }
+        & node (Join-Path $repository 'scripts/build-plugin-api.cjs')
+        if ($LASTEXITCODE -ne 0) { throw 'Plugin API generation failed.' }
+    } finally { Pop-Location }
+    Push-Location (Join-Path $repository 'packages/plugin-runtime-deps')
+    try {
+        if (-not (Test-Path -LiteralPath 'node_modules/@neteasecloudmusicapienhanced/api/package.json')) {
+            & npm.cmd ci --ignore-scripts --omit=dev
+            if ($LASTEXITCODE -ne 0) { throw 'Plugin runtime dependency installation failed.' }
+        }
+        & node (Join-Path $repository 'scripts/vendor-plugin-dependencies.cjs')
+        if ($LASTEXITCODE -ne 0) { throw 'Plugin runtime dependency preparation failed.' }
+        & node (Join-Path $repository 'scripts/runtime-regex-compat.cjs') --check
+        if ($LASTEXITCODE -ne 0) { throw 'Plugin runtime Unicode compatibility check failed.' }
+    } finally { Pop-Location }
     & node node_modules/vue-tsc/bin/vue-tsc.js --noEmit
     if ($LASTEXITCODE -ne 0) { throw "Mobile TypeScript check failed." }
     $savedPreference = $ErrorActionPreference

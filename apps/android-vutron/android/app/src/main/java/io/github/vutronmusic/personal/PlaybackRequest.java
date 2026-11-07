@@ -27,11 +27,17 @@ final class PlaybackRequest {
         }
         long id = song.optLong("id");
         String source = localSource(song);
-        if (source.isEmpty()) {
+        if (source.isEmpty() && !PluginMedia.isPlugin(song)) {
             JSONObject local = LocalPlaybackResolver.match(context, song);
             if (local != null) {
                 song = local;
                 song.put("neteaseId", id);
+                source = localSource(song);
+            }
+        } else if (source.isEmpty()) {
+            JSONObject local = PluginMedia.matchLocalNetease(context, song);
+            if (local != null) {
+                song = local;
                 source = localSource(song);
             }
         }
@@ -45,9 +51,12 @@ final class PlaybackRequest {
                         .put("playbackFormat", cached.format).put("playbackLossless", cached.lossless)
                         .put("playbackCached", true);
             } else {
-                LocalOnlyMode.requireOnline(context);
-                location = prefetched == null ? PlaybackSourceResolver.resolve(context, id) : prefetched;
-                usedPrefetchedSource = prefetched != null;
+                if (PluginMedia.isPlugin(song)) location = PluginMedia.resolve(context, song);
+                else {
+                    LocalOnlyMode.requireOnline(context);
+                    location = prefetched == null ? PlaybackSourceResolver.resolve(context, id) : prefetched;
+                    usedPrefetchedSource = prefetched != null;
+                }
                 source = location.getString("url");
                 song.put("playbackSource", location.optString("source", "netease"))
                         .put("playbackBitrate", location.optLong("br", location.optLong("bitrate", 0)))
@@ -66,6 +75,7 @@ final class PlaybackRequest {
             song.put("playbackSource", "本地文件").put("playbackBitrate", 0)
                     .put("playbackFormat", "").put("playbackLossless", false).put("playbackCached", false);
         }
+        if (location != null && location.optBoolean("local")) location = null;
         String cover = first(song, "picLocalUri", "coverLocalUri", "picUrl", "coverImgUrl");
         if (cover.isEmpty()) cover = ArtworkSource.coverUrl(song);
         JSONObject headers = location == null ? null : location.optJSONObject("headers");

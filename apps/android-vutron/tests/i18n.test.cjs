@@ -122,3 +122,45 @@ test('the actual language settings component renders English and Traditional Chi
   f.setAppLocale('zht')
   assert.match(await render(), /介面語言/)
 })
+
+test('cache controls and track-menu accessibility labels follow the active language and keep song names intact', async () => {
+  const f = loadMobileI18n({ locale: 'en' })
+  const cacheStore = vue.reactive({ cacheStatus: { usedBytes: 1024, capacityMb: 256, trackCount: 1, libraryBytes: 0, enabled: true }, cacheCapacityMb: 256, artworkCacheCapacityMb: 64 })
+  const card = vue.defineComponent({ props: ['title'], setup: (props, { slots }) => () => vue.h('section', [vue.h('h2', props.title), slots.heading?.(), slots.default?.()]) })
+  const range = vue.defineComponent({ inheritAttrs: false, setup: (_, { attrs }) => () => vue.h('input', { ...attrs, type: 'range' }) })
+  const button = vue.defineComponent({ inheritAttrs: false, setup: (_, { attrs, slots }) => () => vue.h('button', attrs, slots.default?.()) })
+  const empty = vue.defineComponent({ render: () => vue.h('span') })
+  function component(file, dependencies) {
+    const filename = path.resolve(__dirname, '../src/components', file)
+    const script = compileScript(parse(fs.readFileSync(filename, 'utf8'), { filename }).descriptor, { id: 'i18n-edge-' + file, inlineTemplate: true })
+    const code = ts.transpileModule(script.content, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText
+    const module = { exports: {} }
+    vm.runInNewContext(code, { module, exports: module.exports, require(name) {
+      if (name === 'vue') return vue
+      if (Object.hasOwn(dependencies, name)) return dependencies[name]
+      throw new Error('Unexpected edge-component dependency: ' + name)
+    } })
+    return module.exports.default
+  }
+  const wrapped = value => ({ __esModule: true, default: value })
+  const cache = component('CacheSettings.vue', {
+    '../stores/androidShell': { useAndroidShellStore: () => cacheStore },
+    '../utils/formatting': { formatBytes: value => value + ' B' },
+    './CollapsibleSettingsCard.vue': wrapped(card), './PlaybackPrefetchSettings.vue': wrapped(empty),
+    './OriginalIcon.vue': wrapped(empty), './ThumbRange.vue': wrapped(range)
+  })
+  const menu = component('TrackMenuButton.vue', {
+    '../../../../packages/ui/src/ButtonIcon.vue': wrapped(button),
+    './OriginalIcon.vue': wrapped(empty)
+  })
+  const originalName = '原始曲名 & title'
+  const render = component => renderToString(vue.createSSRApp(component).use(f.i18n))
+  const menuApp = { render: () => vue.h(menu, { name: originalName }) }
+  const english = await render(cache)
+  assert.match(english, /aria-label="Artwork cache limit"/)
+  assert.doesNotMatch(english, /封面缓存容量|音频缓存容量/)
+  assert.match(await render(menuApp), /aria-label="Track menu for 原始曲名 &amp; title"/)
+  f.setAppLocale('zht')
+  assert.ok((await render(cache)).includes(f.translate('mobile.settingsUi.artworkCapacity')))
+  assert.match(await render(menuApp), /歌曲選單 原始曲名 &amp; title/)
+})

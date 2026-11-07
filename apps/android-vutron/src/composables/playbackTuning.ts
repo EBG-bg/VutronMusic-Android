@@ -1,3 +1,4 @@
+import { translate as t } from '../platform/i18n'
 import { computed, reactive, ref } from 'vue'
 import { vutronPlugin, type VutronPlaybackTuning } from '../platform/vutronPlugin'
 import { createLiveSettingWriter } from '../platform/liveSettingWrites'
@@ -35,7 +36,7 @@ const writer = createLiveSettingWriter<TuningPatch>({
       pending.value = revisions.size > 0
     } finally { saving.value = false }
   },
-  onError: cause => { errorKind.value = 'save'; error.value = cause instanceof Error ? cause.message : '保存播放设置失败' }
+  onError: cause => { errorKind.value = 'save'; error.value = cause instanceof Error ? cause.message : t('mobile.runtimeText.tuningSaveFailed') }
 })
 registerLiveSettingsFlusher(writer.flush)
 
@@ -49,7 +50,7 @@ async function load() {
     if (revision === editRevision && !writer.pending()) Object.assign(settings, result)
     loaded.value = true
     if (!writer.pending()) error.value = ''
-  } catch (cause) { if (request === readRequest) { errorKind.value = 'load'; error.value = cause instanceof Error ? cause.message : '读取播放设置失败' } }
+  } catch (cause) { if (request === readRequest) { errorKind.value = 'load'; error.value = cause instanceof Error ? cause.message : t('mobile.runtimeText.tuningReadFailed') } }
   finally { if (request === readRequest) loading.value = false }
 }
 function update(patch: TuningPatch) {

@@ -40,6 +40,7 @@ import java.io.ByteArrayOutputStream;
 public final class VutronMusicPlugin extends Plugin {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final ExecutorService playbackWorker = Executors.newSingleThreadExecutor();
+    private final ExecutorService pluginWorker = Executors.newFixedThreadPool(3);
     private final Object playbackCommandLock = new Object();
     private long playbackCommandEpoch;
     private final Object onlineCacheLock = new Object();
@@ -705,6 +706,7 @@ public final class VutronMusicPlugin extends Plugin {
                     PlaybackQueue.Snapshot queue = PlaybackQueue.replace(getContext(), songs, index);
                     ContextCompat.startForegroundService(getContext(), new Intent(getContext(), AndroidPlaybackService.class)
                             .setAction(AndroidPlaybackService.ACTION_QUEUE).putExtra("queueToken", queue.token)
+                            .putExtra("resumePosition", (int) Math.min(Integer.MAX_VALUE, Math.max(-1L, longArg(call, "position", -1L))))
                             .putExtra(AndroidPlaybackService.ROUTE_EPOCH, routeEpoch));
                 }
                 call.resolve();
@@ -717,6 +719,178 @@ public final class VutronMusicPlugin extends Plugin {
         playbackWorker.execute(() -> {
             try { call.resolve(playbackQueue(PlaybackQueue.load(getContext()))); }
             catch (Exception error) { call.reject(message(error, "读取播放队列失败")); }
+        });
+    }
+
+    @PluginMethod public void listMusicPlugins(PluginCall call) {
+        pluginWorker.execute(() -> {
+            try { call.resolve(JSObject.fromJSONObject(AndroidPluginManager.list(getContext()))); }
+            catch (Exception failure) { call.reject(message(failure, "读取插件失败")); }
+        });
+    }
+
+    @PluginMethod public void manageMusicPlugin(PluginCall call) {
+        pluginWorker.execute(() -> {
+            try {
+                JSONObject result = PluginSourceActions.manage(getContext(), call.getData());
+                if (result==null) result = AndroidPluginManager.manage(getContext(), call.getData());
+                String action=call.getString("action", "");
+                if ("disable".equals(action) || "remove".equals(action) || "reset".equals(action) || "configure".equals(action))
+                    AndroidPlaybackService.invalidatePluginSource(call.getString("pluginId", call.getString("id", "")));
+                call.resolve(JSObject.fromJSONObject(result));
+            }
+            catch (Exception failure) { call.reject(message(failure, "修改插件失败")); }
+        });
+    }
+
+    @PluginMethod public void callMusicPlugin(PluginCall call) {
+        pluginWorker.execute(() -> {
+            try {
+                String id = call.getString("pluginId", "");
+                JSONObject selected = AndroidPluginManager.requireEnabled(getContext(),id);
+                if ("local".equals(selected.optString("type"))) AndroidPluginManager.syncLocalLibrary(getContext(), PluginLocalLibrary.tracks(getContext(),id));
+                String accountBefore=AndroidPluginManager.accountScope(getContext(),id);
+                Object result = AndroidPluginManager.invoke(getContext(), id, call.getString("method", ""), call.getObject("params", new JSObject()),call.getString("accountScope",accountBefore));
+                if (!accountBefore.equals(AndroidPluginManager.accountScope(getContext(),id))) AndroidPlaybackService.invalidatePluginSource(id);
+                call.resolve(JSObject.fromJSONObject(result instanceof JSONObject ? (JSONObject) result : new JSONObject().put("result", result)));
+            } catch (Exception failure) { call.reject(message(failure, "插件调用失败")); }
+        });
+    }
+
+    @PluginMethod public void renderMusicPluginQr(PluginCall call) {
+        pluginWorker.execute(() -> {
+            try {
+                String url = call.getString("url", "");
+                if (url.isEmpty() || url.length()>8192) throw new java.io.IOException("二维码地址无效");
+                call.resolve(new JSObject().put("imageData", qrPngData(url)));
+            } catch (Exception failure) { call.reject(message(failure, "生成二维码失败")); }
+        });
+    }
+
+    @PluginMethod public void resolveMusicPluginArtwork(PluginCall call) {
+        PluginArtwork.request(getContext(), call.getString("pluginId", ""), call.getString("uri", ""), call.getObject("sourceContext",new JSObject()),new ArtworkCache.Result() {
+            @Override public void success(String uri) { call.resolve(new JSObject().put("uri", uri)); }
+            @Override public void failure(Exception error) { call.reject(message(error, "读取插件封面失败")); }
+        });
+    }
+
+    @PluginMethod public void resolveMusicPluginMedia(PluginCall call) {
+        pluginWorker.execute(() -> {
+            try { call.resolve(new JSObject().put("uri", PluginMedia.location(getContext(), call.getString("pluginId", ""), call.getString("uri", ""), false).getString("url"))); }
+            catch (Exception failure) { call.reject(message(failure, "读取插件视频失败")); }
+        });
+    }
+
+    @PluginMethod public void importMusicPlugin(PluginCall call) {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
+        startActivityForResult(call, intent, "musicPluginPicked");
+    }
+
+    @ActivityCallback private void musicPluginPicked(PluginCall call, ActivityResult result) {
+        if (result == null || result.getResultCode()!=Activity.RESULT_OK || result.getData()==null || result.getData().getData()==null) {
+            call.resolve(new JSObject().put("cancelled", true)); return;
+        }
+        Uri uri = result.getData().getData();
+        pluginWorker.execute(() -> {
+            try (java.io.InputStream input = getContext().getContentResolver().openInputStream(uri); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+                if (input == null) throw new java.io.IOException("无法读取插件文件");
+                String name = "plugin.js";
+                try (android.database.Cursor cursor = getContext().getContentResolver().query(uri, new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+                    if (cursor != null && cursor.moveToFirst()) name = cursor.getString(0);
+                }
+                if (name == null || !name.toLowerCase(Locale.ROOT).endsWith(".js")) throw new java.io.IOException("请选择原版格式的 .js 插件");
+                byte[] buffer = new byte[8192]; int count;
+                while ((count=input.read(buffer))!=-1) { if (output.size()+count>1024*1024) throw new java.io.IOException("插件文件不能超过 1 MiB"); output.write(buffer,0,count); }
+                JSONObject request = new JSONObject().put("action","import").put("name",name).put("source",output.toString(java.nio.charset.StandardCharsets.UTF_8.name()));
+                call.resolve(JSObject.fromJSONObject(AndroidPluginManager.manage(getContext(), request)));
+            } catch (Exception failure) { call.reject(message(failure, "导入插件失败")); }
+        });
+    }
+
+    @PluginMethod public void playMusicPlugin(PluginCall call) {
+        final long epoch;
+        final long route = AndroidPlaybackService.routeEpoch();
+        synchronized (playbackCommandLock) { epoch = ++playbackCommandEpoch; }
+        playbackWorker.execute(() -> {
+            try {
+                String id = call.getString("pluginId", "");
+                JSONObject raw = call.getObject("track");
+                if (raw == null) throw new java.io.IOException("缺少插件歌曲");
+                JSONArray supplied = call.getArray("queue"), queue = new JSONArray();
+                if (supplied == null || supplied.length()==0) supplied = new JSONArray().put(raw);
+                int index = -1;
+                Map<String,String> accountScopes = new HashMap<>();
+                String playlistAccountScope = AndroidPluginManager.accountScope(getContext(), id);
+                if (!call.getString("accountScope",playlistAccountScope).equals(playlistAccountScope)) throw new java.io.IOException("插件账号已变化，请重新打开音乐库");
+                accountScopes.put(id, playlistAccountScope);
+                String selectedSource = raw.optString("pluginId", id).isEmpty() ? id : raw.optString("pluginId", id);
+                for (int i=0;i<supplied.length();i++) {
+                    JSONObject candidate = supplied.getJSONObject(i);
+                    String source = candidate.optString("pluginId", id); if (source.isEmpty()) source=id;
+                    String accountScope = accountScopes.get(source);
+                    if (accountScope==null) { accountScope=AndroidPluginManager.accountScope(getContext(),source); accountScopes.put(source,accountScope); }
+                    JSONObject normalized = PluginTrackAdapter.track(source, candidate, accountScope);
+                    String playlistKey = call.getString("playlistKey", "");
+                    if (!playlistKey.isEmpty()) normalized.put("playlistVolumeKey",PluginTrackAdapter.playlistKey(id,playlistAccountScope,playlistKey))
+                            .put("playlistVolumeName",call.getString("playlistName",id)).put("playlistOrderKey",playlistKey)
+                            .put("playlistOrderScope",PluginTrackAdapter.playlistScope(id,playlistAccountScope));
+                    if (call.getObject("playlistSourceContext")!=null) normalized.put("pluginPlaylistContext",call.getObject("playlistSourceContext")).put("pluginPlaylistOwner",id);
+                    if ("personalFM".equals(call.getString("sourceMethod",""))) normalized.put("pluginSourceMethod","personalFM");
+                    queue.put(normalized);
+                    if (index<0 && source.equals(selectedSource) && String.valueOf(candidate.get("id")).equals(String.valueOf(raw.get("id")))) index=i;
+                }
+                if (index<0) throw new java.io.IOException("插件歌曲不在播放队列中");
+                for (Map.Entry<String,String> account : accountScopes.entrySet())
+                    if (!account.getValue().equals(AndroidPluginManager.accountScope(getContext(),account.getKey()))) throw new java.io.IOException("插件账号变化，旧播放请求已取消");
+                PlaybackQueue.Snapshot saved;
+                synchronized (playbackCommandLock) {
+                    if (epoch != playbackCommandEpoch) throw new java.io.IOException("播放请求已被后续操作取消");
+                    saved = PlaybackQueue.replace(getContext(), queue, index);
+                    ContextCompat.startForegroundService(getContext(), new Intent(getContext(), AndroidPlaybackService.class)
+                            .setAction(AndroidPlaybackService.ACTION_QUEUE).putExtra("queueToken", saved.token)
+                            .putExtra("resumePosition", (int)Math.min(Integer.MAX_VALUE, Math.max(-1L, longArg(call,"position",-1))))
+                            .putExtra(AndroidPlaybackService.ROUTE_EPOCH, route));
+                }
+                call.resolve(new JSObject().put("track", track(queue.getJSONObject(index), getContext())));
+            } catch (Exception failure) { call.reject(message(failure, "插件播放失败")); }
+        });
+    }
+
+    @PluginMethod public void queueMusicPlugin(PluginCall call) {
+        try {
+            String id=call.getString("pluginId", "");
+            String ownerScope=AndroidPluginManager.accountScope(getContext(),id);
+            if (!call.getString("accountScope",ownerScope).equals(ownerScope)) throw new java.io.IOException("插件账号已变化，请重新打开音乐库");
+            JSONObject raw = call.getObject("track");
+            if (raw == null) throw new java.io.IOException("缺少插件歌曲");
+            String source = raw.optString("pluginId", id); if (source.isEmpty()) source=id;
+            JSONObject track = PluginTrackAdapter.track(source, raw, AndroidPluginManager.accountScope(getContext(),source));
+            String action = call.getString("action", "");
+            if (!("next".equals(action) || "append".equals(action))) throw new java.io.IOException("队列操作无效");
+            editPlaybackQueue(call, "next".equals(action) ? "add" : "append", track);
+        } catch (Exception failure) { call.reject(message(failure, "插件歌曲加入队列失败")); }
+    }
+
+    @PluginMethod
+    public void getMusicPluginPlaylistProgress(PluginCall call) {
+        pluginWorker.execute(() -> {
+            try {
+                String id=call.getString("pluginId",""),account=AndroidPluginManager.accountScope(getContext(),id);
+                if (!call.getString("accountScope",account).equals(account)) throw new java.io.IOException("插件账号已变化");
+                JSONObject saved=PlaylistProgress.read(getContext(),PluginTrackAdapter.playlistScope(id,account),
+                        PluginTrackAdapter.playlistKey(id,account,call.getString("playlistKey","")));
+                boolean available=!saved.optString("pluginTrackId").isEmpty();
+                call.resolve(new JSObject().put("available",available).put("trackId",saved.optString("pluginTrackId"))
+                        .put("sourcePluginId",saved.optString("pluginId")).put("position",saved.optLong("position")));
+            } catch (Exception failure) { call.reject(message(failure,"读取插件歌单进度失败")); }
+        });
+    }
+
+    @PluginMethod
+    public void getPlaylistProgress(PluginCall call) {
+        playbackWorker.execute(() -> {
+            try { call.resolve(JSObject.fromJSONObject(PlaylistProgress.read(getContext(), call.getString("scope", ""), call.getString("playlistKey", "")))); }
+            catch (Exception failure) { call.reject(message(failure, "读取歌单进度失败")); }
         });
     }
 
@@ -1554,8 +1728,8 @@ public final class VutronMusicPlugin extends Plugin {
         if (names.length() == 0 && !value.optString("artist", "").trim().isEmpty()) names.put(value.optString("artist"));
         JSONObject album = value.optJSONObject("al");
         if (album == null) album = value.optJSONObject("album");
-        String cover = ArtworkSource.coverUrl(value);
-        String local = context == null ? value.optString("picLocalUri", "") : ArtworkCache.resolve(context, cover);
+        String cover = PluginMedia.isPlugin(value) ? value.optString("picUrl") : ArtworkSource.coverUrl(value);
+        String local = context == null || PluginMedia.isPlugin(value) ? value.optString("picLocalUri", "") : ArtworkCache.resolve(context, cover);
         if (local.isEmpty()) local = value.optString("picLocalUri", "");
         JSObject result = new JSObject().put("id", value.optLong("id"))
                 .put("name", value.optString("name", "未命名歌曲"))
@@ -1575,6 +1749,8 @@ public final class VutronMusicPlugin extends Plugin {
         if (value.has("cached")) result.put("cached", value.optBoolean("cached"));
         if (value.has("onlineOnly")) result.put("onlineOnly", value.optBoolean("onlineOnly"));
         if (value.has("missingLocal")) result.put("missingLocal", value.optBoolean("missingLocal"));
+        for (String field : new String[]{"pluginId", "pluginTrackId", "pluginAccountScope", "pluginSourceMethod", "pluginPlaylistOwner"}) if (value.has(field)) result.put(field,value.optString(field));
+        for (String field : new String[]{"pluginSourceContext", "pluginTrack", "pluginPlaylistContext"}) if (value.optJSONObject(field)!=null) result.put(field,value.optJSONObject(field));
         return result;
     }
 
@@ -1607,6 +1783,7 @@ public final class VutronMusicPlugin extends Plugin {
         invalidateQrSessions();
         worker.shutdownNow();
         playbackWorker.shutdownNow();
+        pluginWorker.shutdownNow();
         super.handleOnDestroy();
     }
 }
