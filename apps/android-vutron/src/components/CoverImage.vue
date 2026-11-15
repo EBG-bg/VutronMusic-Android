@@ -2,16 +2,18 @@
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { displayArtworkUri, fetchArtwork } from '../platform/artwork'
 import { localOnlyMode } from '../platform/localOnlyMode'
+import { observeArtworkVisibility } from '../composables/artworkVisibility'
 import originalArtwork from '../../../../src/renderer/assets/images/vutronmusic-icon.png'
+import { artworkPixelEdge } from '@vutronmusic/core/artwork'
 
-const props = withDefaults(defineProps<{ src?: string; remoteSrc?: string; alt?: string; loading?: 'eager' | 'lazy' }>(), {
-  src: '', remoteSrc: '', alt: '', loading: 'lazy'
+const props = withDefaults(defineProps<{ src?: string; remoteSrc?: string; alt?: string; loading?: 'eager' | 'lazy'; size?: 'auto' | 'small' | 'large'; prepared?: boolean }>(), {
+  src: '', remoteSrc: '', alt: '', loading: 'lazy', size: 'auto', prepared: false
 })
 const placeholder = originalArtwork
 const element = ref<HTMLImageElement>()
 const displayed = ref(placeholder)
 const state = ref<'loading' | 'loaded' | 'missing'>('loading')
-let observer: IntersectionObserver | undefined
+let stopObserving: (() => void) | undefined
 let visible = false
 let generation = 0
 let triedRemote = false
@@ -25,7 +27,9 @@ async function loadSource(useRemote = false) {
   state.value = 'loading'
   try {
     const isRemote = source.startsWith('http://') || source.startsWith('https://')
-    const uri = isRemote ? await fetchArtwork(source) : displayArtworkUri(source)
+    const size = props.size === 'large' ? 512 : artworkPixelEdge(element.value?.clientWidth || (props.size === 'small' ? 48 : 160), window.devicePixelRatio)
+    const uri = props.prepared ? isRemote ? localOnlyMode.value ? '' : source : displayArtworkUri(source)
+      : await fetchArtwork(isRemote ? source : props.remoteSrc || source, size, isRemote ? '' : source)
     if (alive && token === generation) { displayed.value = uri || placeholder; if (!uri) state.value = 'missing' }
   } catch (error) {
     if (!alive || token !== generation) return
@@ -49,15 +53,12 @@ watch(() => [props.src, props.remoteSrc, localOnlyMode.value], () => {
   ++generation; triedRemote = false; displayed.value = placeholder
   void loadSource()
 })
+watch(() => props.size, () => { void loadSource() }, { flush: 'post' })
 onMounted(() => {
   if (props.loading === 'eager' || !('IntersectionObserver' in window)) { visible = true; void loadSource(); return }
-  observer = new IntersectionObserver(entries => {
-    if (!entries.some(entry => entry.isIntersecting)) return
-    visible = true; observer?.disconnect(); void loadSource()
-  }, { rootMargin: '180px' })
-  if (element.value) observer.observe(element.value)
+  if (element.value) stopObserving = observeArtworkVisibility(element.value, '180px', () => { visible = true; void loadSource() })
 })
-onUnmounted(() => { alive = false; ++generation; observer?.disconnect() })
+onUnmounted(() => { alive = false; ++generation; stopObserving?.() })
 </script>
 
 <template>

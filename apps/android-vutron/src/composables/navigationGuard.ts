@@ -5,6 +5,7 @@ export interface NavigationDraft {
   dirty(): boolean
   question(): ActionQuestion
   save(): Promise<boolean>
+  saveOnLeave?: boolean
   discard(): void
   resume?(): void | Promise<void>
   cancelInteraction?(): boolean
@@ -30,6 +31,13 @@ export function createNavigationGuard(ask: (question: ActionQuestion) => Promise
     const draft = [...drafts].find(item => item.dirty())
     if (!draft) return false
     pending.value = (async () => {
+      if (draft.saveOnLeave && await draft.save()) {
+        if (!drafts.has(draft)) return
+        continuing = true
+        try { action() } finally { continuing = false }
+        return
+      }
+      if (!drafts.has(draft)) return
       const choice = await ask(draft.question())
       if (!drafts.has(draft)) return
       if (choice === 'cancel') { await draft.resume?.(); return }

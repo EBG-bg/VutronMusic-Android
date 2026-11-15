@@ -15,8 +15,9 @@ let plugins = [...originals,
 ]
 const source = id => plugins.find(row => row.id === id)
 const label = id => id === 'fixture' ? 'Alpha' : 'Beta'
-const tracks = id => [1, 2].map(index => ({ id: 'song-' + index, name: label(id) + ' song ' + index, pluginId: id, sourceContext: context(id, 'song-' + index), picUrl: picture, duration: 180000, playable: true, artists: [{ id: 'artist', name: label(id) + ' artist', sourceContext: context(id, 'artist') }] }))
-const playlist = id => ({ id: 'playlist-1', name: label(id) + ' playlist', pluginId: id, sourceContext: context(id, 'playlist-1'), picUrl: picture, trackCount: 2, isMine: true, creator: { userId: label(id) + '-user', nickname: label(id) + ' listener' } })
+const playlistLengths = new Map()
+const tracks = id => Array.from({length:playlistLengths.get(id) || 2}, (_, index) => index + 1).map(index => ({ id: 'song-' + index, name: label(id) + ' song ' + index, pluginId: id, sourceContext: context(id, 'song-' + index), picUrl: picture, duration: 180000, playable: true, artists: [{ id: 'artist', name: label(id) + ' artist', sourceContext: context(id, 'artist') }] }))
+const playlist = id => ({ id: 'playlist-1', name: label(id) + ' playlist', pluginId: id, sourceContext: context(id, 'playlist-1'), picUrl: picture, trackCount: playlistLengths.get(id) || 2, isMine: true, creator: { userId: label(id) + '-user', nickname: label(id) + ' listener' } })
 const snapshot = () => ({ plugins: clone(plugins), catalog: [] })
 const calls = [], held = []
 let hold, current, playing = false, queue = { tracks: [], index: -1, upNext: [], mode: 0 }
@@ -25,6 +26,7 @@ const nativeTrack = (track, pluginId, accountScope) => ({ id: (pluginId === 'fix
 
 export const musicSourcesBackend = {
   calls, held, picture,
+  setPlaylistLength(id, count) { playlistLengths.set(id, count) },
   get plugins() { return plugins },
   setNativeLogin(value) { localStorage.setItem('source-integration:native-login', String(value)) },
   setConnected: offlineTestBackend.setConnected,
@@ -62,7 +64,7 @@ export const musicPluginBridge = {
     else if (method === 'getBanner') result = { code: 200, data: [{ id: 'banner-1', sourceId: 'playlist-1', name: label(pluginId) + ' banner', picUrl: picture, type: 'playlist', sourceContext: context(pluginId, 'playlist-1') }] }
     else if (method === 'getRecommendPlaylist') result = { code: 200, data: [playlist(pluginId)], count: 1, sourceContext: {} }
     else if (method === 'userPlaylist') result = { code: 200, playlists: [playlist(pluginId)], albums: [], sourceContext: {} }
-    else if (method === 'getPlaylistDetail') result = { code: 200, data: { ...playlist(pluginId), tracks: tracks(pluginId), trackIds: ['song-1', 'song-2'] } }
+    else if (method === 'getPlaylistDetail') result = { code: 200, data: { ...playlist(pluginId), tracks: tracks(pluginId), trackIds: tracks(pluginId).map(row => row.id) } }
     else if (method === 'getPlaylistTracks' || method === 'getAllTracks' || method === 'getRecommendTracks') result = { code: 200, data: tracks(pluginId), count: 2, sourceContext: {} }
     else if (method === 'search') result = { code: 200, data: params.tab === 'playlists' ? [playlist(pluginId)] : tracks(pluginId).map(row => ({ ...row, name: row.name + ' · ' + params.keywords })), count: 2, sourceContext: {} }
     else if (method === 'getTrackDetail') result = { code: 200, data: tracks(pluginId).filter(row => params.tracks.some(wanted => wanted.id === row.id)) }

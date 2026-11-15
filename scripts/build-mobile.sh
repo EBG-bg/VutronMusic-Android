@@ -12,7 +12,7 @@ export VUTRON_BUILD_EDITION
 if [ ! -d node_modules ]; then npm ci --ignore-scripts; fi
 (cd "$repository/packages/plugin-api"; if ! node -e 'const p=require("./package.json");try{process.exit(require("zod/package.json").version===p.dependencies.zod&&require("regexpu-core/package.json").version===p.devDependencies["regexpu-core"]?0:1)}catch{process.exit(1)}'; then npm ci --ignore-scripts; fi)
 node "$repository/scripts/build-plugin-api.cjs"
-(cd "$repository/packages/plugin-runtime-deps"; if [ ! -d node_modules/@neteasecloudmusicapienhanced/api ]; then npm ci --ignore-scripts --omit=dev; fi)
+(cd "$repository/packages/plugin-runtime-deps"; if ! node -e 'try{const p=require("./package.json"),l=require("./node_modules/.package-lock.json");process.exit(require("@neteasecloudmusicapienhanced/api/package.json").version===p.dependencies["@neteasecloudmusicapienhanced/api"]&&require("kugoumusicapi/package.json").version==="1.6.3"&&l.packages["node_modules/kugoumusicapi"].resolved===p.dependencies.kugoumusicapi?0:1)}catch{process.exit(1)}'; then npm ci --ignore-scripts --omit=dev; fi)
 node "$repository/scripts/vendor-plugin-dependencies.cjs"
 node "$repository/scripts/runtime-regex-compat.cjs" --check
 node node_modules/vue-tsc/bin/vue-tsc.js --noEmit

@@ -96,14 +96,6 @@ body .library-sidebar {
   }
   .player-page > :not(.lyrics-panel) { grid-column: 1; min-width: 0; }
   .player-page .player-artwork { width: min(100%, clamp(128px, 32dvh, 300px)); margin-bottom: 16px; }
-  .player-page > .lyrics-panel {
-    grid-column: 2;
-    grid-row: 1 / span 12;
-    position: sticky;
-    top: max(16px, env(safe-area-inset-top));
-    min-width: 0;
-    margin-top: 0;
-  }
   .player-page .original-lyrics-scroll { height: clamp(200px, calc(100dvh - 160px - env(safe-area-inset-top) - env(safe-area-inset-bottom)), 720px); }
   /* Wide windows show the artwork with transport on the left and lyrics on
      the right. Compact/split-screen windows keep the saved phone view. */
@@ -120,9 +112,9 @@ body .library-sidebar {
 
 /* Keep the transport above the navigation on small portrait screens at large
    text sizes. At the normal font scale this preserves the original artwork. */
-@media (max-width: 370px) and (max-height: 760px) and (orientation: portrait) {
+@media (max-width: 370px) and (max-height: 820px) and (orientation: portrait) {
   .player-page .player-artwork {
-    width: min(68vw, max(112px, calc(68vw - (var(--ui-font-scale, 1) - 1) * 176px)));
+    width: min(68vw, max(112px, calc(68vw - (var(--ui-font-scale, 1) - 1) * 208px)));
   }
 }
 

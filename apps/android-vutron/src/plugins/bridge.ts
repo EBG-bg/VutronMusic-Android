@@ -7,7 +7,7 @@ export interface MusicPluginBridge {
   manageMusicPlugin(options: { action: 'install' | 'enable' | 'disable' | 'reset' | 'remove' | 'instance' | 'logs' | 'configure' | 'sourceLink' | 'sourcePriorities' | 'setSourcePriorities' | 'sourceCandidates'; id?: string; name?: string; enabled?: boolean; baseUrl?: string; fromPluginId?:string; fromTrack?:PluginPlayback['track']; fromAccountScope?:string; toPluginId?:string; toTrack?:PluginPlayback['track']; toAccountScope?:string; matched?:number; lyric?:string[];comment?:string[];pluginId?:string;accountScope?:string;track?:PluginPlayback['track'];kind?:'lyric'|'comment' }): Promise<{ plugin?: MusicPlugin; plugins?: MusicPlugin[];catalog?:MusicPluginCatalog[]; logs?: string[] | string; candidates?:PluginSourceCandidate[];lyric?:string[];comment?:string[]; [key: string]: unknown }>
   callMusicPlugin(options: { pluginId: string; accountScope?:string;method: string; params: PluginContext }): Promise<PluginResult>
   renderMusicPluginQr?(options: { url: string }): Promise<{ imageData: string }>
-  resolveMusicPluginArtwork?(options: { pluginId: string; uri: string; sourceContext: PluginContext }): Promise<{ uri: string }>
+  resolveMusicPluginArtwork?(options: { pluginId: string; uri: string; sourceContext: PluginContext; size?: number }): Promise<{ uri: string }>
   resolveMusicPluginMedia?(options: { pluginId: string; uri: string; sourceContext: PluginContext }): Promise<{ uri: string }>
   playMusicPlugin?(options: PluginPlayback & {index?: number; position?: number}): Promise<void>
   getMusicPluginPlaylistProgress?(options:{pluginId:string;accountScope?:string;playlistKey:string}):Promise<PluginPlaylistProgress>

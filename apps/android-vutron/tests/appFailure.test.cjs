@@ -30,6 +30,18 @@ test('error explanations and recovery hints resolve in all three languages', () 
     }
   }
 })
+test('native A/B and enhanced sleep errors have localized explanations and retain their diagnostic source', async()=>{
+  const f=loadMobileI18n()
+  for(const locale of ['zh','zht','en']){
+    f.setAppLocale(locale)
+    for(const message of ['歌曲尚未准备好，暂时无法设置 A/B 循环','歌曲已切换，请重新设置 A/B 循环','A/B 标记超出歌曲范围','请设置 A、B 两个位置，间隔至少0.5秒','请先取消按歌曲结束的睡眠定时，再开启 A/B 循环','请先关闭 A/B 循环，再设置按歌曲结束的睡眠定时','歌曲数量应为1至100首','淡出时间无效']){
+      const result=failure.describeAppFailure(message)
+      assert.equal(result.kind,'playbackFeature');assert.notEqual(f.translate(result.messageKey),result.messageKey);assert.notEqual(f.translate(result.hintKey),result.hintKey)
+      if(locale==='en')assert.doesNotMatch(f.translate(result.messageKey),/[\u3400-\u9fff]/)
+    }
+  }
+  assert.equal(failure.describeAppFailure('Unfamiliar decoder failure 123').kind,'unknown','Unknown diagnostics still use the existing details path')
+})
 
 test('actual error notice keeps original diagnostics as escaped details and offers only available recovery', async () => {
   const filename = path.resolve(__dirname, '../src/components/AppErrorNotice.vue')

@@ -74,7 +74,10 @@ function fixture({ nativeMode = false, preference = false, sessionProfile, conne
     search: method('search', () => { throw new Error('Unexpected online search') }),
     getEntityTracks: method('getEntityTracks', () => { throw new Error('Unexpected online entity') })
   }
-  for (const name of ['getSleepTimer','setSleepTimer','clearSleepTimer']) if (handlers[name]) native[name] = method(name,handlers[name])
+  for (const name of ['getSleepTimer', 'setSleepTimer', 'clearSleepTimer',
+    'setTrackVolume', 'setPlaylistVolume', 'setLyricOffset', 'setCacheCapacity']) {
+    if (handlers[name]) native[name] = method(name, handlers[name])
+  }
   const modules = new Map()
   const globals = {
     Error, Date, console, setTimeout, clearTimeout,
@@ -183,6 +186,57 @@ test('an open queue only fetches its full contents when queue state changes or a
   await f.store.play(localTrack, 'local:folder', [localTrack])
   assert.equal(f.count('getPlaybackQueue'), previous + 1)
   f.dispose()
+})
+
+test('progress polls preserve equal track branches while publishing live state and changed metadata', async () => {
+  const state = { trackId: 901, playing: false, position: 1000, duration: 180000, error: '',
+    track: { id: 901, name: 'Track', artists: ['Artist'], album: 'Album', pluginId: 'fixture', pluginAccountScope: 'a', pluginTrackId: 'song',
+      picUrl: 'https://fixture.invalid/a.jpg', pluginSourceContext: { id: 'song', nested: { hash: 'old' } }, cached: true } }
+  const f=fixture({handlers:{getPlaybackState:()=>JSON.parse(JSON.stringify(state))}})
+  try {
+    await f.store.refreshPlaybackState()
+    const initial=f.store.playback,track=initial.track,artists=track.artists,context=track.pluginSourceContext
+    state.position=3000;state.playing=true;state.rate=1.5;state.quality='FLAC'
+    await f.store.refreshPlaybackState()
+    assert.notEqual(f.store.playback,initial)
+    assert.equal(f.store.playback.track,track)
+    assert.equal(f.store.playback.position,3000);assert.equal(f.store.playback.playing,true);assert.equal(f.store.playback.rate,1.5);assert.equal(f.store.playback.quality,'FLAC')
+    const paused=f.store.playback
+    await f.store.refreshPlaybackState();assert.equal(f.store.playback,paused,'A completely equal snapshot does not publish a replacement')
+    state.track.name='Retagged';state.track.album='New album';state.track.cached=false
+    await f.store.refreshPlaybackState()
+    assert.equal(f.store.playback.track.name,'Retagged');assert.equal(f.store.playback.track.album,'New album');assert.equal(f.store.playback.track.cached,false)
+    assert.equal(f.store.playback.track.artists,artists);assert.equal(f.store.playback.track.pluginSourceContext,context)
+    state.track.pluginSourceContext.nested.hash='new'
+    await f.store.refreshPlaybackState()
+    assert.notEqual(f.store.playback.track.pluginSourceContext,context)
+    assert.equal(f.store.playback.track.pluginSourceContext.nested.hash,'new')
+    const previousContext=f.store.playback.track.pluginSourceContext
+    state.track.pluginAccountScope='b'
+    await f.store.refreshPlaybackState();assert.notEqual(f.store.playback.track.pluginSourceContext,previousContext,'Accounts do not share an authenticated context identity')
+    delete state.track.picUrl;delete state.track.cached
+    await f.store.refreshPlaybackState();assert.equal('picUrl' in f.store.playback.track,false);assert.equal('cached' in f.store.playback.track,false)
+    state.trackId=0;delete state.track
+    await f.store.refreshPlaybackState();assert.equal(f.store.playback.track,undefined)
+  } finally {f.dispose()}
+})
+
+test('sleep timer native reads are limited to visible settings and calibrate on entry', async () => {
+  const deadline=Date.now()+120000
+  const f=fixture({handlers:{getSleepTimer:()=>({remainingMs:deadline-Date.now(),deadlineMs:deadline})}})
+  try {
+    await f.store.restore()
+    for(let sample=0;sample<8;sample++)await f.store.refreshPlaybackState()
+    assert.equal(f.count('getSleepTimer'),0)
+    f.store.navigateTo('settings');await vue.nextTick();await new Promise(resolve=>setImmediate(resolve))
+    assert.equal(f.count('getSleepTimer'),1)
+    assert.ok(f.store.sleepTimerRemainingMs>110000)
+    f.store.navigateTo('player');await vue.nextTick()
+    await f.store.refreshPlaybackState();assert.equal(f.count('getSleepTimer'),1)
+    f.store.navigateTo('settings');await vue.nextTick();await new Promise(resolve=>setImmediate(resolve))
+    assert.equal(f.count('getSleepTimer'),2)
+    assert.ok(f.store.sleepTimerRemainingMs>110000)
+  }finally{f.dispose()}
 })
 
 test('paged offline playback receives all sorted matches instead of only the first rendered batch', async () => {
@@ -557,6 +611,7 @@ test('sleep timer ignores a stale poll, saves exact seconds and stops its foregr
     clearSleepTimer:async()=>({remainingMs:0})
   }})
   await f.store.restore();assert.equal(f.timers.size,0)
+  f.store.activeTab='settings'
   pending=deferred();const poll=f.store.refreshPlaybackState();await new Promise(resolve=>setImmediate(resolve))
   await f.store.setSleepTimerSeconds(75)
   assert.equal(f.argsFor('setSleepTimer')[0].durationMs,75000)
@@ -586,4 +641,110 @@ test('local capabilities block online navigation and actions while local navigat
   assert.equal(f.store.navigateBack(), true)
   assert.equal(f.store.activeTab, 'library')
   f.dispose()
+})
+
+test('shell domains retain track and playlist volume drafts until native playback acknowledges them', async () => {
+  const state = { trackId: 51, track: { ...localTrack, playlistVolumeKey: 'local:folder' },
+    playing: false, position: 0, duration: 1000, error: '', trackVolumePercent: 100, playlistVolumePercent: 100 }
+  const f = fixture({ handlers: {
+    getPlaybackState: () => ({ ...state, track: { ...state.track } }),
+    setTrackVolume: () => ({}), setPlaylistVolume: () => ({}),
+  } })
+  try {
+    f.store.playback = { ...state }
+    await Promise.all([f.store.setCurrentTrackVolume(35), f.store.setCurrentPlaylistVolume(60)])
+    await f.store.refreshPlaybackState()
+    assert.equal(f.store.playback.trackVolumePercent, 35, 'A saved slider cannot jump to an older native snapshot')
+    assert.equal(f.store.playback.playlistVolumePercent, 60)
+    state.trackVolumePercent = 35; state.playlistVolumePercent = 60
+    await f.store.refreshPlaybackState()
+    state.trackVolumePercent = 70; state.playlistVolumePercent = 80
+    await f.store.refreshPlaybackState()
+    assert.equal(f.store.playback.trackVolumePercent, 70, 'An acknowledged draft stops blocking subsequent native changes')
+    assert.equal(f.store.playback.playlistVolumePercent, 80)
+    assert.equal(f.argsFor('setTrackVolume')[0].track.localUri, localTrack.localUri)
+    assert.equal(f.argsFor('setPlaylistVolume')[0].playlistKey, 'local:folder')
+  } finally { f.dispose() }
+})
+
+test('a playback read remembers writers pending at its start even if they finish before the response', async () => {
+  const state = { trackId: 51, track: { ...localTrack }, playing: false,
+    position: 0, duration: 1000, error: '', trackVolumePercent: 100 }
+  let pending
+  const f = fixture({ handlers: {
+    getPlaybackState: () => pending ? pending.promise : { ...state, track: { ...state.track } },
+    setTrackVolume: () => ({}),
+  } })
+  try {
+    f.store.playback = { ...state }
+    const write = f.store.setCurrentTrackVolume(45)
+    pending = deferred()
+    const read = f.store.refreshPlaybackState()
+    await write
+    pending.resolve({ ...state, trackVolumePercent: 45 }); await read
+    pending = undefined
+    await f.store.refreshPlaybackState()
+    assert.equal(f.store.playback.trackVolumePercent, 45, 'The earlier in-flight read cannot retire the writer draft')
+    state.trackVolumePercent = 45; await f.store.refreshPlaybackState()
+    state.trackVolumePercent = 90; await f.store.refreshPlaybackState()
+    assert.equal(f.store.playback.trackVolumePercent, 90)
+  } finally { f.dispose() }
+})
+
+test('an old playback read cannot undo an acknowledged A/B edit and native disable remains authoritative', async () => {
+  const state={trackId:51,track:{...localTrack},playing:false,position:100,duration:10000,error:'',abLoopEnabled:false}
+  let pending
+  const f=fixture({handlers:{getPlaybackState:()=>pending?pending.promise:{...state}}})
+  try{
+    f.store.playback={...state};pending=deferred();const read=f.store.refreshPlaybackState()
+    f.store.applyAbLoopState({trackKey:'local:51',trackId:51,startMs:500,endMs:1500,enabled:true,minSpanMs:500,durationMs:10000,positionMs:550})
+    pending.resolve({...state});await read;pending=undefined
+    assert.equal(f.store.abLoopEnabled,true);assert.equal(f.store.playback.abLoop.enabled,true);assert.equal(f.store.playback.position,550)
+    delete state.abLoopEnabled;await f.store.refreshPlaybackState()
+    assert.equal(f.store.abLoopEnabled,true);assert.equal(f.store.playback.abLoop.startMs,500,'An older bridge without the field does not clear a confirmed loop')
+    state.abLoopEnabled=false;await f.store.refreshPlaybackState()
+    assert.equal(f.store.abLoopEnabled,false);assert.equal(f.store.playback.abLoop,undefined)
+    f.store.applyAbLoopState({trackKey:'other',trackId:999,startMs:0,endMs:1000,enabled:true,minSpanMs:500,durationMs:10000})
+    assert.equal(f.store.abLoopEnabled,false,'A delayed acknowledgement cannot attach a different recording')
+  }finally{f.dispose()}
+})
+
+test('source navigation invalidates a pending native search and restores the previous native page on back', async () => {
+  const pending = deferred()
+  const f = fixture({ sessionProfile: account, handlers: { search: () => pending.promise } })
+  try {
+    await f.store.restore()
+    f.store.navigateTo('search')
+    const read = f.store.runSearch('tracks', 'old source')
+    assert.equal(f.store.searchLoading, true)
+    f.store.selectMusicSource('fixture:second')
+    assert.equal(f.store.activeMusicSourceId, 'fixture:second')
+    assert.equal(f.store.searchLoading, false)
+    pending.resolve({ items: [{ id: 99, name: 'Late native result' }], count: 1, nextPage: 0 })
+    await read
+    assert.equal(f.store.searchResults.length, 0)
+    assert.equal(f.store.navigateBack(), true)
+    assert.equal(f.store.activeMusicSourceId, '')
+    assert.equal(f.store.activeTab, 'search')
+  } finally { f.dispose() }
+})
+
+test('a cache capacity edit keeps its value when a previous cache read finishes late', async () => {
+  const pending = deferred()
+  let hold = false
+  const f = fixture({ handlers: {
+    getCacheStatus: () => hold ? pending.promise : { capacityMb: 512, usedBytes: 1024, trackCount: 1, enabled: true },
+    setCacheCapacity: ({ capacityMb }) => ({ capacityMb, usedBytes: 1024, trackCount: 1, enabled: true }),
+  } })
+  try {
+    await f.store.loadCacheStatus()
+    hold = true
+    const read = f.store.loadCacheStatus()
+    f.store.cacheCapacityMb = 4096
+    await f.store.setCacheCapacity()
+    pending.resolve({ capacityMb: 512, usedBytes: 1024, trackCount: 1, enabled: true })
+    await read
+    assert.equal(f.store.cacheCapacityMb, 4096)
+    assert.equal(f.store.cacheStatus.capacityMb, 4096)
+  } finally { f.dispose() }
 })

@@ -1,13 +1,13 @@
 const test = require('node:test'), assert = require('node:assert/strict')
 const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm'), ts = require('typescript'), vue = require('vue')
 function load(name, storage = new Map()) {
-  const file = path.resolve(__dirname, '../src', name), module = { exports: {} }, listeners = new Map(), styles = new Map()
+  const file = path.resolve(__dirname, '../src', name), module = { exports: {} }, listeners = new Map(), styles = new Map(), writes = []
   const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
   vm.runInNewContext(code, { module, exports: module.exports, require: () => vue, Intl, Date,
-    localStorage: { getItem: k => storage.get(k) ?? null, setItem: (k,v) => storage.set(k,v) },
+    localStorage: { getItem: k => storage.get(k) ?? null, setItem: (k,v) => { writes.push([k,v]); storage.set(k,v) } },
     document: { documentElement: { style: { setProperty: (k,v) => styles.set(k,v) } } },
     window: { addEventListener: (k,v) => listeners.set(k,v) } }, { filename: file })
-  return { api: module.exports, listeners, storage, styles }
+  return { api: module.exports, listeners, storage, styles, writes }
 }
 test('sleep timer uses one native deadline and advances between IPC samples', () => {
   const { api } = load('utils/sleepTimer.ts')
@@ -49,6 +49,17 @@ test('interface settings restore immediately, clamp font size, and retain separa
   const recreated=load('platform/interfacePreferences.ts',fixture.storage)
   assert.equal(recreated.api.fontScale.value,125);assert.equal(recreated.api.timerPreset.value,75)
 })
+test('sleep mode, completion count and fade preferences survive restart and backup restore without activating a timer', async () => {
+  const fixture=load('platform/interfacePreferences.ts'),{api}=fixture
+  api.sleepMode.value='count';api.sleepTrackCount.value=7;api.sleepFadeSeconds.value=15
+  assert.equal(fixture.storage.get('vutron:sleep-mode'),'count');assert.equal(fixture.storage.get('vutron:sleep-track-count'),'7');assert.equal(fixture.storage.get('vutron:sleep-fade-seconds'),'15')
+  const recreated=load('platform/interfacePreferences.ts',fixture.storage)
+  assert.equal(recreated.api.sleepMode.value,'count');assert.equal(recreated.api.sleepTrackCount.value,7);assert.equal(recreated.api.sleepFadeSeconds.value,15)
+  fixture.storage.set('vutron:sleep-mode','track');fixture.storage.set('vutron:sleep-track-count','999');fixture.storage.set('vutron:sleep-fade-seconds','7')
+  fixture.listeners.get('vutron-backup-restored')();await vue.nextTick()
+  assert.equal(api.sleepMode.value,'track');assert.equal(api.sleepTrackCount.value,100);assert.equal(api.sleepFadeSeconds.value,0)
+  assert.equal([...fixture.storage.keys()].some(key=>key.includes('deadline')||key.includes('cookie')),false)
+})
 test('playlist name, creation and recent sorting are stable and do not mutate source', () => {
   const { api }=load('composables/playlistOrdering.ts')
   const items=[{key:'a',name:'Beta',createTime:10},{key:'b',name:'Alpha',createTime:30},{key:'c',name:'Alpha',createTime:30},{key:'d',name:'Unknown'}]
@@ -78,4 +89,25 @@ test('playlist backup rejects paths, malformed scopes, invalid sort and unsafe r
   const safe=api.sanitizePlaylistOrders({'netease:1':{mode:'custom',keys:['1:1','1:1','C:/private/music'],recent:{'1:1':42,'1:2':-1,'1:3':'secret'}},'cookie':{mode:'recent'},'netease:2':{mode:'arbitrary'}})
   assert.deepEqual(Object.keys(safe),['netease:1']);assert.deepEqual(Array.from(safe['netease:1'].keys),['1:1'])
   assert.deepEqual(Object.keys(safe['netease:1'].recent),['1:1'])
+})
+
+test('unchanged playlist sort, custom sequence and identical playback timestamp skip persistence', () => {
+  const fixture = load('composables/playlistOrdering.ts'), scope = vue.effectScope(), owner = vue.ref('netease:1')
+  const state = scope.run(() => fixture.api.usePlaylistOrder(vue.ref([{ key: '1:1', name: 'One' }]), owner))
+  state.mode.value = 'original'; state.restore(); assert.equal(fixture.writes.length, 0)
+  state.commit(['1:1']); const afterCustom = fixture.writes.length
+  state.commit(['1:1']); state.mode.value = 'custom'; assert.equal(fixture.writes.length, afterCustom)
+  fixture.api.recordPlaylistPlayback('netease:1', '1:1', 1000); const afterPlay = fixture.writes.length
+  fixture.api.recordPlaylistPlayback('netease:1', '1:1', 1000); assert.equal(fixture.writes.length, afterPlay)
+  scope.stop()
+})
+
+test('existing interface preferences are applied without being rewritten during startup or restore', async () => {
+  const storage = new Map([['vutron:font-scale', '125'], ['vutron:timer-preset', '75'], ['vutron:sleep-mode', 'count'], ['vutron:sleep-track-count', '7'], ['vutron:sleep-fade-seconds', '15']])
+  const fixture = load('platform/interfacePreferences.ts', storage)
+  assert.equal(fixture.styles.get('--ui-font-scale'), '1.25'); assert.equal(fixture.writes.length, 0)
+  fixture.listeners.get('vutron-backup-restored')(); await vue.nextTick(); assert.equal(fixture.writes.length, 0)
+  fixture.storage.set('vutron:font-scale', '140'); fixture.storage.set('vutron:timer-preset', '90')
+  fixture.listeners.get('vutron-backup-restored')(); await vue.nextTick()
+  assert.equal(fixture.api.fontScale.value, 140); assert.equal(fixture.api.timerPreset.value, 90); assert.equal(fixture.writes.length, 0)
 })

@@ -24,7 +24,15 @@ export function useLocalTrackOrder() {
 export function useSortedTracks<T extends VutronTrack>(source: ComputedRef<T[]>, order: Ref<LocalTrackOrder>) {
   return computed(() => {
     if (order.value === 'original') return source.value
-    const field = (track: T) => order.value === 'artist' ? track.artists?.join(' / ') ?? '' : order.value === 'album' ? track.album ?? '' : track.name
+    const artistKeys = order.value === 'artist' ? new Map<T, string>() : undefined
+    const field = (track: T) => {
+      if (artistKeys) {
+        let value = artistKeys.get(track)
+        if (value === undefined) { value = track.artists?.join(' / ') ?? ''; artistKeys.set(track, value) }
+        return value
+      }
+      return order.value === 'album' ? track.album ?? '' : track.name
+    }
     return [...source.value].sort((a, b) => {
       const left = field(a), right = field(b)
       return left && right ? trackCollator.compare(left, right) || trackCollator.compare(a.name, b.name) : left ? -1 : right ? 1 : 0
@@ -50,11 +58,19 @@ export function useTrackSearch<T extends VutronTrack>(tracks: ComputedRef<T[]>, 
   return computed(() => query.value ? index.value.filter(item => item.text.includes(query.value)).map(item => item.track) : tracks.value)
 }
 
-export function useProgressiveTracks<T>(source: ComputedRef<T[]>, reset: WatchSource<unknown> | WatchSource<unknown>[]) {
-  const limit = ref(TRACK_PAGE_SIZE)
+const progressivePages = new Map<string, number>()
+export function useProgressiveTracks<T>(source: ComputedRef<T[]>, reset: WatchSource<unknown> | WatchSource<unknown>[], pageKey?: Ref<string>) {
+  const limit = ref(pageKey ? progressivePages.get(pageKey.value) || TRACK_PAGE_SIZE : TRACK_PAGE_SIZE)
   const visible = computed(() => source.value.slice(0, limit.value))
   const hasMore = computed(() => limit.value < source.value.length)
   const showMore = () => { limit.value += TRACK_PAGE_SIZE }
-  watch(reset, () => { limit.value = TRACK_PAGE_SIZE })
+  function remember(key: string) {
+    progressivePages.delete(key); progressivePages.set(key, limit.value)
+    while (progressivePages.size > 24) progressivePages.delete(progressivePages.keys().next().value!)
+  }
+  if (pageKey) {
+    watch(pageKey, (key, previous) => { remember(previous); limit.value = progressivePages.get(key) || TRACK_PAGE_SIZE }, { flush: 'sync' })
+    onBeforeUnmount(() => remember(pageKey.value))
+  } else watch(reset, () => { limit.value = TRACK_PAGE_SIZE })
   return { visible, hasMore, showMore }
 }

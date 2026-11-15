@@ -1,10 +1,15 @@
 import type { LyricLine, LyricWord } from '@vutronmusic/core/lyrics'
 
-export interface LyricPlaybackAnchor { position: number; monotonicTime: number; playing: boolean; rate?: number }
+export interface LyricPlaybackAnchor { position: number; monotonicTime: number; playing: boolean; rate?: number; loop?: { enabled: boolean; startMs: number; endMs: number } }
 
 export function interpolatedPosition(anchor: LyricPlaybackAnchor, now: number, duration = 0): number {
   const elapsed = anchor.playing ? Math.max(0, now - anchor.monotonicTime) * (anchor.rate ?? 1) : 0
   const position = Math.max(0, anchor.position + elapsed)
+  const loop = anchor.loop
+  if (anchor.playing && loop?.enabled && loop.startMs >= 0 && loop.endMs - loop.startMs >= 500
+    && anchor.position >= loop.startMs && position >= loop.endMs && (!duration || loop.endMs <= duration)) {
+    return loop.startMs + (position - loop.startMs) % (loop.endMs - loop.startMs)
+  }
   return duration > 0 ? Math.min(duration, position) : position
 }
 
@@ -60,11 +65,22 @@ export function estimatedLyricWords(line: LyricLine, end: number): LyricWord[] {
   if (line.words.length) return line.words
   const units = lyricGraphemes(line.text)
   if (!units.length) return []
-  const duration = Math.max(1, end - line.start)
-  return units.map((text, index) => ({
-    text, start: line.start + Math.floor(duration * index / units.length),
-    end: line.start + Math.floor(duration * (index + 1) / units.length)
-  }))
+  const weights = units.map(text => /[\p{L}\p{N}\p{S}]/u.test(text) ? 1 : 0)
+  const count = weights.reduce<number>((total, weight) => total + weight, 0)
+  const duration = estimatedSingingDuration(end - line.start, count)
+  let elapsed = 0
+  return units.map((text, index) => {
+    const start = line.start + Math.floor(duration * elapsed / Math.max(1, count))
+    elapsed += weights[index]
+    return { text, start, end: line.start + Math.floor(duration * elapsed / Math.max(1, count)) }
+  })
+}
+
+/** Plain LRC cannot locate actual vocal pauses; do not stretch a short line across an obvious interlude/outro. */
+export function estimatedSingingDuration(available: number, vocalUnits: number): number {
+  const duration = available > 0 ? available : 3000
+  return duration > Math.max(6000, vocalUnits * 700)
+    ? Math.min(duration, Math.min(10000, Math.max(1800, vocalUnits * 420))) : duration
 }
 
 export function lyricDisplayEnd(lines: LyricLine[], index: number, duration = 0): number {
@@ -85,9 +101,13 @@ export function lyricDisplayLines(lines: LyricLine[], estimate: boolean, duratio
   })
 }
 
-export function lyricSeekPosition(line: LyricLine, offsetMs: number, duration = 0): number {
+export function lyricSeekPosition(line: LyricLine, offsetMs: number, duration = 0, loop?: LyricPlaybackAnchor['loop']): number {
   const target = Math.max(0, line.start + offsetMs)
-  return duration > 0 ? Math.min(duration, target) : target
+  const bounded = duration > 0 ? Math.min(duration, target) : target
+  if (loop?.enabled && loop.startMs >= 0 && loop.endMs - loop.startMs >= 500 && (!duration || loop.endMs <= duration)) {
+    return Math.max(loop.startMs, Math.min(loop.endMs - 1, bounded))
+  }
+  return bounded
 }
 
 /** Remaining scroll distance after a nested container consumes its available range. */

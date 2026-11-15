@@ -205,21 +205,44 @@ final class LocalPlaylistStore {
         if (!directory.isDirectory()) throw new IOException("本地歌单不存在");
         return directory;
     }
+    static boolean matchesRemovedTrack(File directory, JSONObject row, JSONObject track) {
+        if (row.optBoolean("onlineOnly") && row.optString("fileName", row.optString("file")).isEmpty())
+            return row.optString("entryKey", "netease:" + row.optLong("neteaseId")).equals(track.optString("localEntryKey"));
+        try { return ("file://" + resolveEntry(directory, row.optString("fileName", row.optString("file"))).toURI().getRawPath()).equals(LocalLibraryIds.uri(track)); }
+        catch (Exception invalid) { return false; }
+    }
+    static String removalIdentity(JSONObject row) {
+        String relative = row.optString("fileName", row.optString("file"));
+        return !relative.isEmpty() ? "file:" + relative : "entry:" + row.optString("entryKey", "netease:" + row.optLong("neteaseId"));
+    }
+    static void restoreRemoved(File root, String playlistId, JSONArray removed) throws Exception {
+        File directory = directory(root, playlistId); JSONObject data = load(directory);
+        JSONArray current = data.getJSONArray("tracks");
+        JSONArray restored = LocalRemovalRows.restore(current, removed, LocalPlaylistStore::removalIdentity);
+        if (current.toString().equals(restored.toString())) return;
+        data.put("tracks", restored); data.remove("localTracks"); data.remove("bundleDir"); data.remove("id"); data.remove("trackCount");
+        LibraryFiles.writeJson(new File(directory, "manifest.json"), data);
+    }
     static void removeTrack(File root, String playlistId, JSONObject track) throws Exception {
+        removeTracks(root, playlistId, java.util.Collections.singletonList(track));
+    }
+    static void removeTracks(File root, String playlistId, java.util.List<JSONObject> tracks) throws Exception {
         File directory = directory(root, playlistId);
         JSONObject data = load(directory);
         JSONArray original = data.getJSONArray("tracks"), kept = new JSONArray();
+        java.util.Set<String> uris = new java.util.HashSet<>(), entries = new java.util.HashSet<>();
+        for (JSONObject track : tracks) { String uri = LocalLibraryIds.uri(track); if (!uri.isEmpty()) uris.add(uri); else entries.add(track.optString("localEntryKey")); }
         boolean found = false;
         for (int i = 0; i < original.length(); i++) {
             JSONObject row = original.getJSONObject(i);
             if (row.optBoolean("onlineOnly") && row.optString("fileName", row.optString("file")).isEmpty()) {
-                if (row.optString("entryKey", "netease:" + row.optLong("neteaseId")).equals(track.optString("localEntryKey"))) found = true;
+                if (entries.contains(row.optString("entryKey", "netease:" + row.optLong("neteaseId")))) found = true;
                 else kept.put(row);
                 continue;
             }
             File audio = resolveEntry(directory, row.optString("fileName", row.optString("file")));
             String uri = "file://" + audio.toURI().getRawPath();
-            if (uri.equals(LocalLibraryIds.uri(track))) found = true;
+            if (uris.contains(uri)) found = true;
             else kept.put(row);
         }
         if (!found) throw new IOException("歌单中未找到该本地曲目");

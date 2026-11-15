@@ -41,6 +41,6 @@ watch([appearance, accent, resolvedAppearance], () => {
   root.style.colorScheme = resolvedAppearance.value
   root.style.setProperty('--color-primary', accent.value)
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', resolvedAppearance.value === 'dark' ? '#222222' : '#ffffff')
-  localStorage.setItem('vutron:appearance', appearance.value)
-  localStorage.setItem('vutron:accent', accent.value)
+  if (localStorage.getItem('vutron:appearance') !== appearance.value) localStorage.setItem('vutron:appearance', appearance.value)
+  if (localStorage.getItem('vutron:accent') !== accent.value) localStorage.setItem('vutron:accent', accent.value)
 }, { immediate: true })

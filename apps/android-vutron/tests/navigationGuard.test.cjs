@@ -33,3 +33,25 @@ test('repeat requests share one question and do not race a pending save',async()
 test('an unmounted draft cannot resume an outdated destination',async()=>{
  const f=fixture();f.state.dirty=true;let navigated=0;f.guard.run(()=>navigated++);const pending=f.guard.pending.value;f.release();f.choose('confirm');await pending;assert.equal(navigated,0);assert.equal(f.state.saves,0)
 })
+
+test('playlist order syncs once on departure without asking when the write succeeds',async()=>{
+ const f=fixture();f.draft.saveOnLeave=true;f.state.dirty=true;let navigated=0
+ f.guard.run(()=>navigated++);const pending=f.guard.pending.value;f.guard.run(()=>navigated++)
+ await pending;assert.equal(navigated,1);assert.equal(f.state.saves,1);assert.equal(f.questions.length,0)
+ f.guard.run(()=>navigated++);assert.equal(navigated,2);assert.equal(f.state.saves,1)
+})
+
+test('automatic sync failure retains the draft and only then offers retry, keep-local or continue',async()=>{
+ const f=fixture();f.draft.saveOnLeave=true;f.state.dirty=true;f.state.saveResult=false;let navigated=0
+ f.guard.run(()=>navigated++);const pending=f.guard.pending.value
+ await new Promise(resolve=>setImmediate(resolve));assert.equal(f.state.saves,1);assert.equal(f.questions.length,1);assert.equal(navigated,0)
+ f.choose('cancel');await pending;assert.equal(f.state.dirty,true);assert.equal(f.state.resumes,1)
+ f.guard.run(()=>navigated++);const second=f.guard.pending.value;await new Promise(resolve=>setImmediate(resolve));f.choose('secondary');await second
+ assert.equal(navigated,1);assert.equal(f.state.discards,1)
+})
+
+test('an account/page disposed during automatic sync cannot continue an old navigation',async()=>{
+ const f=fixture();f.draft.saveOnLeave=true;f.state.dirty=true;let finish,navigated=0
+ f.draft.save=()=>new Promise(resolve=>finish=resolve);f.guard.run(()=>navigated++);const pending=f.guard.pending.value;f.release();finish(true);await pending
+ assert.equal(navigated,0);assert.equal(f.questions.length,0)
+})

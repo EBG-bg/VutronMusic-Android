@@ -13,14 +13,11 @@ import java.util.function.Predicate;
 final class LocalLibraryManager {
     private LocalLibraryManager() { }
     static JSObject manage(Context context, LibraryTaskRunner tasks, String action, JSONObject supplied, String collectionId, boolean stopConfirmed) throws Exception {
-        if ("restoreRemoved".equals(action)) { LocalTrackStore.restoreExcluded(context); return new JSObject().put("changed", true); }
+        if ("restoreRemoved".equals(action)) return new JSObject().put("changed", LocalRemovalStore.restoreAllIndex(context));
+        if ("removeTrack".equals(action)) return LocalRemovalStore.remove(context, tasks, new JSONArray().put(supplied), stopConfirmed);
         File root = new File(context.getFilesDir(), "local-bundles");
         Predicate<JSONObject> removed;
-        JSONObject target = null;
-        if ("removeTrack".equals(action)) {
-            target = findTrack(context, root, supplied);
-            JSONObject captured = target; removed = row -> LocalLibraryIds.same(captured, row);
-        } else if ("deletePlaylist".equals(action)) {
+        if ("deletePlaylist".equals(action)) {
             if (collectionId.startsWith("restored:")) LibraryBackup.collection(context, collectionId);
             else LocalPlaylistStore.directory(root, collectionId);
             removed = row -> LocalLibraryIds.inCollection(row, collectionId);
@@ -33,29 +30,34 @@ final class LocalLibraryManager {
         tasks.cancel();
         if (!AndroidPlaybackService.prepareLibraryRemoval(context, removed, stopConfirmed, "deletePlaylist".equals(action)).get(10, TimeUnit.SECONDS))
             return new JSObject().put("changed", false).put("requiresStop", true);
-        if ("removeTrack".equals(action)) {
-            if (target.optString("localPlaylistId").startsWith("restored:")) LibraryBackup.remove(context, target.optString("localPlaylistId"), target.getString("localEntryKey"));
-            else if (target.optString("localPlaylistId").startsWith("bundle:")) LocalPlaylistStore.removeTrack(root, target.optString("localPlaylistId"), target);
-            else LocalTrackStore.exclude(context, target);
-        } else if ("deletePlaylist".equals(action)) {
+        if ("deletePlaylist".equals(action)) {
             LocalTrackStore.removeMatching(context, removed);
             if (collectionId.startsWith("restored:")) LibraryBackup.remove(context, collectionId, null);
             else LocalPlaylistStore.delete(root, collectionId);
         } else LocalFolderStore.removeTree(context, collectionId);
         return new JSObject().put("changed", true);
     }
-    static JSONObject findTrack(Context context, File root, JSONObject supplied) throws Exception {
-        if (supplied == null || (LocalLibraryIds.uri(supplied).isEmpty() && supplied.optString("localEntryKey").isEmpty())) throw new IOException("只能移除已导入的本地曲目");
-        String bundle = supplied.optString("localPlaylistId", supplied.optString("playlistVolumeKey"));
-        JSONArray rows;
-        if (bundle.startsWith("restored:")) rows = LibraryBackup.tracks(context, bundle);
-        else if (bundle.startsWith("bundle:")) rows = LocalPlaylistStore.load(LocalPlaylistStore.directory(root, bundle)).getJSONArray("localTracks");
-        else {
-            rows = LocalTrackStore.loadFolderIndex(context);
-            JSONArray selected = LocalTrackStore.load(context);
-            for (int i = 0; i < selected.length(); i++) rows.put(selected.optJSONObject(i));
+    static JSONArray findTracks(Context context, File root, JSONArray supplied) throws Exception {
+        java.util.Map<String, java.util.Map<String, JSONObject>> sources = new java.util.HashMap<>(); JSONArray result = new JSONArray();
+        for (int i = 0; i < supplied.length(); i++) {
+            JSONObject track = supplied.getJSONObject(i);
+            if (LocalLibraryIds.uri(track).isEmpty() && track.optString("localEntryKey").isEmpty()) throw new IOException("只能移除已导入的本地曲目");
+            String collection = track.optString("localPlaylistId");
+            String source = collection.startsWith("bundle:") || collection.startsWith("restored:") ? collection : "index";
+            java.util.Map<String, JSONObject> indexed = sources.get(source);
+            if (indexed == null) {
+                JSONArray rows;
+                if (source.startsWith("bundle:")) rows = LocalPlaylistStore.load(LocalPlaylistStore.directory(root, source)).getJSONArray("localTracks");
+                else if (source.startsWith("restored:")) rows = LibraryBackup.tracks(context, source);
+                else { rows = LocalTrackStore.loadFolderIndex(context); JSONArray selected = LocalTrackStore.load(context); for (int j = 0; j < selected.length(); j++) rows.put(selected.getJSONObject(j)); }
+                indexed = new java.util.HashMap<>();
+                for (int j = 0; j < rows.length(); j++) { JSONObject row = rows.getJSONObject(j); indexed.put(LocalLibraryIds.key(row), row); }
+                sources.put(source, indexed);
+            }
+            JSONObject target = indexed.get(LocalLibraryIds.key(track));
+            if (target == null) throw new IOException("曲目已移除或不属于本地音乐库");
+            result.put(target);
         }
-        for (int i = 0; i < rows.length(); i++) { JSONObject row = rows.optJSONObject(i); if (row != null && LocalLibraryIds.same(supplied, row)) return row; }
-        throw new IOException("曲目已移除或不属于本地音乐库");
+        return result;
     }
 }

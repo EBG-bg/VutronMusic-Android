@@ -21,9 +21,9 @@ const drag=ref<Drag>(),settling=ref<Preview>()
 const preview=computed<Preview|undefined>(()=>drag.value?{source:drag.value.source,kind:drag.value.kind,x:drag.value.x-drag.value.grabX,y:drag.value.y-drag.value.grabY,width:drag.value.width}:settling.value)
 let frame=0,generation=0,settleRevision=0,suppressClickUntil=0,capture:HTMLElement|undefined,releaseAnimation:Animation|undefined,saving:Promise<boolean>|undefined
 const copy=(value:PluginSourcePriorities):PluginSourcePriorities=>({lyric:[...value.lyric],comment:[...value.comment]})
-function entries(kind:Kind):Source[] {
+function entries(kind:Kind,priorities:PluginSourcePriorities=draft.value):Source[] {
   const eligible=[{id:'self',name:t('mobile.plugins.ownSource'),enabled:true},...sources.value.filter(source=>kind==='lyric'?hasPluginMethod({...source,enabled:true},'getLyric')&&source.capabilities?.getLyric!==false:allowsPluginComments({...source,enabled:true},'track'))]
-  return eligible.slice().sort((a,b)=>{const ai=draft.value[kind].indexOf(a.id),bi=draft.value[kind].indexOf(b.id);return (ai<0?Number.MAX_SAFE_INTEGER:ai)-(bi<0?Number.MAX_SAFE_INTEGER:bi)})
+  return eligible.slice().sort((a,b)=>{const ai=priorities[kind].indexOf(a.id),bi=priorities[kind].indexOf(b.id);return (ai<0?Number.MAX_SAFE_INTEGER:ai)-(bi<0?Number.MAX_SAFE_INTEGER:bi)})
 }
 function display(kind:Kind):Source[]{
   const list=entries(kind),state=drag.value
@@ -31,7 +31,7 @@ function display(kind:Kind):Source[]{
   const byId=new Map(list.map(row=>[row.id,row]))
   return moveTrackKey(state.base,state.id,state.anchor,state.after).flatMap(id=>byId.has(id)?[byId.get(id)!]:[])
 }
-const dirty=computed(()=>kinds.some(kind=>JSON.stringify(draft.value[kind])!==JSON.stringify(saved.value[kind])))
+const dirty=computed(()=>kinds.some(kind=>JSON.stringify(entries(kind).map(row=>row.id))!==JSON.stringify(entries(kind,saved.value).map(row=>row.id))))
 async function load(){
   const token=++generation;loading.value=true;error.value=''
   try{

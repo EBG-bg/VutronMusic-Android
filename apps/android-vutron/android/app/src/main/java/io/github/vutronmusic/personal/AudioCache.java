@@ -245,8 +245,7 @@ public final class AudioCache {
         }
         if (value == null) return null;
         try {
-            if (!value.file.isFile() || value.file.length() != value.bytes
-                    || !value.sha256.equals(hash(value.file, null, Long.MAX_VALUE))) {
+            if (!intact(value)) {
                 throw new IOException("Offline audio integrity changed");
             }
             synchronized (LOCK) {
@@ -314,7 +313,7 @@ public final class AudioCache {
         }
     }
 
-    /** Pure song metadata, newest first; tracks keep their online id for the normal playback queue. */
+    /** Metadata and paths only, newest first. Integrity is checked for the selected track at playback. */
     public static List<JSONObject> list(Context context) {
         synchronized (LOCK) {
             List<JSONObject> songs = new ArrayList<>();
@@ -327,7 +326,9 @@ public final class AudioCache {
                 try {
                     song.put("cached", true).put("offlineOnly", true).put("cacheSource", entry.source)
                             .put("cacheBitrate", entry.bitrate).put("cacheBytes", entry.bytes)
-                            .put("cacheFormat", entry.format).put("cacheLossless", entry.lossless);
+                            .put("cacheFormat", entry.format).put("cacheLossless", entry.lossless)
+                            .put("localPath", entry.file.getAbsolutePath())
+                            .put("localUri", "file://" + entry.file.getAbsolutePath());
                 } catch (JSONException impossible) { throw new IllegalStateException(impossible); }
                 songs.add(song);
             }
@@ -908,7 +909,13 @@ public final class AudioCache {
         if (job != null) PluginMedia.requireOnline(job.context, job.song);
         if (Thread.currentThread().isInterrupted() || job != null && job.cancelled)
             throw new InterruptedIOException("Audio cache cancelled");
-        if (SystemClock.elapsedRealtime() >= deadline) throw new InterruptedIOException("Audio cache timed out");
+        if (deadline != Long.MAX_VALUE && SystemClock.elapsedRealtime() >= deadline)
+            throw new InterruptedIOException("Audio cache timed out");
+    }
+
+    static boolean intact(Entry entry) throws IOException {
+        return entry.file.isFile() && entry.file.length() == entry.bytes
+                && entry.sha256.equals(hash(entry.file, null, Long.MAX_VALUE));
     }
 
     private static String hash(File file, Download job, long deadline) throws IOException {

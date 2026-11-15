@@ -62,7 +62,7 @@ function redact(value) {
     .replace(/[a-zA-Z0-9+/_=-]{48,}/g, '[private]').slice(0, 1000);
 }
 
-function createPluginHost({ root, builtins = path.join(__dirname, 'plugins'), workerFile = path.join(__dirname, 'plugin-worker.cjs'), validateResult, validateMeta, parseLyric, now = Date.now, callTimeoutMs = 25000, loadTimeoutMs = 15000, neteaseApi, fallbackSongUrl } = {}) {
+function createPluginHost({ root, builtins = path.join(__dirname, 'plugins'), workerFile = path.join(__dirname, 'plugin-worker.cjs'), validateResult, validateMeta, parseLyric, now = Date.now, callTimeoutMs = 25000, loadTimeoutMs = 15000, neteaseApi, kugouApi, fallbackSongUrl } = {}) {
   if (!root) throw new Error('Plugin storage directory is required');
   fs.mkdirSync(root, { recursive: true, mode: 0o700 });
   const temporary = path.join(root, 'tmp'); fs.mkdirSync(temporary, { recursive:true, mode:0o700 });
@@ -122,6 +122,11 @@ function createPluginHost({ root, builtins = path.join(__dirname, 'plugins'), wo
   function stateFile(id) { return path.join(root, validId(id) + '.state.json'); }
   function state(id) { return read(stateFile(id), { store: {}, db: { PluginData: {}, Track: [], Album: [], Artist: [], Playlist: [], PlaylistEntry: [] } }); }
   function saveState(id, data) { write(stateFile(id), data); }
+  function defaultApi(value) {
+    return (value.baseId || value.id) === 'kugou' && registry.plugins.kugou?.builtIn
+      ? 'http://localhost:41830/kugou' : '';
+  }
+  function effectiveBase(id, data) { return data.store?.baseUrl || defaultApi(entry(id)); }
   function codeFor(value) {
     const base = value.baseId && value.baseId !== value.id ? entry(value.baseId) : value;
     const file = base.builtIn ? path.join(builtins, validId(base.id) + '.js') : path.join(root, validId(base.id) + '.js');
@@ -219,7 +224,10 @@ function createPluginHost({ root, builtins = path.join(__dirname, 'plugins'), wo
     const data = state(live.id);
     data.store ||= {}; data.db ||= {};
     switch (message.operation) {
-      case 'storeGet': return clone(dottedGet(data.store, message.key));
+      case 'storeGet': {
+        const baseUrl = live.importing ? data.store.baseUrl : effectiveBase(live.id, data);
+        return clone(dottedGet(baseUrl ? { ...data.store, baseUrl } : data.store, message.key));
+      }
       case 'storeSet':
         if (message.key === 'baseUrl' && message.value) safeUrl(message.value);
         dottedSet(data.store, message.key, message.value); saveState(live.id, data); return true;
@@ -270,7 +278,7 @@ function createPluginHost({ root, builtins = path.join(__dirname, 'plugins'), wo
   function requestHttp(live, stored, message) {
     if (!networkAllowed || !live.allowed || live.active === 0 || live.importing) throw problem('Local-only mode forbids plugin networking', 'PLUGIN_OFFLINE');
     let target, allowed;
-    try { target = safeUrl(message.url); allowed = safeUrl(stored.store?.baseUrl); } catch { throw problem('Configure the plugin server URL first', 'PLUGIN_SERVER'); }
+    try { target = safeUrl(message.url); allowed = safeUrl(effectiveBase(live.id, stored)); } catch { throw problem('Configure the plugin server URL first', 'PLUGIN_SERVER'); }
     if (target.origin !== allowed.origin) throw problem('Plugin request is outside the configured server', 'PLUGIN_DOMAIN');
     for (const [key, value] of Object.entries(message.params || {})) if (value !== null && value !== undefined) target.searchParams.set(key, String(value));
     const baseId = live.importing ? '' : entry(live.id).baseId;
@@ -278,6 +286,8 @@ function createPluginHost({ root, builtins = path.join(__dirname, 'plugins'), wo
         && target.port === '41830' && target.pathname.startsWith('/netease/')) {
       return neteaseRequest(live, target, message);
     }
+    if (baseId === 'kugou' && !stored.store?.baseUrl && target.origin === 'http://localhost:41830'
+        && target.pathname.startsWith('/kugou/')) return kugouRequest(live, target, message);
     const headers = { 'User-Agent': 'VutronMusic-Mobile/1.0', ...(message.method !== 'GET' ? { 'Content-Type': 'application/json' } : {}) };
     for (const [key, value] of Object.entries(message.headers || {})) {
       if (!/^[A-Za-z0-9-]{1,64}$/.test(key) || /^(?:host|connection|content-length)$/i.test(key) || typeof value !== 'string' || /[\r\n]/.test(value) || value.length > 16384) throw problem('Invalid plugin HTTP header', 'PLUGIN_HTTP');
@@ -306,6 +316,56 @@ function createPluginHost({ root, builtins = path.join(__dirname, 'plugins'), wo
     });
   }
 
+  async function kugouRequest(live, target, message) {
+    const method = target.pathname.slice('/kugou/'.length).replace(/\//g, '_');
+    if (!/^[a-z][a-z0-9_]{1,95}$/.test(method)) throw problem('Invalid Kugou API method', 'PLUGIN_METHOD');
+    const adapter = require('./plugin-kugou-api.cjs');
+    const handler = kugouApi ? kugouApi[method] : adapter.apiModule(method);
+    if (typeof handler !== 'function') throw problem('This Kugou API method is unavailable', 'PLUGIN_UNSUPPORTED');
+    const persisted = state(live.id);
+    const device = adapter.deviceCookies(persisted.kugouDevice);
+    if (device !== persisted.kugouDevice) { persisted.kugouDevice = device; saveState(live.id, persisted); }
+    const header = Object.entries(message.headers || {}).find(([key]) => key.toLowerCase() === 'cookie')?.[1];
+    const params = { ...Object.fromEntries(target.searchParams), ...(message.method === 'GET' ? {} : message.data),
+      cookie: { ...device, ...adapter.cookieObject(header) } };
+    try {
+      const invoke = async (name, values) => {
+        const operation = name === method ? handler : kugouApi ? kugouApi[name] : adapter.apiModule(name);
+        if (typeof operation !== 'function') throw problem('This Kugou API method is unavailable', 'PLUGIN_UNSUPPORTED');
+        return operation(values);
+      };
+      const result = await pluginTransport.run({ requests: live.requests, permitted: () => networkAllowed && live.allowed && live.active > 0 }, async () => {
+        if (method !== 'register_dev' && !params.cookie.dfid) {
+          const registered = await invoke('register_dev', { cookie: params.cookie });
+          const dfid = registered.body?.status === 1 && registered.body?.data?.dfid;
+          if (typeof dfid !== 'string' || !dfid) throw problem('Kugou device registration did not return a fingerprint', 'PLUGIN_DEVICE');
+          params.cookie.dfid = dfid;
+          const latest = state(live.id); latest.kugouDevice = { ...device, dfid }; saveState(live.id, latest);
+        }
+        return method === 'song_url'
+          ? adapter.songUrl({ ...params, ...live.kugouSongContext, cookie: params.cookie }, invoke)
+          : handler(params);
+      });
+      if (workers.get(live.id) !== live || !networkAllowed || !live.allowed) throw problem('Kugou request was cancelled', 'PLUGIN_OFFLINE');
+      if (method === 'register_dev' && result.body?.status === 1 && typeof result.body?.data?.dfid === 'string') {
+        const latest = state(live.id); latest.kugouDevice = { ...device, dfid: result.body.data.dfid }; saveState(live.id, latest);
+      }
+      return message.raw ? { data: result.body, status: result.status || 200, headers: { 'content-type': 'application/json' } } : result.body;
+    } catch (cause) {
+      // This API rejects { status, body, cookie } rather than always an Error.
+      // Keep a bounded, credential-free diagnostic and preserve QR transport
+      // failures instead of the original plugin's catch => "expired" fallback.
+      const detail = cause?.body || {};
+      const message = redact(cause?.message || detail.msg || detail.message || detail.errmsg || 'Kugou API request failed');
+      const status = Number.isInteger(cause?.status) ? cause.status : undefined;
+      const error = problem(message + (status ? ' (HTTP ' + status + ')' : ''), cause?.code || 'PLUGIN_HTTP');
+      error.response = { status, error_code: detail.error_code, message };
+      (live.kugouFailures ||= new Map()).set(method, error);
+      log(live.id, method + ': ' + error.message, 'request-error');
+      throw error;
+    }
+  }
+
   async function neteaseRequest(live, target, message) {
     const method = target.pathname.slice('/netease/'.length).replace(/\//g, '_');
     if (!/^[a-z][a-z0-9_]{1,95}$/.test(method)) throw problem('Invalid NetEase API method', 'PLUGIN_METHOD');
@@ -321,7 +381,9 @@ function createPluginHost({ root, builtins = path.join(__dirname, 'plugins'), wo
     if (typeof enhanced[method] !== 'function') return message.raw ? { data: { code: 404 }, status: 404, headers: {} } : { code: 404 };
     // The enhanced API owns encryption/transport; only this plugin's cookie is
     // supplied. Never read the native NetEase session from application storage.
+    const commentTarget = { id: params.id, type: params.type };
     const result = await pluginTransport.run({ requests: live.requests, permitted: () => networkAllowed && live.allowed && live.active > 0 }, () => enhanced[method](params));
+    result.body = require('./netease-comment-scope.cjs').filterCommentScope(method, commentTarget, result.body);
     return message.raw ? { data: result.body, status: result.status || 200, headers: { 'set-cookie': result.cookie || [] } } : result.body;
   }
 
@@ -342,6 +404,8 @@ function createPluginHost({ root, builtins = path.join(__dirname, 'plugins'), wo
         if (current !== expectedAccountScope) throw problem('Plugin account changed before the queued operation', 'PLUGIN_ACCOUNT_CHANGED');
       }
       live.active++; live.allowed = allowNetwork; live.allowMatchSources = allowMatchSources; clearTimeout(live.idle);
+      live.kugouSongContext = selected.baseId === 'kugou' && method === 'songUrl' ? clone(params) : undefined;
+      live.kugouFailures?.clear();
       try {
         const result = await new Promise((resolve, reject) => {
           const callId = ++serial;
@@ -351,14 +415,19 @@ function createPluginHost({ root, builtins = path.join(__dirname, 'plugins'), wo
         });
         if (Buffer.byteLength(JSON.stringify(result) || '') > MAX_RESULT_BYTES) throw problem('Plugin result exceeds its size limit', 'PLUGIN_RESULT_LIMIT');
         const validated = validateResult ? validateResult(method, result) : require('./plugin-contract.cjs').validateResult(method, result);
+        const qrMethod = method === 'loginQrKey' && !validated.data?.qrcode ? 'login_qr_key'
+          : method === 'loginQrCodeCheck' && validated.code === 800 ? 'login_qr_check' : '';
+        if (qrMethod && live.kugouFailures?.has(qrMethod)) throw live.kugouFailures.get(qrMethod);
+        if (method === 'getAccount' && defaultApi(selected)) validated.baseUrl = state(id).store?.baseUrl || '';
         if (method === 'systemPing' && validated?.status) { selected.status = validated.status; write(registryFile, registry); }
         if (method === 'doLogout' && validated?.code === 200) { selected.status = 'logout'; write(registryFile, registry); }
+        if (method === 'loginQrCodeCheck' && validated?.code === 803) { selected.status = 'login'; write(registryFile, registry); }
         if ((validated?.code === 200 && ['doLogin','doLogout','updateBaseUrl'].includes(method)) || method === 'loginQrCodeCheck' && validated?.code === 803) {
           const persisted = state(id); persisted.accountGeneration = (persisted.accountGeneration || 0) + 1; saveState(id, persisted);
         }
         return brandResult(validated, id);
       } catch (error) { log(id, error.code || error.name, 'call-error'); throw error; }
-      finally { live.active--; if (workers.get(id) === live) idle(live); }
+      finally { live.kugouSongContext = undefined; live.active--; if (workers.get(id) === live) idle(live); }
     });
     live.tail = operation.catch(() => {});
     return operation;

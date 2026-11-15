@@ -7,6 +7,7 @@ import type { VutronTrack } from '../platform/vutronPlugin'
 import type { VutronComment, VutronCommentTarget } from '../platform/commentTypes'
 import { actionDialog, askAction } from '../platform/actionDialog'
 import { useModalFocus } from '../composables/modalFocus'
+import { useModalIsolation } from '../composables/modalIsolation'
 import { useSheetDrag } from '../composables/sheetDrag'
 import SheetDragHandle from './SheetDragHandle.vue'
 import OriginalIcon from './OriginalIcon.vue'
@@ -36,6 +37,7 @@ async function remove(row: VutronComment) {
     await thread.submit('delete', '', row)
 }
 useModalFocus(sheet, { close: () => emit('close'), enabled: () => !actionDialog.value, returnFocus: () => props.returnFocus })
+useModalIsolation(sheet)
 useSheetDrag(sheet, { close: () => emit('close'), enabled: () => !actionDialog.value })
 onMounted(() => {
   observer = new IntersectionObserver(entries => {
@@ -47,8 +49,8 @@ onMounted(() => {
 onUnmounted(() => { observer?.disconnect() })
 </script>
 <template>
-  <div class="comments-layer" :inert="Boolean(actionDialog)" @click.self="emit('close')">
-    <section ref="sheet" class="comments-sheet" role="dialog" aria-modal="true" :aria-label="$t('mobile.comments.title')" tabindex="-1">
+  <div class="comments-layer" @click.self="emit('close')">
+    <section ref="sheet" class="comments-sheet" :inert="Boolean(actionDialog)" role="dialog" aria-modal="true" :aria-label="$t('mobile.comments.title')" tabindex="-1">
       <SheetDragHandle @close="emit('close')" />
       <header data-sheet-drag-handle><div><h2>{{ $t('mobile.comments.title') }} <small>{{ total }}</small></h2><p>{{ track.name }}</p></div><button class="icon-button" :aria-label="$t('mobile.common.close')" @click="emit('close')"><OriginalIcon name="close" /></button></header>
       <div class="comment-sort"><button v-for="item in [{ value: 99, label: 'recommended' }, { value: 2, label: 'hot' }, { value: 3, label: 'latest' }]" :key="item.value" :class="{ selected: sort === item.value }" :disabled="busy" @click="sort = item.value as 99 | 2 | 3; thread.load(true)">{{ $t('mobile.comments.' + item.label) }}</button></div>

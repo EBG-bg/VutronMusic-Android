@@ -34,8 +34,10 @@ import storage from '../assets/icons/storage.svg?url'
 import update from '../assets/icons/update.svg?url'
 import empty from '../assets/icons/empty.svg?url'
 import error from '../assets/icons/error.svg?url'
+import abLoop from '../assets/icons/ab-loop.svg?url'
+import locate from '../../../../src/renderer/assets/icons/target.svg?url'
 
-const icons = { logo, library, search, settings, previous, next, play, pause, back, refresh, down, up, check, local, folder, lyrics, close, explore, list, repeat, repeatOne, shuffle, more, heart, heartSolid, plus, palette, timer, sort, drag, storage, update, empty, error }
+const icons = { logo, library, search, settings, previous, next, play, pause, back, refresh, down, up, check, local, folder, lyrics, close, explore, list, repeat, repeatOne, shuffle, more, heart, heartSolid, plus, palette, timer, sort, drag, storage, update, empty, error, abLoop, locate }
 const props = defineProps<{ name: keyof typeof icons }>()
 const iconStyle = computed(() => ({ '--original-icon': `url("${icons[props.name]}")` }))
 </script>

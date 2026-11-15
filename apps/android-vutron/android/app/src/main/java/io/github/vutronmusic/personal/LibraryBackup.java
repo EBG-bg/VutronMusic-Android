@@ -25,6 +25,12 @@ final class LibraryBackup {
     static JSONObject readStore(InputStream input) throws Exception {
         return readLimited(input,MAX_STORE_BYTES,"本机恢复资料超过 64 MiB，请保留原文件并联系维护者处理");
     }
+    static byte[] exportBytes(JSONObject document) throws Exception {
+        validate(document);
+        byte[] bytes = document.toString(2).getBytes(StandardCharsets.UTF_8);
+        if (bytes.length > MAX_BYTES) throw new IOException("资料超过 8 MiB，请精简歌单或排序历史后备份");
+        return bytes;
+    }
     private static JSONObject readLimited(InputStream input,int limit,String message) throws Exception {
         if (input == null) throw new IOException("无法打开备份文件");
         try (InputStream stream = input; ByteArrayOutputStream output = new ByteArrayOutputStream()) {
@@ -165,7 +171,7 @@ final class LibraryBackup {
         }
         return result;
     }
-    private static JSONObject portableCollection(Context c, String id, String name, JSONArray rows, JSONObject orders) throws Exception {
+    private static JSONObject portableCollection(Context c, String id, String name, JSONArray rows, JSONObject orders, JSONObject histories) throws Exception {
         JSONObject order = orders.optJSONObject(id); String mode = order == null ? "original" : order.optString("mode", "original");
         List<JSONObject> ordered = new ArrayList<>(); for (int i = 0; i < rows.length(); i++) ordered.add(rows.getJSONObject(i));
         if (mode.equals("custom")) {
@@ -173,6 +179,7 @@ final class LibraryBackup {
             for (int i = 0; keys != null && i < keys.length(); i++) ranks.put(keys.optString(i), i);
             ordered.sort(Comparator.comparingInt(row -> ranks.getOrDefault(LocalLibraryIds.key(row), Integer.MAX_VALUE)));
         }
+        JSONObject sourceHistory = histories.optJSONObject(id);
         JSONArray portable = new JSONArray();
         for (JSONObject row : ordered) {
             JSONObject track = portableTrack(row).put("volume", row.optBoolean("missingLocal") ? row.optInt("volume", 100) : PlaybackVolume.trackPercent(c, row))
@@ -182,29 +189,53 @@ final class LibraryBackup {
         }
         JSONObject result = new JSONObject().put("name", name).put("sortMode", mode).put("volume", PlaybackVolume.playlistPercent(c, id)).put("tracks", portable);
         if (id.matches("[a-zA-Z0-9:_-]{1,200}")) result.put("collectionKey", id);
+        return attachOrderHistory(result, sourceHistory, ordered);
+    }
+    static JSONObject attachOrderHistory(JSONObject collection, JSONObject history, List<JSONObject> orderedSource) throws Exception {
+        if (history == null) return collection;
+        Map<String,String> keys = new HashMap<>(); JSONArray tracks = collection.getJSONArray("tracks");
+        for (int i = 0; i < orderedSource.size(); i++) keys.put(LocalLibraryIds.key(orderedSource.get(i)), tracks.getJSONObject(i).getString("key"));
+        return collection.put("orderHistory", CollectionOrderHistoryBackup.portable(history, keys));
+    }
+    /** Mirrors getLocalMusicIndex only when its aggregate has history worth restoring. */
+    static JSONArray aggregateBackupRows(JSONArray folderIndex, JSONArray selected, boolean includeFolders) throws Exception {
+        if (!includeFolders) return selected;
+        JSONArray result = new JSONArray(); Set<String> uris = new HashSet<>();
+        for (int i = 0; i < folderIndex.length(); i++) {
+            JSONObject row = folderIndex.getJSONObject(i); result.put(row); uris.add(row.optString("localUri", row.optString("uri", "")));
+        }
+        for (int i = 0; i < selected.length(); i++) {
+            JSONObject row = selected.getJSONObject(i);
+            if (uris.add(row.optString("localUri", row.optString("uri", "")))) result.put(row);
+        }
         return result;
     }
     static JSONObject snapshot(Context c, JSONObject frontend, JSONObject orders) throws Exception {
+        String historyText = frontend.optString(CollectionOrderHistoryBackup.KEY, "{}");
+        if (historyText.length() > MAX_BYTES) throw new IOException("排序历史超过备份大小限制，请精简后备份");
+        JSONObject histories = new JSONObject(historyText);
         JSONObject preferences = new JSONObject();
         for (String pref : PREFS) preferences.put(pref, new JSONObject(c.getSharedPreferences(pref, Context.MODE_PRIVATE).getAll()));
         JSONArray collections = new JSONArray(), folderTracks = LocalTrackStore.loadFolderIndex(c), folders = LocalFolderStore.list(c);
         for (int i = 0; i < folders.length(); i++) {
             JSONObject folder = folders.getJSONObject(i); JSONArray rows = new JSONArray();
             for (int j = 0; j < folderTracks.length(); j++) if (LocalLibraryIds.inCollection(folderTracks.getJSONObject(j), folder.getString("id"))) rows.put(folderTracks.getJSONObject(j));
-            collections.put(portableCollection(c, folder.getString("id"), folder.getString("name"), rows, orders));
+            collections.put(portableCollection(c, folder.getString("id"), folder.getString("name"), rows, orders, histories));
         }
-        JSONArray selected = LocalTrackStore.load(c);
-        if (selected.length() > 0) collections.put(portableCollection(c, "local:folder", "本地音乐", selected, orders));
+        JSONObject aggregateHistory = histories.optJSONObject("local:folder");
+        JSONArray aggregateEntries = aggregateHistory == null ? null : aggregateHistory.optJSONArray("entries");
+        JSONArray selected = aggregateBackupRows(folderTracks, LocalTrackStore.load(c), aggregateEntries != null && aggregateEntries.length() > 0);
+        if (selected.length() > 0 || histories.has("local:folder")) collections.put(portableCollection(c, "local:folder", "本地音乐", selected, orders, histories));
         JSONArray bundles = LocalPlaylistStore.list(new File(c.getFilesDir(), "local-bundles"));
-        for (int i = 0; i < bundles.length(); i++) { JSONObject item = bundles.getJSONObject(i); collections.put(portableCollection(c, item.getString("id"), item.getString("name"), item.getJSONArray("localTracks"), orders).put("createTime",item.optLong("createTime",0))); }
+        for (int i = 0; i < bundles.length(); i++) { JSONObject item = bundles.getJSONObject(i); collections.put(portableCollection(c, item.getString("id"), item.getString("name"), item.getJSONArray("localTracks"), orders, histories).put("createTime",item.optLong("createTime",0))); }
         JSONArray restored = list(c);
-        for (int i = 0; i < restored.length(); i++) { JSONObject item = restored.getJSONObject(i); collections.put(portableCollection(c, item.getString("id"), item.getString("name"), tracks(c, item.getString("id")), orders).put("createTime",item.optLong("createTime",0)).put("description",item.optString("description"))); }
-        JSONArray pluginLocal = PluginLocalBackup.collections(c);
+        for (int i = 0; i < restored.length(); i++) { JSONObject item = restored.getJSONObject(i); collections.put(portableCollection(c, item.getString("id"), item.getString("name"), tracks(c, item.getString("id")), orders, histories).put("createTime",item.optLong("createTime",0)).put("description",item.optString("description"))); }
+        JSONArray pluginLocal = PluginLocalBackup.collections(c, histories);
         for (int i=0;i<pluginLocal.length();i++) collections.put(pluginLocal.getJSONObject(i));
         PlaybackQueue.Snapshot queue = PlaybackQueue.load(c);
         if (queue != null) {
             JSONArray rows = new JSONArray(); for (JSONArray lane : new JSONArray[]{queue.songs, queue.upNext}) for (int i = 0; i < lane.length(); i++) rows.put(lane.getJSONObject(i));
-            collections.put(portableCollection(c, "backup:queue", "恢复的播放队列", rows, new JSONObject()));
+            collections.put(portableCollection(c, "backup:queue", "恢复的播放队列", rows, new JSONObject(), new JSONObject()));
         }
         return new JSONObject().put("format", 1).put("generator", GENERATOR).put("settings", safePreferences(preferences)).put("frontend", safeFrontend(frontend)).put("collections", collections)
                 .put("pluginSourcePriorities",PluginSourceRegistry.priorities(c));
@@ -219,13 +250,55 @@ final class LibraryBackup {
         allowed.put("vutron:player-lyrics", "true|false");
         allowed.put("vutron:playlist-sort-hints", "true|false");
         allowed.put("vutron:timer-preset", "(?:[1-9][0-9]{0,3}|1[0-7][0-9]{3}|18000)");
+        allowed.put("vutron:sleep-mode", "duration|track|count");
+        allowed.put("vutron:sleep-track-count", "(?:[1-9]|[1-9][0-9]|100)");
+        allowed.put("vutron:sleep-fade-seconds", "0|5|15|30");
         for (Map.Entry<String, String> item : allowed.entrySet()) if (value.opt(item.getKey()) instanceof String && value.getString(item.getKey()).matches(item.getValue())) result.put(item.getKey(), value.getString(item.getKey()));
         String orders = value.optString("vutron:playlist-orders:v1", "");
-        if (!orders.isEmpty() && orders.length() <= 1_000_000) {
+        if (!orders.isEmpty()) {
+            if (orders.length() > MAX_BYTES) throw new IOException("歌单排序超过备份大小限制，请精简后备份");
             try { result.put("vutron:playlist-orders:v1", safePlaylistOrders(new JSONObject(orders)).toString()); }
             catch (org.json.JSONException ignored) { /* Ignore malformed optional UI preferences. */ }
         }
+        String trackOrders = value.optString("vutron:collection-orders:v1", "");
+        if (!trackOrders.isEmpty()) {
+            if (trackOrders.length() > MAX_BYTES) throw new IOException("歌曲排序超过备份大小限制，请精简后备份");
+            try { result.put("vutron:collection-orders:v1", safeOnlineTrackOrders(new JSONObject(trackOrders)).toString()); }
+            catch (org.json.JSONException ignored) { /* Optional UI ordering, never media or account data. */ }
+        }
+        String histories = value.optString(CollectionOrderHistoryBackup.KEY, "");
+        if (!histories.isEmpty()) {
+            if (histories.length() > MAX_BYTES) throw new IOException("排序历史超过备份大小限制，请精简后备份");
+            try { result.put(CollectionOrderHistoryBackup.KEY, CollectionOrderHistoryBackup.online(new JSONObject(histories)).toString()); }
+            catch (org.json.JSONException ignored) { /* Malformed optional history is not imported as media or account data. */ }
+        }
         return result;
+    }
+    static JSONObject safeOnlineTrackOrders(JSONObject raw) throws Exception {
+        JSONObject safe = new JSONObject(); java.util.Iterator<String> scopes = raw.keys();
+        while (scopes.hasNext() && safe.length() < 250) {
+            String scope = scopes.next(); JSONObject order = raw.optJSONObject(scope);
+            boolean netease = scope.matches("netease:[0-9]+:playlist:[0-9]+");
+            if (!netease) {
+                JSONArray parts;
+                try { parts = new JSONArray(scope); } catch (org.json.JSONException invalid) { continue; }
+                if (parts.length() != 4 || !"plugin".equals(parts.optString(0)) || !parts.optString(1).matches("[a-zA-Z0-9._:-]{1,160}")
+                        || !parts.optString(2).matches("[a-zA-Z0-9._:-]{1,160}") || !parts.optString(3).matches("[a-zA-Z0-9._:-]{1,256}")) continue;
+            }
+            if (order == null || !order.optString("mode").matches("original|title|artist|album|custom")) continue;
+            JSONArray input = order.optJSONArray("keys"), keys = new JSONArray(); java.util.Set<String> seen = new java.util.HashSet<>();
+            if (input != null) for (int i = 0; i < input.length() && keys.length() < 10000; i++) {
+                if (!(input.opt(i) instanceof String)) continue;
+                String key = input.optString(i); boolean valid = netease && key.matches("netease:[0-9]+");
+                if (!netease) try {
+                    JSONArray pair = new JSONArray(key);
+                    valid = pair.length() == 2 && pair.optString(0).matches("[a-zA-Z0-9._:-]{0,160}") && pair.optString(1).matches("[a-zA-Z0-9._:-]{1,256}");
+                } catch (org.json.JSONException invalid) { valid = false; }
+                if (valid && seen.add(key)) keys.put(key);
+            }
+            safe.put(scope, new JSONObject().put("mode", order.getString("mode")).put("keys", keys));
+        }
+        return safe;
     }
     static JSONObject safePlaylistOrders(JSONObject raw) throws Exception {
         JSONObject safe = new JSONObject(); int count = 0;
@@ -258,11 +331,12 @@ final class LibraryBackup {
         JSONArray collections = input.optJSONArray("collections"), safe = new JSONArray(); int count = 0;
         if (collections == null || collections.length() > 250) throw new IOException("备份歌单数量无效");
         for (int i = 0; i < collections.length(); i++) {
-            JSONObject item = collections.getJSONObject(i); JSONArray tracks = item.getJSONArray("tracks"), cleaned = new JSONArray();
+            JSONObject item = collections.getJSONObject(i); JSONArray tracks = item.getJSONArray("tracks"), cleaned = new JSONArray(); Map<String,String> historyKeys = item.optJSONObject("orderHistory") == null ? null : new HashMap<>();
             if ((count += tracks.length()) > 20000 || item.getString("name").length() > 1024 || item.optString("description").length()>4096) throw new IOException("备份曲目或名称超过限制");
             for (int j = 0; j < tracks.length(); j++) {
                 JSONObject row = tracks.getJSONObject(j), track = portableTrack(row);
                 track.put("key", digest(fingerprint(track) + ":" + j));
+                if (historyKeys != null && row.optString("key").matches("[a-f0-9]{64}")) historyKeys.put(row.getString("key"), track.getString("key"));
                 if (track.optString("name").length() > 2048 || track.optString("album").length() > 2048 || track.optLong("duration") > 86400000
                         || track.optInt("volume", 100) < 0 || track.optInt("volume", 100) > 100 || Math.abs(track.optLong("lyricOffsetMs")) > 30000
                         || track.optBoolean("onlineOnly") && track.optLong("neteaseId") <= 0) throw new IOException("备份曲目资料无效");
@@ -271,6 +345,8 @@ final class LibraryBackup {
             String mode = item.optString("sortMode", "original"); if (!Arrays.asList("original", "title", "artist", "album", "custom").contains(mode)) mode = "original";
             JSONObject collection = new JSONObject().put("name", item.getString("name")).put("sortMode", mode).put("tracks", cleaned).put("volume", Math.max(0, Math.min(100, item.optInt("volume", 100))));
             if (item.has("description")) collection.put("description",item.optString("description"));
+            JSONObject orderHistory = CollectionOrderHistoryBackup.portable(item.optJSONObject("orderHistory"), historyKeys);
+            if (orderHistory != null) collection.put("orderHistory", orderHistory);
             String key = item.optString("collectionKey", "");
             if (key.matches("[a-zA-Z0-9:_-]{1,200}")) collection.put("collectionKey", key);
             if (item.opt("createTime") instanceof Number && item.optLong("createTime") > 0) collection.put("createTime",item.getLong("createTime"));
@@ -290,22 +366,25 @@ final class LibraryBackup {
     }
     static RestorePlan planRestore(JSONObject previous,JSONObject input) throws Exception {
         JSONObject safe = validate(input), existing = new JSONObject(previous.toString()), orders = new JSONObject(); JSONArray collections = existing.getJSONArray("collections"), incoming = safe.getJSONArray("collections");
+        JSONObject historyRecords = new JSONObject(safe.getJSONObject("frontend").optString(CollectionOrderHistoryBackup.KEY, "{}"));
         List<JSONObject> added=new ArrayList<>();
         Map<String,String> known = new HashMap<>(), remap = new HashMap<>();
         for (int i = 0; i < collections.length(); i++) known.put(collections.getJSONObject(i).optString("backupKey"), collections.getJSONObject(i).getString("id"));
         for (int i = 0; i < incoming.length(); i++) {
             JSONObject item = incoming.getJSONObject(i); String hash = digest(item.toString());
             String sourceKey = item.optString("collectionKey", "");
-            if (known.containsKey(hash)) { if (!sourceKey.isEmpty()) remap.put(sourceKey,known.get(hash)); continue; }
+            if (known.containsKey(hash)) { if (!sourceKey.isEmpty()) remap.put(sourceKey,known.get(hash)); restoreOrderHistory(historyRecords, item, known.get(hash)); continue; }
             String id = "restored:" + UUID.randomUUID(); item.put("id", id).put("backupKey", hash);
             if (item.optLong("createTime") <= 0) item.put("createTime", System.currentTimeMillis());
             known.put(hash,id); if (!sourceKey.isEmpty()) remap.put(sourceKey,id); collections.put(item);
             added.add(item);
             JSONArray keys = new JSONArray(), tracks = item.getJSONArray("tracks");
-            for (int j = 0; j < tracks.length(); j++) keys.put(LocalLibraryIds.key(new JSONObject().put("localPlaylistId", id).put("localEntryKey", tracks.getJSONObject(j).getString("key"))));
+            for (int j = 0; j < tracks.length(); j++) keys.put(LocalLibraryIds.key(new JSONObject(tracks.getJSONObject(j).toString()).put("localPlaylistId", id).put("localEntryKey", tracks.getJSONObject(j).getString("key"))));
             orders.put(id, new JSONObject().put("mode", item.getString("sortMode")).put("keys", keys));
+            restoreOrderHistory(historyRecords, item, id);
         }
         JSONObject frontend = safe.getJSONObject("frontend");
+        if (historyRecords.length() > 0 || frontend.has(CollectionOrderHistoryBackup.KEY)) frontend.put(CollectionOrderHistoryBackup.KEY, historyRecords.toString());
         if (frontend.has("vutron:playlist-orders:v1")) {
             JSONObject all = new JSONObject(frontend.getString("vutron:playlist-orders:v1")), local = all.optJSONObject("local:device");
             if (local != null) {
@@ -317,6 +396,16 @@ final class LibraryBackup {
             }
         }
         return new RestorePlan(existing,safe,orders,added,storeBytes(existing));
+    }
+    private static void restoreOrderHistory(JSONObject records, JSONObject collection, String id) throws Exception {
+        JSONObject history = collection.optJSONObject("orderHistory");
+        if (history == null) return;
+        Map<String,String> keys = new HashMap<>(); JSONArray tracks = collection.getJSONArray("tracks");
+        for (int i = 0; i < tracks.length(); i++) {
+            String key = tracks.getJSONObject(i).getString("key");
+            keys.put(key, LocalLibraryIds.key(new JSONObject(tracks.getJSONObject(i).toString()).put("localPlaylistId", id).put("localEntryKey", key)));
+        }
+        records.put(id, CollectionOrderHistoryBackup.remap(history, keys));
     }
     static JSONObject restore(Context c, JSONObject input) throws Exception {
         RestorePlan plan=planRestore(load(c),input);
@@ -344,17 +433,30 @@ final class LibraryBackup {
         return new JSONObject().put("frontend", plan.safe.getJSONObject("frontend")).put("orders", plan.orders).put("collectionCount", plan.document.getJSONArray("collections").length());
     }
     static void remove(Context c, String id, String entry) throws Exception {
+        removeEntries(c, id, entry == null ? null : java.util.Collections.singleton(entry));
+    }
+    static void removeEntries(Context c, String id, java.util.Set<String> entries) throws Exception {
         JSONObject data = load(c); JSONArray kept = new JSONArray(), collections = data.getJSONArray("collections"); boolean found = false;
         for (int i = 0; i < collections.length(); i++) {
             JSONObject item = collections.getJSONObject(i);
             if (!id.equals(item.optString("id"))) { kept.put(item); continue; }
             found = true;
-            if (entry == null) continue;
+            if (entries == null) continue;
             JSONArray rows = new JSONArray(), tracks = item.getJSONArray("tracks");
-            for (int j = 0; j < tracks.length(); j++) if (!entry.equals(tracks.getJSONObject(j).optString("key"))) rows.put(tracks.getJSONObject(j));
+            for (int j = 0; j < tracks.length(); j++) if (!entries.contains(tracks.getJSONObject(j).optString("key"))) rows.put(tracks.getJSONObject(j));
             item.put("tracks", rows); kept.put(item);
         }
         if (!found) throw new IOException("恢复的歌单不存在");
         LibraryFiles.writeJson(file(c), data.put("collections", kept));
+    }
+    static void restoreRemoved(Context c, String id, JSONArray removed) throws Exception {
+        JSONObject data = load(c); JSONArray collections = data.getJSONArray("collections");
+        for (int i = 0; i < collections.length(); i++) {
+            JSONObject item = collections.getJSONObject(i); if (!id.equals(item.optString("id"))) continue;
+            JSONArray current = item.getJSONArray("tracks"), restored = LocalRemovalRows.restore(current, removed, row -> row.optString("key"));
+            if (current.toString().equals(restored.toString())) return;
+            item.put("tracks", restored); LibraryFiles.writeJson(file(c), data); return;
+        }
+        throw new IOException("恢复的歌单已删除，请重新导入");
     }
 }

@@ -27,6 +27,9 @@ final class PluginLocalBackup {
     };
     private PluginLocalBackup() { }
     static JSONArray collections(Context context) throws Exception {
+        return collections(context, new JSONObject());
+    }
+    static JSONArray collections(Context context, JSONObject histories) throws Exception {
         JSONArray plugins=AndroidPluginManager.list(context).getJSONArray("plugins");
         return collections(new File(context.getFilesDir(),"music-plugins-v1"),plugins,PluginLocalLibrary.tracks(context),new Settings() {
             private JSONObject identity(String plugin,String account,JSONObject raw) throws Exception {
@@ -35,10 +38,13 @@ final class PluginLocalBackup {
             @Override public int trackVolume(String plugin,String account,JSONObject track) throws Exception { return PlaybackVolume.trackPercent(context,identity(plugin,account,track)); }
             @Override public long lyricOffset(String plugin,String account,JSONObject track) throws Exception { return LyricOverlaySettings.lyricOffsetMs(context,identity(plugin,account,track)); }
             @Override public int playlistVolume(String plugin,String account,String playlist) throws Exception { return PlaybackVolume.playlistPercent(context,PluginTrackAdapter.playlistKey(plugin,account,playlist)); }
-        });
+        }, histories);
     }
     static JSONArray collections(File root,JSONArray plugins) throws Exception { return collections(root,plugins,new JSONArray(),DEFAULTS); }
     static JSONArray collections(File root,JSONArray plugins,JSONArray authorized,Settings settings) throws Exception {
+        return collections(root, plugins, authorized, settings, new JSONObject());
+    }
+    static JSONArray collections(File root,JSONArray plugins,JSONArray authorized,Settings settings,JSONObject histories) throws Exception {
         JSONArray result=new JSONArray();Map<String,JSONObject> nativeRows=new HashMap<>();
         for(int i=0;authorized!=null&&i<authorized.length();i++) {JSONObject row=authorized.optJSONObject(i);if(row!=null)nativeRows.put(String.valueOf(row.opt("id")),row);}
         for(int i=0;plugins!=null&&i<plugins.length();i++) {
@@ -52,7 +58,7 @@ final class PluginLocalBackup {
                 JSONObject track=tracks.optJSONObject(n);if(track==null)continue;String trackId=String.valueOf(track.get("id"));recordings.put(trackId,track);
                 if(track.optBoolean("liked")||track.optInt("liked")==1)liked.put(track);
             }
-            if(liked.length()>0)result.put(collection(id,scope,name+" · 我喜欢的音乐","-1", "",0,liked,nativeRows,settings));
+            if(liked.length()>0)result.put(collection(id,scope,name+" · 我喜欢的音乐","-1", "",0,liked,nativeRows,settings,histories));
             JSONArray playlists=db.optJSONArray("Playlist"),entries=db.optJSONArray("PlaylistEntry");
             for(int n=0;playlists!=null&&n<playlists.length();n++) {
                 JSONObject playlist=playlists.getJSONObject(n);String playlistId=String.valueOf(playlist.get("id"));List<JSONObject> ordered=new ArrayList<>();
@@ -70,22 +76,33 @@ final class PluginLocalBackup {
                     if(track==null)throw new IOException("本地插件歌单有已失效且缺少曲目资料的条目，原资料已保留，请重新扫描后备份");
                     rows.put(track);
                 }
-                result.put(collection(id,scope,name+" · "+playlist.optString("name","歌单"),playlistId,playlist.optString("description"),playlist.optLong("createTime"),rows,nativeRows,settings));
+                result.put(collection(id,scope,name+" · "+playlist.optString("name","歌单"),playlist.get("id"),playlist.optString("description"),playlist.optLong("createTime"),rows,nativeRows,settings,histories));
             }
         }
         return result;
     }
-    private static JSONObject collection(String plugin,String scope,String name,String playlist,String description,long created,JSONArray rows,
-                                         Map<String,JSONObject> nativeRows,Settings settings) throws Exception {
-        JSONArray tracks=new JSONArray();
+    private static JSONObject collection(String plugin,String scope,String name,Object playlistIdentity,String description,long created,JSONArray rows,
+                                         Map<String,JSONObject> nativeRows,Settings settings,JSONObject histories) throws Exception {
+        String playlist=String.valueOf(playlistIdentity);
+        String historyScope=new JSONArray().put("plugin").put(plugin).put(scope).put(playlistIdentity).toString();
+        JSONObject sourceHistory=histories.optJSONObject(historyScope);
+        JSONArray tracks=new JSONArray();Map<String,String> historyKeys=sourceHistory==null?null:new HashMap<>();
         for(int i=0;i<rows.length();i++) {
             JSONObject raw=rows.getJSONObject(i),portable=portableTrack(raw,nativeRows.get(String.valueOf(raw.opt("id"))));
             portable.put("volume",settings.trackVolume(plugin,scope,raw)).put("lyricOffsetMs",settings.lyricOffset(plugin,scope,raw));
             portable.put("key",LibraryBackup.digest(LibraryBackup.fingerprint(portable)+":"+i));tracks.put(portable);
+            if(historyKeys!=null) {
+                String sourceId=String.valueOf(raw.get("id"));
+                historyKeys.put(new JSONArray().put(plugin).put(sourceId).toString(),portable.getString("key"));
+                historyKeys.put(new JSONArray().put("").put(sourceId).toString(),portable.getString("key"));
+            }
         }
-        return new JSONObject().put("name",name).put("description",description).put("sortMode","custom").put("tracks",tracks)
+        JSONObject result=new JSONObject().put("name",name).put("description",description).put("sortMode","custom").put("tracks",tracks)
                 .put("volume",settings.playlistVolume(plugin,scope,playlist)).put("createTime",created)
                 .put("collectionKey","pluginlocal:"+LibraryBackup.digest(plugin+"\0"+playlist));
+        JSONObject history=CollectionOrderHistoryBackup.portable(sourceHistory,historyKeys);
+        if(history!=null)result.put("orderHistory",history);
+        return result;
     }
     static JSONObject portableTrack(JSONObject raw,JSONObject authorized) throws Exception {
         JSONArray artists=new JSONArray(),rawArtists=raw.optJSONArray("artists");

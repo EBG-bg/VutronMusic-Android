@@ -21,6 +21,28 @@ const percent = computed(() => {
   return span > 0 ? Math.max(0, Math.min(100, (current.value - Number(props.min)) / span * 100)) : 0
 })
 let drag: { pointer: number; x: number; value: number; scale: number; changed: boolean } | undefined
+let tap: { pointer: number; x: number; y: number; moved: boolean } | undefined
+
+function trackDown(event: PointerEvent) {
+  if (drag || props.disabled || !event.isPrimary || event.button !== 0) return
+  tap = { pointer: event.pointerId, x: event.clientX, y: event.clientY, moved: false }
+}
+function trackMove(event: PointerEvent) {
+  if (tap?.pointer === event.pointerId && Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 8) tap.moved = true
+}
+function trackUp(event: PointerEvent) {
+  const candidate = tap
+  tap = undefined
+  if (!candidate || candidate.pointer !== event.pointerId || candidate.moved || props.disabled || !input.value || !path.value) return
+  if (Math.hypot(event.clientX - candidate.x, event.clientY - candidate.y) > 8) return
+  const rect = path.value.getBoundingClientRect()
+  if (!rect.width) return
+  input.value.focus({ preventScroll: true })
+  input.value.value = String(Number(props.min) + Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)) * (Number(props.max) - Number(props.min)))
+  if (input.value.valueAsNumber === current.value) return
+  input.value.dispatchEvent(new Event('input', { bubbles: true }))
+  input.value.dispatchEvent(new Event('change', { bubbles: true }))
+}
 
 function inputValue(event: Event) {
   current.value = (event.target as HTMLInputElement).valueAsNumber
@@ -31,6 +53,7 @@ function beginDrag(event: PointerEvent) {
   const width = path.value?.getBoundingClientRect().width ?? 0
   if (width <= 0) return
   event.preventDefault()
+  tap = undefined
   input.value.focus({ preventScroll: true })
   drag = { pointer: event.pointerId, x: event.clientX, value: input.value.valueAsNumber, scale: (Number(props.max) - Number(props.min)) / width, changed: false }
   dragging.value = true
@@ -57,35 +80,37 @@ function endDrag(event: PointerEvent) {
   release(true)
 }
 watch(() => props.value, value => { if (!drag) current.value = Number(value) })
-watch(() => props.disabled, disabled => { if (disabled) release(false) })
-onBeforeUnmount(() => release(false))
+watch(() => props.disabled, disabled => { if (disabled) { tap = undefined; release(false) } })
+onBeforeUnmount(() => { tap = undefined; release(false) })
 </script>
 
 <template>
-  <span class="thumb-range" :data-dragging="dragging ? '' : undefined" :class="[$attrs.class, { 'thumb-range-color': variant === 'color', 'thumb-range-disabled': disabled }]" :style="[$attrs.style as StyleValue, { '--range-position': `${percent}%` }]" @click.prevent>
+  <span class="thumb-range" :data-dragging="dragging ? '' : undefined" :class="[$attrs.class, { 'thumb-range-color': variant === 'color', 'thumb-range-disabled': disabled }]" :style="[$attrs.style as StyleValue, { '--range-position': `${percent}%` }]" @pointerdown="trackDown" @pointermove="trackMove" @pointerup="trackUp" @pointercancel="tap = undefined" @pointerleave="tap = undefined" @click.prevent>
     <input v-bind="$attrs" ref="input" class="thumb-range-input" type="range" :min="min" :max="max" :step="step" :value="current" :disabled="disabled" @input="inputValue" @change="emit('change', $event)" />
     <span ref="path" class="thumb-range-path" aria-hidden="true">
       <span class="thumb-range-rail"><span class="thumb-range-fill"></span></span>
-      <span ref="thumb" class="thumb-range-thumb" @pointerdown="beginDrag" @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="endDrag" @lostpointercapture="endDrag"></span>
+      <span ref="thumb" class="thumb-range-thumb" @pointerdown.stop="beginDrag" @pointermove.stop="moveDrag" @pointerup.stop="endDrag" @pointercancel="endDrag" @lostpointercapture="endDrag"></span>
     </span>
   </span>
 </template>
 
 <style scoped>
-.thumb-range { --range-thumb-width: 18px; position: relative; display: block; width: 100%; min-width: 0; max-width: 100%; height: 32px; margin: 0; padding: 0; border: 0; touch-action: pan-y; user-select: none; }
+.thumb-range { --range-thumb-width: 36px; position: relative; display: block; width: 100%; min-width: 0; max-width: 100%; height: 48px; margin: 0; padding: 0; border: 0; touch-action: pan-y; user-select: none; }
 .thumb-range > .thumb-range-input { position: absolute; inset: 0; display: block; width: 100%; height: 100%; min-width: 0; margin: 0; padding: 0; border: 0; opacity: 0; pointer-events: none; }
-.thumb-range-path { position: absolute; top: 50%; left: calc(var(--range-thumb-width) / 2 + 4px); right: calc(var(--range-thumb-width) / 2 + 4px); height: 0; pointer-events: none; }
+.thumb-range-path { position: absolute; top: 50%; left: calc(var(--range-thumb-width) / 2 + 2px); right: calc(var(--range-thumb-width) / 2 + 2px); height: 0; pointer-events: none; }
 .thumb-range-rail { position: absolute; top: -2px; left: 0; right: 0; height: 4px; border-radius: 2px; background: var(--line); }
 .thumb-range-fill { display: block; width: var(--range-position); height: 100%; border-radius: inherit; background: var(--accent); transition: width var(--motion-slider, 180ms) ease-out; }
-.thumb-range-thumb { position: absolute; top: 0; left: var(--range-position); width: var(--range-thumb-width); height: 18px; border: 2px solid var(--color-body-bg); border-radius: 50%; background: var(--accent); box-shadow: 0 1px 3px rgb(0 0 0 / 20%); transform: translate(-50%, -50%); pointer-events: auto; touch-action: none; cursor: ew-resize; transition: left var(--motion-slider, 180ms) ease-out, transform var(--motion-feedback, 180ms) ease, box-shadow var(--motion-state, 220ms) ease; }
+.thumb-range-thumb { position: absolute; top: 0; left: var(--range-position); width: var(--range-thumb-width); height: 44px; display: grid; place-items: center; transform: translate(-50%, -50%); pointer-events: auto; touch-action: none; cursor: ew-resize; transition: left var(--motion-slider, 180ms) ease-out; }
+.thumb-range-thumb::after { content: ''; width: 18px; height: 18px; box-sizing: border-box; border: 2px solid var(--color-body-bg); border-radius: 50%; background: var(--accent); box-shadow: 0 1px 3px rgb(0 0 0 / 20%); transition: transform var(--motion-feedback, 180ms) ease, box-shadow var(--motion-state, 220ms) ease; }
 .thumb-range[data-dragging] .thumb-range-fill { transition: none; }
-.thumb-range[data-dragging] .thumb-range-thumb { transform: translate(-50%, -50%) scale(1.1); box-shadow: 0 0 0 3px var(--accent-soft), 0 2px 4px rgb(0 0 0 / 18%); transition: transform var(--motion-feedback, 180ms) ease, box-shadow var(--motion-state, 220ms) ease; }
-@media (hover: hover) { .thumb-range-thumb:hover { box-shadow: 0 0 0 3px var(--accent-soft), 0 2px 4px rgb(0 0 0 / 18%); } }
-.thumb-range-input:focus-visible ~ .thumb-range-path .thumb-range-thumb { outline: 2px solid var(--accent); outline-offset: 2px; }
-.thumb-range-color { --range-thumb-width: 12px; height: 34px; }
+.thumb-range[data-dragging] .thumb-range-thumb { transition: none; }
+.thumb-range[data-dragging] .thumb-range-thumb::after { transform: scale(1.1); box-shadow: 0 0 0 3px var(--accent-soft), 0 2px 4px rgb(0 0 0 / 18%); }
+@media (hover: hover) { .thumb-range-thumb:hover::after { box-shadow: 0 0 0 3px var(--accent-soft), 0 2px 4px rgb(0 0 0 / 18%); } }
+.thumb-range-input:focus-visible ~ .thumb-range-path .thumb-range-thumb::after { outline: 2px solid var(--accent); outline-offset: 2px; }
+.thumb-range-color { height: 48px; }
 .thumb-range-color .thumb-range-rail { display: none; }
-.thumb-range-color .thumb-range-thumb { height: 28px; border-color: #fff; border-radius: 5px; background: transparent; box-shadow: 0 0 0 1px #0009; }
-.thumb-range-color[data-dragging] .thumb-range-thumb { transform: translate(-50%, -50%) scale(1.06); box-shadow: 0 0 0 2px #0009; }
+.thumb-range-color .thumb-range-thumb::after { width: 12px; height: 28px; border-color: #fff; border-radius: 5px; background: transparent; box-shadow: 0 0 0 1px #0009; }
+.thumb-range-color[data-dragging] .thumb-range-thumb::after { transform: scale(1.06); box-shadow: 0 0 0 2px #0009; }
 .thumb-range-disabled { opacity: .5; }
 .thumb-range-disabled .thumb-range-thumb { pointer-events: none; cursor: default; }
 </style>

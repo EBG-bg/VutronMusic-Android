@@ -5,7 +5,7 @@ import { lyricDisplayStyle, type LyricDisplaySettings } from '../platform/lyricD
 import { isMotionReduced } from '../platform/motion'
 import {
   boundaryScrollRemainder, interpolatedPosition, lyricClock, lyricDisplayLines, lyricIndexAt, lyricLineProgress,
-  lyricCenteredScrollTop, lyricSeekPosition, lyricVisibleBand, lyricWordProgress, type LyricPlaybackAnchor
+  lyricCenteredScrollTop, lyricSeekPosition, lyricWordProgress, type LyricPlaybackAnchor
 } from '../utils/lyricPlayback'
 
 const props = withDefaults(defineProps<{
@@ -16,6 +16,7 @@ const props = withDefaults(defineProps<{
   offsetMs: number
   duration?: number
   displaySettings?: LyricDisplaySettings
+  loop?: LyricPlaybackAnchor['loop']
 }>(), { duration: 0, rate: 1 })
 const emit = defineEmits<{ seek: [position: number] }>()
 const container = ref<HTMLElement>()
@@ -31,15 +32,18 @@ const estimated = computed(() => props.displaySettings?.estimatedWordTiming === 
 const hasEstimates = computed(() => estimated.value && props.family.original.some(line => !line.words.length && line.text))
 const displayLines = computed(() => lyricDisplayLines(props.family.original, estimated.value, props.duration))
 const displayStyle = computed(() => lyricDisplayStyle(props.displaySettings, 'theme'))
-let anchor: LyricPlaybackAnchor = { position: props.position, monotonicTime: performance.now(), playing: props.playing, rate: props.rate }
+let anchor: LyricPlaybackAnchor = { position: props.position, monotonicTime: performance.now(), playing: props.playing, rate: props.rate, loop: props.loop }
 let frame = 0
 let mounted = false
 let highlightedRow = -1
 let highlightedElement: HTMLElement | undefined
 let activeWords: HTMLElement[] = []
 let activeTranslation: HTMLElement | null = null
+const renderedProgress = new WeakMap<HTMLElement, string>()
 let followGeneration = 0
 let lastFingerY: number | undefined
+let fingerStartX = 0, fingerStartY = 0
+let touchDirection: 'pending' | 'horizontal' | 'vertical' = 'pending'
 let touchPointerMoved = false
 let handoffFrame = 0
 let handoffRemainder = 0
@@ -57,8 +61,8 @@ function lineEnd(index: number): number { return props.family.original[index + 1
 
 function selectHighlightedRow(index: number) {
   if (highlightedRow === index && highlightedElement === rows[index]) return
-  if (highlightedRow >= 0 && rows[highlightedRow]) {
-    rows[highlightedRow].querySelectorAll<HTMLElement>('.original-lyric-word, .original-lyric-translation').forEach(word => word.style.removeProperty('--lyric-progress'))
+  if (highlightedElement) {
+    highlightedElement.querySelectorAll<HTMLElement>('.original-lyric-word, .original-lyric-translation').forEach(word => { word.style.removeProperty('--lyric-progress'); renderedProgress.delete(word) })
   }
   highlightedRow = index
   const row = rows[index]
@@ -70,6 +74,14 @@ function selectHighlightedRow(index: number) {
   }
   activeWords = row ? Array.from(row.querySelectorAll<HTMLElement>('.original-lyric-word')) : []
   activeTranslation = row?.querySelector<HTMLElement>('.original-lyric-translation') ?? null
+}
+
+function setProgress(element: HTMLElement | null | undefined, progress: number) {
+  if (!element) return
+  const value = progress * 100 + '%'
+  if (renderedProgress.get(element) === value) return
+  renderedProgress.set(element, value)
+  element.style.setProperty('--lyric-progress', value)
 }
 
 function renderClock(now = performance.now()) {
@@ -89,10 +101,10 @@ function renderClock(now = performance.now()) {
     // Only spans in the current row receive a CSS progress update.
     for (let word = 0; word < activeWords.length; word++) {
       const value = lyricWordProgress(line.words[word], clock)
-      activeWords[word].style.setProperty('--lyric-progress', value * 100 + '%')
+      setProgress(activeWords[word], value)
     }
-  } else activeWords[0]?.style.setProperty('--lyric-progress', '100%')
-  activeTranslation?.style.setProperty('--lyric-progress', (line.words.length ? progress : 1) * 100 + '%')
+  } else setProgress(activeWords[0], 1)
+  setProgress(activeTranslation, line.words.length ? progress : 1)
 }
 
 function animationFrame(now: number) {
@@ -102,7 +114,7 @@ function animationFrame(now: number) {
 }
 
 function reanchor() {
-  anchor = { position: props.position, monotonicTime: performance.now(), playing: props.playing, rate: props.rate }
+  anchor = { position: props.position, monotonicTime: performance.now(), playing: props.playing, rate: props.rate, loop: props.loop }
   if (!mounted) return
   cancelAnimationFrame(frame)
   frame = 0
@@ -138,14 +150,16 @@ async function followActive(instant = false, reveal = false) {
   let listRect = list.getBoundingClientRect()
   let rowRect = row.getBoundingClientRect()
   let viewport = unobscuredViewport(list)
-  let band = lyricVisibleBand(listRect.top, listRect.bottom, viewport.top, viewport.bottom)
+  // Follow the lyric pane's own center, not the portion currently visible on
+  // screen. Scrolling the outer page must not pull the words toward its edge.
+  let band = { top: listRect.top, bottom: listRect.bottom }
   if (reveal && Math.min(listRect.bottom, viewport.bottom) - Math.max(listRect.top, viewport.top)
     < Math.min(list.clientHeight, rowRect.height + 24)) {
     window.scrollBy({ top: (listRect.top + listRect.bottom - viewport.top - viewport.bottom) / 2, behavior: 'instant' as ScrollBehavior })
     listRect = list.getBoundingClientRect()
     rowRect = row.getBoundingClientRect()
     viewport = unobscuredViewport(list)
-    band = lyricVisibleBand(listRect.top, listRect.bottom, viewport.top, viewport.bottom)
+    band = { top: listRect.top, bottom: listRect.bottom }
   }
   const top = lyricCenteredScrollTop(list.scrollTop, rowRect.top, rowRect.bottom, band)
   list.scrollTo({ top, behavior: instant || isMotionReduced() ? 'instant' as ScrollBehavior : 'smooth' })
@@ -166,6 +180,9 @@ function markManualScroll() {
 function touchStart(event: TouchEvent) {
   if (event.touches.length !== 1) { lastFingerY = undefined; return }
   lastFingerY = event.touches[0].clientY
+  fingerStartX = event.touches[0].clientX
+  fingerStartY = event.touches[0].clientY
+  touchDirection = 'pending'
   touchPointerMoved = false
 }
 
@@ -173,6 +190,16 @@ function touchMove(event: TouchEvent) {
   const list = container.value
   if (!list || lastFingerY === undefined || event.touches.length !== 1) return
   const nextY = event.touches[0].clientY
+  if (touchDirection === 'horizontal') return
+  if (touchDirection === 'pending') {
+    const dx = Math.abs(event.touches[0].clientX - fingerStartX), dy = Math.abs(nextY - fingerStartY)
+    if (Math.max(dx, dy) < 10) return
+    touchPointerMoved = true
+    clearConfirmation()
+    if (dx >= dy * 1.35) { touchDirection = 'horizontal'; return }
+    if (dy < dx * 1.1) return
+    touchDirection = 'vertical'
+  }
   const delta = lastFingerY - nextY
   lastFingerY = nextY
   if (Math.abs(delta) < .5) return
@@ -213,8 +240,8 @@ function seekLine(line: LyricLine, event: MouseEvent, index: number) {
 
 function confirmLine(line: LyricLine) {
   clearConfirmation()
-  const target = lyricSeekPosition(line, props.offsetMs, props.duration)
-  anchor = { position: target, monotonicTime: performance.now(), playing: props.playing, rate: props.rate }
+  const target = lyricSeekPosition(line, props.offsetMs, props.duration, props.loop)
+  anchor = { position: target, monotonicTime: performance.now(), playing: props.playing, rate: props.rate, loop: props.loop }
   manualScroll.value = false
   renderClock()
   void followActive(false, true)
@@ -242,7 +269,7 @@ function onViewportChange() {
   })
 }
 
-watch(() => [props.position, props.playing, props.rate, props.offsetMs, props.duration], reanchor)
+watch(() => [props.position, props.playing, props.rate, props.offsetMs, props.duration, props.loop], reanchor)
 watch(displayLines, () => {
   highlightedRow = -1
   reanchor()
@@ -266,9 +293,7 @@ onMounted(() => {
   mounted = true
   document.addEventListener('visibilitychange', onVisibility)
   window.addEventListener('resize', onViewportChange, { passive: true })
-  window.addEventListener('scroll', onViewportChange, { passive: true })
   window.visualViewport?.addEventListener('resize', onViewportChange, { passive: true })
-  window.visualViewport?.addEventListener('scroll', onViewportChange, { passive: true })
   layoutObserver = new ResizeObserver(onViewportChange)
   if (container.value) layoutObserver.observe(container.value)
   reanchor()
@@ -284,9 +309,7 @@ onUnmounted(() => {
   ++followGeneration
   document.removeEventListener('visibilitychange', onVisibility)
   window.removeEventListener('resize', onViewportChange)
-  window.removeEventListener('scroll', onViewportChange)
   window.visualViewport?.removeEventListener('resize', onViewportChange)
-  window.visualViewport?.removeEventListener('scroll', onViewportChange)
 })
 </script>
 

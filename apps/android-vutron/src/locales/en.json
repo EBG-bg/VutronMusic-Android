@@ -1,4 +1,21 @@
 {
+  "batch": {"title":"Track selection","select":"Select tracks","selected":"{count} of {total} selected","all":"Select current results","clear":"Clear selection","removeHint":"Remove the {count} selected tracks from this playlist? Original audio files are kept.","onlineOnly":"All selected tracks need a NetEase track ID to add them to a NetEase playlist.","queuedNext":"Queued {count} tracks to play next","queuedAppend":"Added {count} tracks to the end of the queue"},
+  "orderDraft": { "title": "Save order changes?", "message": "This order has not been saved. Save to update this playlist, or discard to restore the order from before editing.", "save": "Save order", "discard": "Discard changes", "changed": "Unsaved order changes" },
+  "orderHistory": {
+    "retentionSummary": "Automatic history · {limit}",
+    "previewTitle": "Preview order",
+    "title": "Sort history", "scopeHint": "For this playlist only.", "original": "Order before changes", "serverOrder": "Current server order", "cachedOrder": "Cached playlist order", "restoreSource": "Use {label}", "restoredSource": "Switched to {label}",
+    "recentCustom": "Load latest custom order", "chooseHint": "Choose a saved order to preview.", "limit": "Automatic versions to keep", "applyLimit": "Apply", "limitHint": "Keep the latest {limit} different orders for this playlist. Older automatic versions are removed first. Permanent versions are kept separately.", "limitInvalid": "Enter an integer from 1 to 50.", "counts": "Automatic {automatic} · Permanent {permanent}", "versions": "Saved orders", "empty": "No sort history yet", "emptyHint": "Changing the sort saves the new order and keeps the order before the change. Each playlist has its own history.",
+    "backToHistory": "Saved orders", "previewHint": "Preview · not applied", "reconcile": "{matched} matched · {missing} skipped · {added} new at end", "previewList": "Track order preview", "noSharedTracks": "None of the saved tracks remain in this playlist. This version cannot be applied.", "added": "New", "confirmLoad": "Apply order", "manage": "Name and retention", "name": "Order name", "nameHint": "Optional, up to 80 characters", "saveName": "Save name", "keepPermanent": "Save permanently", "permanentHint": "Does not count toward the automatic limit and is kept until you delete it.", "permanent": "Permanent", "delete": "Delete saved order", "deleteTitle": "Delete this saved order?", "deleteHint": "Deleting “{name}” cannot be undone. The playlist, audio files and current sort are kept.", "deleted": "Saved order deleted", "loaded": "Saved order applied as a custom sort", "saveFailed": "Could not save sort history. Please retry.", "saveBeforeSyncFailed": "History could not be saved. No server update was sent. Please retry.", "readFailed": "Could not read sort history. Please retry.", "unavailable": "This saved order is unavailable or has no remaining tracks."
+  },
+  "playbackFeatureErrors": { "notReady": "Wait for a seekable track to be ready.", "trackChanged": "The track changed. Set a loop for the current track again.", "abRange": "A and B must be within the current track.", "abSpan": "B must be at least 0.5 seconds after A.", "sleepConflict": "Cancel the track-completion sleep timer before enabling A/B looping.", "abConflict": "Turn off A/B looping before starting a track-completion sleep timer.", "sleepCount": "Choose between 1 and 100 track completions.", "sleepDuration": "Choose a valid countdown duration.", "sleepFade": "Choose no fade, or a fade of 5, 15 or 30 seconds.", "invalidRequest": "The playback setting is invalid. Select it again.", "hint": "Adjust the related setting and retry. The original error is kept in the details." },
+  "sleepEnhanced": {
+    "mode": "Pause after", "mode_duration": "Countdown", "mode_track": "This track ends", "mode_count": "A number of tracks", "count": "Tracks to finish", "tracks": "tracks", "fade": "Fade out before pausing", "noFade": "No fade", "fadeSeconds": "{count} seconds",
+    "fadeHint": "Temporarily lowers playback volume before pausing. Saved track and playlist volumes stay unchanged.", "runningTrack": "Pause when this track ends", "runningCount": "Pause after {count} more completions", "countHint": "Only natural completions count. Skipping a track does not count; each repeat-one completion counts once.", "trackHint": "Pauses when the current track ends naturally. Switching to another track cancels this timer.", "needsTrack": "Start a seekable track before using this mode.", "abConflict": "A track-completion timer cannot run with A/B looping. Turn off A/B looping before starting this timer.", "disableAb": "Turn off A/B looping", "failed": "Could not update the sleep timer. Please retry."
+  },
+  "abLoop": {
+    "title": "A/B loop", "hint": "Set A and B to repeat a section. Times are relative to the current track or CUE segment.", "unset": "Not set", "markA": "Set A here", "markB": "Set B here", "exactA": "A time", "exactB": "B time", "enable": "Enable loop", "disable": "Pause loop", "clear": "Clear markers", "needsTrack": "Wait for a seekable track to be ready before setting a loop.", "invalidRange": "Set both markers, with B at least {seconds} seconds after A.", "sleepConflict": "A track-completion sleep timer is active. Cancel it before enabling this loop. A countdown timer can run with looping.", "cancelSongTimer": "Cancel track timer", "lifecycleHint": "Editing markers pauses the loop. Changing tracks or stopping clears the range; restarting the app never enables it automatically. Seeking stays within A–B while looping. Turn off the loop to seek elsewhere.", "failed": "Could not update the loop range. Please retry.", "unavailable": "The current playback service does not support A/B looping."
+  },
   "collapsePlayer": "Collapse player and return to the previous page",
   "playbackReview": {
     "collapseReplies": "Collapse replies",
@@ -194,7 +211,7 @@
     "restoreOverlay": "Restore now",
     "validateLyrics": "Validate cached lyrics automatically on Wi-Fi",
     "estimateLyrics": "Estimate word timing when original timing is unavailable",
-    "estimateHint": "Off by default. Estimates use line duration and may be inaccurate; original word timing is always preferred. This setting and the colors apply to both in-app and floating lyrics.",
+    "estimateHint": "Off by default. Estimates avoid obvious long interludes but cannot detect actual vocal pauses from plain lyrics and may be inaccurate. Real word timing always wins. This setting and the colors apply to both in-app and floating lyrics.",
     "lyricColors": "Lyric colors and background",
     "lyricColorsHint": "Expand to adjust colors and opacity",
     "fontSize": "Lyric size",
@@ -351,12 +368,20 @@
     "unlinked": "Unlinked"
   },
   "ordering": {
+    "syncOnExit": "The current order syncs when you leave this playlist. Your custom order is kept.",
+    "localViewOnly": "This playlist order is saved on this device only.",
+    "syncing": "Syncing playlist order…",
+    "syncFailed": "Order could not sync. Your local order is kept.",
+    "pendingTitle": "Playlist order has not synced",
+    "pendingMessage": "Automatic sync did not finish. Retry, or keep the local order and leave.",
+    "retrySync": "Retry sync",
+    "keepLocal": "Keep local and leave",
+    "continueEditing": "Keep editing",
     "showSortHints": "Show playlist sorting tips",
     "dismissSortHint": "Dismiss sorting tips",
     "finishSort": "Done sorting",
     "editSort": "Edit playlist order",
     "custom": "Custom",
-    "dragHint": "Drag a handle to reorder. Press Back or Cancel to discard this drag.",
     "clearFilter": "Clear the search to drag. Searching never changes the saved order.",
     "restore": "Restore original order",
     "restored": "Original order restored",
@@ -484,6 +509,7 @@
     "cached": "No new content was retrieved. Showing saved content."
   },
   "player": {
+    "locateCurrent": "Show current track",
     "queue": "Play queue",
     "closeQueue": "Close play queue",
     "inserted": "Play next · {count}",

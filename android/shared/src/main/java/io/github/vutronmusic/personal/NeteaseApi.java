@@ -156,20 +156,26 @@ public final class NeteaseApi {
     public List<JSONObject> tracks(long playlistId) throws IOException { return tracks(playlistDetail(playlistId)); }
 
     public List<JSONObject> tracks(JSONObject playlist) throws IOException {
+        return tracks(playlist, null);
+    }
+    @FunctionalInterface public interface TracksProgress { void loaded(List<JSONObject> appended, int total) throws IOException; }
+    public List<JSONObject> tracks(JSONObject playlist, TracksProgress progress) throws IOException {
         LinkedHashMap<Long, JSONObject> songs = new LinkedHashMap<>();
         addSongs(songs, playlist.optJSONArray("tracks"));
         JSONArray trackIds = playlist.optJSONArray("trackIds");
-        if (trackIds == null) return new ArrayList<>(songs.values());
+        if (trackIds == null) { List<JSONObject> result = new ArrayList<>(songs.values()); if (progress != null && !result.isEmpty()) progress.loaded(result, result.size()); return result; }
         List<Long> order = new ArrayList<>();
         List<Long> missing = new ArrayList<>();
+        Set<Long> seen = new LinkedHashSet<>();
         for (int i = 0; i < trackIds.length(); i++) {
             JSONObject track = trackIds.optJSONObject(i);
             long id = track == null ? 0 : track.optLong("id");
-            if (id > 0) {
+            if (id > 0 && seen.add(id)) {
                 order.add(id);
                 if (!songs.containsKey(id)) missing.add(id);
             }
         }
+        int published = publishTrackPrefix(progress, order, songs, 0, false);
         for (int start = 0; start < missing.size(); start += 500) {
             JSONArray ids = new JSONArray();
             for (int i = start; i < Math.min(start + 500, missing.size()); i++) {
@@ -180,13 +186,27 @@ public final class NeteaseApi {
             JSONArray loaded = details.optJSONArray("songs");
             if (loaded == null) throw new IOException("歌曲详情接口未返回歌曲列表");
             addSongs(songs, loaded);
+            published = publishTrackPrefix(progress, order, songs, published, false);
         }
+        publishTrackPrefix(progress, order, songs, published, true);
         List<JSONObject> result = new ArrayList<>();
         for (long id : order) {
             JSONObject song = songs.get(id);
             if (song != null) result.add(song);
         }
         return result;
+    }
+    private static int publishTrackPrefix(TracksProgress progress, List<Long> order, Map<Long, JSONObject> songs, int start, boolean finished) throws IOException {
+        if (progress == null) return start;
+        List<JSONObject> appended = new ArrayList<>(); int cursor = start;
+        while (cursor < order.size()) {
+            JSONObject song = songs.get(order.get(cursor));
+            if (song == null && !finished) break;
+            if (song != null) appended.add(song);
+            cursor++;
+        }
+        if (!appended.isEmpty()) progress.loaded(appended, order.size());
+        return cursor;
     }
 
     /** liked is an account relation, not a song/detail field. */
@@ -232,37 +252,97 @@ public final class NeteaseApi {
 
     public void changePlaylistTrack(long playlistId, long trackId, boolean add) throws IOException {
         if (trackId <= 0) throw new IOException("歌曲 ID 无效");
-        ownPlaylist(playlistId);
-        JSONArray ids = new JSONArray().put(Long.toString(trackId));
+        changePlaylistTracks(playlistId, new JSONArray().put(trackId), add);
+    }
+
+    public void changePlaylistTracks(long playlistId, JSONArray trackIds, boolean add) throws IOException {
+        if (trackIds == null || trackIds.length() == 0) throw new IOException("请选择要管理的歌曲");
+        Set<Long> requested = new LinkedHashSet<>();
+        for (int i = 0; i < trackIds.length(); i++) {
+            Object value = trackIds.opt(i);
+            long id = value instanceof Number ? ((Number) value).longValue() : 0;
+            if (id <= 0 || ((Number) value).doubleValue() != id) throw new IOException("歌曲 ID 无效");
+            requested.add(id);
+        }
+        JSONObject playlist = ownPlaylist(playlistId);
+        JSONArray original = playlist.optJSONArray("trackIds");
+        if (original != null) {
+            Set<Long> existing = new LinkedHashSet<>();
+            for (int i = 0; i < original.length(); i++) {
+                JSONObject item = original.optJSONObject(i);
+                if (item != null && item.optLong("id") > 0) existing.add(item.optLong("id"));
+            }
+            requested.removeIf(id -> add == existing.contains(id));
+        }
+        if (requested.isEmpty()) return;
+        JSONArray ids = new JSONArray();
+        for (long id : requested) ids.put(Long.toString(id));
         JSONObject payload = json("op", add ? "add" : "del", "pid", playlistId, "trackIds", ids.toString(), "imme", "true");
         JSONObject response = request("/api/playlist/manipulate/tracks", payload, false);
         // Mirror the upstream module's one specific 512 compatibility path.
         if (response.optInt("code") == 512) {
-            ids.put(Long.toString(trackId));
+            for (long id : requested) ids.put(Long.toString(id));
             response = request("/api/playlist/manipulate/tracks", json("op", add ? "add" : "del", "pid", playlistId, "trackIds", ids.toString(), "imme", "true"), false);
         }
         requireSuccess(response, add ? "添加到歌单" : "从歌单移除歌曲");
     }
 
+    public void reorderPlaylistTracks(long playlistId, JSONArray ids) throws IOException {
+        if (ids == null || ids.length() == 0) throw new IOException("歌单排序缺少完整歌曲列表");
+        Set<Long> requested = new LinkedHashSet<>();
+        for (int i = 0; i < ids.length(); i++) {
+            Object value = ids.opt(i);
+            long id = value instanceof Number ? ((Number) value).longValue() : 0;
+            if (id <= 0 || ((Number) value).doubleValue() != id || !requested.add(id)) throw new IOException("歌单排序歌曲 ID 无效或重复");
+        }
+        JSONObject playlist = ownPlaylist(playlistId);
+        JSONArray original = playlist.optJSONArray("trackIds");
+        Set<Long> current = new LinkedHashSet<>();
+        if (original != null) for (int i = 0; i < original.length(); i++) {
+            JSONObject row = original.optJSONObject(i);
+            if (row != null && row.optLong("id") > 0) current.add(row.optLong("id"));
+        }
+        if (!current.equals(requested) || original == null || original.length() != ids.length()) throw new IOException("歌单歌曲已变化，请刷新完整歌单后重新排序");
+        boolean changed = false;
+        for (int i = 0; i < ids.length(); i++) if (original.optJSONObject(i).optLong("id") != ids.optLong(i)) { changed = true; break; }
+        if (!changed) return;
+        // Same endpoint/payload as the original song_order_update module.
+        requireSuccess(request("/api/playlist/manipulate/tracks", json("pid", playlistId, "trackIds", ids.toString(), "op", "update"), false), "同步歌单顺序");
+    }
+
     public void editPlaylist(long playlistId, String name, String description, JSONArray tags) throws IOException {
         name = playlistName(name);
-        if (description == null) description = "";
-        if (description.length() > 10000 || tags == null || tags.length() > 3) throw new IOException("歌单简介或标签超过限制");
-        StringBuilder joined = new StringBuilder();
+        description = normalizedPlaylistDescription(description);
+        if (description.length() > 10000 || tags == null) throw new IOException("歌单简介或标签超过限制");
+        Set<String> normalizedTags = new LinkedHashSet<>();
         for (int i = 0; i < tags.length(); i++) {
             String tag = tags.optString(i).trim();
             if (tag.isEmpty() || tag.length() > 64 || tag.indexOf(';') >= 0) throw new IOException("歌单标签无效");
-            if (joined.length() > 0) joined.append(';'); joined.append(tag);
+            normalizedTags.add(tag);
         }
-        ownPlaylist(playlistId);
+        if (normalizedTags.size() > 3) throw new IOException("歌单简介或标签超过限制");
+        JSONObject playlist = ownPlaylist(playlistId);
+        Set<String> previousTags = new LinkedHashSet<>();
+        JSONArray previous = playlist.optJSONArray("tags");
+        if (previous != null) for (int i = 0; i < previous.length(); i++) previousTags.add(previous.optString(i).trim());
         String descPath = "/api/playlist/desc/update", tagPath = "/api/playlist/tags/update", namePath = "/api/playlist/update/name";
-        JSONObject result = request("/api/batch", json(descPath, json("id", playlistId, "desc", description).toString(),
-                tagPath, json("id", playlistId, "tags", joined.toString()).toString(), namePath, json("id", playlistId, "name", name).toString()), false);
+        List<Object> updates = new ArrayList<>();
+        if (!description.equals(normalizedPlaylistDescription(playlist.isNull("description") ? "" : playlist.optString("description")))) { updates.add(descPath); updates.add(json("id", playlistId, "desc", description).toString()); }
+        if (!normalizedTags.equals(previousTags)) { updates.add(tagPath); updates.add(json("id", playlistId, "tags", String.join(";", normalizedTags)).toString()); }
+        if (!name.equals(playlist.optString("name").trim())) { updates.add(namePath); updates.add(json("id", playlistId, "name", name).toString()); }
+        if (updates.isEmpty()) return;
+        JSONObject changed = json(updates.toArray());
+        JSONObject result = request("/api/batch", changed, false);
         requireSuccess(result, "编辑歌单");
         for (String path : new String[]{descPath, tagPath, namePath}) {
+            if (!changed.has(path)) continue;
             JSONObject item = result.optJSONObject(path);
             if (item == null || item.optInt("code") != 200) throw new IOException("歌单信息未全部更新，部分字段可能已生效，请刷新确认");
         }
+    }
+
+    private static String normalizedPlaylistDescription(String description) {
+        return description == null ? "" : description.replace("\r\n", "\n").replace('\r', '\n').trim();
     }
 
     private static String playlistName(String name) throws IOException {
@@ -460,13 +540,13 @@ public final class NeteaseApi {
         JSONObject response = request("/api/v2/resource/comments", json("threadId", commentThread(target,id), "pageNo",page,
                 "pageSize",30,"showInner",true,"cursor",position,"sortType",sort), false);
         commentSuccess(response);
-        return CommentData.page(response.optJSONObject("data"), page+1, sort, false);
+        return CommentData.page(response.optJSONObject("data"), page+1, sort, false, commentThread(target,id));
     }
     public JSONObject commentFloor(String target, String id, String parentId, String time) throws IOException {
         JSONObject response = request("/api/resource/comment/floor/get", json("threadId",commentThread(target,id),
                 "parentCommentId",commentId(parentId),"time",safeCursor(time).equals("0") ? "-1" : safeCursor(time),"limit",30),true);
         commentSuccess(response);
-        return CommentData.page(response.optJSONObject("data"),1,3,true);
+        return CommentData.page(response.optJSONObject("data"),1,3,true,commentThread(target,id));
     }
     public void likeComment(String target, String id, String commentId, boolean liked) throws IOException {
         JSONObject response = request("/api/v1/comment/"+(liked?"like":"unlike"),

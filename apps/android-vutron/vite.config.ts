@@ -14,7 +14,13 @@ export default defineConfig({
     },
     generateBundle() { this.emitFile({ type: 'asset', fileName: 'build-info.json', source: JSON.stringify(mobileBuild, null, 2) }) }
   }],
-  define: { __VUTRON_BUILD__: JSON.stringify(mobileBuild) },
+  define: {
+    __VUTRON_BUILD__: JSON.stringify(mobileBuild),
+    // The app exclusively uses Composition API and plain text translations.
+    // Keep the message compiler: messages remain strings for synchronous use.
+    __VUE_I18N_LEGACY_API__: false,
+    __VUE_I18N_FULL_INSTALL__: false
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

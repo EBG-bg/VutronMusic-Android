@@ -2,7 +2,7 @@ const entries=[
  {id:'local',name:'Local music',type:'local',baseUrl:'',methods:['getAllTracks']},
  {id:'emby',name:'Emby',type:'stream',baseUrl:'',methods:['getAccount','updateBaseUrl','doLogin','doLogout','systemPing','getAllTracks']},
  {id:'netease',name:'NetEase Cloud Music',type:'library',baseUrl:'http://localhost:41830/netease',methods:['getAccount','updateBaseUrl','doLogin','doLogout','systemPing','loginQrKey','loginQrCodeCheck','getAllTracks']},
- {id:'kugou',name:'Kugou',type:'library',baseUrl:'https://kugou.invalid',methods:['getAllTracks','getLyric']},
+ {id:'kugou',name:'Kugou',type:'library',baseUrl:'',methods:['getAccount','updateBaseUrl','doLogin','doLogout','systemPing','loginQrKey','loginQrCodeCheck','getAllTracks','getLyric']},
  {id:'jellyfin',name:'Jellyfin',type:'stream',baseUrl:'',methods:['getAccount','updateBaseUrl','doLogin','systemPing','getAllTracks']},
  {id:'navidrome',name:'Navidrome',type:'stream',baseUrl:'',methods:['getAccount','updateBaseUrl','doLogin','systemPing','getAllTracks']},
  {id:'demo',name:'Demo',type:'local',baseUrl:'',methods:['getAllTracks']}

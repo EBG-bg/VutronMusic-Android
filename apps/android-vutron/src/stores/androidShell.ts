@@ -1,49 +1,33 @@
 import { translate as t } from '../platform/i18n'
-import { computed, ref, shallowRef } from 'vue'
-import { timerDeadline, timerRemaining, timerLabel } from '../utils/sleepTimer'
+import { computed, ref, watch } from 'vue'
 import { recordPlaylistPlayback } from '../composables/playlistOrdering'
 import { appNavigation } from '../composables/navigationGuard'
+import { offerUndo } from '../platform/undo'
+import { undoText } from '../platform/undoMessages'
+import { askAction } from '../platform/actionDialog'
 import { defineStore } from 'pinia'
 import type { PluginPlayback } from '../plugins/protocol'
-import { createLiveSettingWriter } from '../platform/liveSettingWrites'
-import { flushRegisteredLiveSettings } from '../platform/liveSettingsLifecycle'
 import { createAuthSession } from './domains/authSession'
 import { createLocalLibrary } from './domains/localLibrary'
 import { createNeteaseLibrary } from './domains/neteaseLibrary'
+import { loadPlaylistTrackBatches } from './domains/playlistTrackLoading'
+import { playlistLoadingText } from '../platform/playlistLoadingMessages'
+import { createShellNavigation } from './domains/shellNavigation'
+import { createShellSearch } from './domains/shellSearch'
+import { createShellCache } from './domains/shellCache'
+import { createShellOverlay } from './domains/shellOverlay'
+import { sharePlaybackSnapshot } from './domains/playbackSnapshot'
+import type { ShellEntity } from './domains/shellTypes'
 import { libraryMutationBusy } from '../platform/libraryActivity'
 import { selectLyricFamily, type LyricFamily } from '@vutronmusic/core/lyrics'
 import {
   vutronPlugin,
-  type VutronCacheStatus,
-  type VutronHomeData,
-  type VutronLocalTrack,
-  type VutronLocalCollection,
-  type VutronLyricOverlaySettings,
-  type VutronPlaybackState,
-  type VutronPlaylist,
-  type VutronOnlineLibrary,
-  type VutronSearchCategory,
-  type VutronSearchResult,
-  type VutronSearchItem,
-  type VutronTrack,
-  type VutronQueue
+  type VutronHomeData, type VutronLocalCollection, type VutronPlaybackState,
+  type VutronPlaylist, type VutronOnlineLibrary, type VutronTrack, type VutronQueue,
 } from '../platform/vutronPlugin'
 
 const emptyPlaybackState: VutronPlaybackState = {
-  playing: false, trackId: 0, title: '', artist: '', duration: 0, position: 0, error: ''
-}
-
-type ShellTab = 'home' | 'library' | 'search' | 'entity' | 'localCollection' | 'player' | 'settings' | 'about' | 'plugins'
-type ShellEntity = { category: 'albums' | 'artists'; id: number; name: string; picUrl?: string }
-interface NavigationEntry {
-  tab: ShellTab
-  pluginId?: string
-  musicSourceId?: string
-  playlist?: VutronPlaylist
-  entity?: ShellEntity
-  localCollection?: VutronLocalCollection
-  tracks: VutronTrack[]
-  scrollY: number
+  playing: false, trackId: 0, title: '', artist: '', duration: 0, position: 0, error: '',
 }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -55,21 +39,58 @@ function errorMessage(error: unknown, fallback: string): string {
   return fallback
 }
 
-function colorInputValue(value: number): string {
-  return `#${((value >>> 0) & 0xffffff).toString(16).padStart(6, '0')}`
-}
-
 export const useAndroidShellStore = defineStore('androidShell', () => {
   const loading = ref(false)
   const error = ref('')
+  const playlists = ref<VutronPlaylist[]>([])
+  const playlistsLoading = ref(false)
+  let playlistReadVersion = 0
+  const tracks = ref<VutronTrack[]>([])
+  const selectedPlaylist = ref<VutronPlaylist>()
+  const playlistLoadIncomplete = computed(() => Boolean(selectedPlaylist.value?.tracksIncomplete && !selectedPlaylist.value.offlineSnapshot))
+  const playlistLoadError = computed(() => playlistLoadIncomplete.value ? selectedPlaylist.value?.tracksLoadError || '' : '')
+  const selectedLocalCollection = ref<VutronLocalCollection>()
+  const selectedEntity = ref<ShellEntity>()
+  const playback = ref<VutronPlaybackState>({ ...emptyPlaybackState })
+  const abLoopEnabled = ref(false)
+  let abLoopRevision = 0
+  function applyAbLoopState(next: import('../platform/vutronPlugin').VutronAbLoopState) {
+    if (next.trackId !== playback.value.trackId) return
+    ++abLoopRevision
+    abLoopEnabled.value = next.enabled
+    playback.value.abLoop = next.enabled ? next : undefined
+    playback.value.abLoopEnabled = next.enabled
+    if (next.positionMs !== undefined && Number.isFinite(next.positionMs)) playback.value.position = Math.max(0, next.positionMs)
+  }
+  watch([() => playback.value.trackId, () => playback.value.track?.pluginId, () => playback.value.track?.pluginAccountScope, () => playback.value.track?.pluginTrackId], () => { abLoopEnabled.value = false }, { flush: 'sync' })
+  const playbackQueue = ref<VutronQueue>({ tracks: [], index: -1, upNext: [], mode: 0 })
+  const queueOpen = ref(false)
+  const queueNotice = ref('')
+  const cachedPlaylists = ref<VutronPlaylist[]>([])
+  const homeData = ref<VutronHomeData>({ banners: [], playlists: [], artists: [], albums: [], charts: [], dailyTracks: [] })
+  const homeLoading = ref(false)
+  const cacheAllPlaylistsLoading = ref(false)
+  const cacheAllPlaylistsResult = ref('')
+  const autoMatchSources = ref(true)
+  const lyrics = ref<LyricFamily>({ original: [], translation: [], pairedTranslations: [], source: 'empty' })
+  const lyricsLoading = ref(false)
+  let offlineReadVersion = 0
+  let playbackTimer: ReturnType<typeof setInterval> | undefined
+  let playbackRequestPending = false
+  let queueReadKey = ''
+  let lyricTrackId = 0
+  let trackListRequestId = 0
+  let lyricsRequestId = 0
+  const playbackPlaylistCache = new Set<number>()
+
   const authSession = createAuthSession({
-    loading, error, formatError: errorMessage, restoreLocalState, resetToLocalLibrary, startPlaybackPolling,
+    loading, error, formatError: errorMessage, restoreLocalState, resetToLocalLibrary: () => navigation.resetToLocalLibrary(), startPlaybackPolling,
     loadOnlineState: async () => { if (!activeMusicSourceId.value) await Promise.all([loadPlaylists(), loadHomeData(), onlineLibrary.loadLikedTracks()]) },
     resetToOnlineHome: () => { navigationHistory.value = []; activeMusicSourceId.value = ''; activeTab.value = 'home' },
     beforeLogout: async () => {
       await flushLiveSettings()
-      ++trackListRequestId; ++searchRequestId; ++lyricsRequestId
-      ++cacheSettingsRevision; playbackPlaylistCache.clear()
+      ++trackListRequestId; search.incrementSearchRequest(); ++lyricsRequestId
+      cache.bumpCacheReadRevision(); playbackPlaylistCache.clear()
     },
     clearOnlineState: () => { playlistReadVersion++; playlistsLoading.value = false; playlists.value = [] },
     onAutomaticOffline: () => {
@@ -83,119 +104,41 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     qrLoginKey, qrLoginImage, qrLoginStatus, qrLoginLoading,
     restore, enterLocalOnly, useAutomaticMode, refreshConnectivity, disposeNetworkMonitoring, requestLogin, login, createQrLogin, checkQrLogin, cancelQrLogin, logout
   } = authSession
-  const playlists = ref<VutronPlaylist[]>([])
-  const playlistsLoading = ref(false)
-  let playlistReadVersion = 0
-  const tracks = ref<VutronTrack[]>([])
-  const selectedPlaylist = ref<VutronPlaylist>()
-  const selectedLocalCollection = ref<VutronLocalCollection>()
+
+  const search = createShellSearch({ onlineAvailable, error, t, formatError: errorMessage })
+  const { searchCategory, searchKeywords, submittedSearch, searchResults, searchCount,
+    searchNextPage, searchLoading, runSearch, loadMoreSearch } = search
+  const navigation = createShellNavigation({
+    loading, searchLoading, localOnly, loginRequested, onlineAvailable,
+    selectedPlaylist, selectedEntity, selectedLocalCollection, tracks,
+    incrementTrackListRequest: () => { ++trackListRequestId },
+    incrementSearchRequest: search.incrementSearchRequest,
+  })
+  const { activeTab, activePluginId, activeMusicSourceId, navigationHistory,
+    navigationDirection, navigationScrollY, canNavigateBack,
+    rememberPage, navigateTo, navigateBack, openPlugins, selectMusicSource,
+    discardMusicSource, retainMusicSources, resetToLocalLibrary } = navigation
   const { localLibrary, libraryLoading, localScanLoading, localTracks, folderName,
     pickMusicFolder, loadLocalMusic, loadLocalLibrary, importLocalPlaylist
-  } = createLocalLibrary({ error, onlineAvailable, formatError: errorMessage, openCollection: openLocalCollection, notice: message => { queueNotice.value = message } })
-  const cachedTracks = ref<VutronLocalTrack[]>([])
-  const cacheStatus = ref<VutronCacheStatus>({ capacityMb: 2048, usedBytes: 0, trackCount: 0, enabled: true })
-  const cacheCapacityMb = ref(2048)
-  const artworkCacheCapacityMb = ref(128)
-  const overlaySettings = ref<VutronLyricOverlaySettings>({
-    enabled: false, locked: false, translation: true, nextLine: true, wifiValidation: true, estimatedWordTiming: false,
-    fontSize: 22, playedColor: 0xff37cf88, unplayedColor: 0xffd2d2d2,
-    backgroundColor: 0xff181920, shadowColor: 0x99000000, shadowEnabled: true,
-    shadowRadius: 2, touchPassthroughPriority: true, permissionGranted: false
+  } = createLocalLibrary({ error, onlineAvailable, formatError: errorMessage,
+    openCollection: openLocalCollection, notice: message => { queueNotice.value = message } })
+  const overlay = createShellOverlay({ playback, error, t, formatError: errorMessage, playbackTrackKey })
+  const { overlaySettings, overlayEnabled, overlayPlayedColor, overlayUnplayedColor,
+    overlayShadowColor, overlayBackgroundOpacity, loadOverlaySettings, toggleLyricOverlay,
+    updateOverlayField, temporarilyHideOverlay, restoreOverlay, updateOverlayColor,
+    updateOverlayBackgroundOpacity, updateCurrentLyricOffset,
+    setCurrentTrackVolume, setCurrentPlaylistVolume, flushLiveSettings } = overlay
+  const cache = createShellCache({
+    playback, activeTab, onlineAvailable, error, t, formatError: errorMessage,
+    resolveCacheTrack: () => playback.value.track ?? [...tracks.value, ...localTracks.value]
+      .find(item => item.id === playback.value.trackId),
+    loadOfflinePlaylists,
   })
-  const overlayEnabled = computed(() => overlaySettings.value.enabled)
-  const overlayPlayedColor = computed(() => colorInputValue(overlaySettings.value.playedColor))
-  const overlayUnplayedColor = computed(() => colorInputValue(overlaySettings.value.unplayedColor))
-  const overlayShadowColor = computed(() => colorInputValue(overlaySettings.value.shadowColor))
-  const overlayBackgroundOpacity = computed(() => Math.round(((overlaySettings.value.backgroundColor >>> 24) & 0xff) * 100 / 255))
-  const lyrics = ref<LyricFamily>({ original: [], translation: [], pairedTranslations: [], source: 'empty' })
-  const lyricsLoading = ref(false)
-  const activeTab = ref<ShellTab>('home')
-  const activePluginId = ref('')
-  const activeMusicSourceId = ref('')
-  const navigationHistory = shallowRef<NavigationEntry[]>([])
-  const navigationDirection = ref<'forward' | 'back'>('forward')
-  const navigationScrollY = ref(0)
-  const rootTab = computed<ShellTab>(() => localOnly.value && !activeMusicSourceId.value ? 'library' : 'home')
-  const canNavigateBack = computed(() => loginRequested.value && localOnly.value || navigationHistory.value.length > 0 || activeTab.value !== rootTab.value)
-  const playback = ref<VutronPlaybackState>({ ...emptyPlaybackState })
-  const playbackQueue = ref<VutronQueue>({ tracks: [], index: -1, upNext: [], mode: 0 })
-  const queueOpen = ref(false)
-  let queueReadKey = ''
-  const queueNotice = ref('')
-  const selectedEntity = ref<ShellEntity>()
-  const cachedPlaylists = ref<VutronPlaylist[]>([])
-  let offlineReadVersion = 0
-  const homeData = ref<VutronHomeData>({ banners: [], playlists: [], artists: [], albums: [], charts: [], dailyTracks: [] })
-  const searchCategory = ref<VutronSearchCategory>('tracks')
-  const searchKeywords = ref('')
-  const submittedSearch = shallowRef<{ category: VutronSearchCategory; keywords: string }>({ category: 'tracks', keywords: '' })
-  const searchResults = ref<VutronSearchItem[]>([])
-  const searchCount = ref(0)
-  const searchNextPage = ref(0)
-  const searchLoading = ref(false)
-  let searchRequestId = 0
-  const homeLoading = ref(false)
-  const sleepTimerDeadline = ref(0), sleepTimerNow = ref(Date.now()), sleepTimerBusy = ref(false)
-  const sleepTimerRemainingMs = computed(() => timerRemaining(sleepTimerDeadline.value, sleepTimerNow.value))
-  let sleepTimerRevision = 0, sleepClock: ReturnType<typeof setInterval> | undefined
-  function stopSleepClock() { if (sleepClock !== undefined) clearInterval(sleepClock); sleepClock = undefined }
-  function startSleepClock() {
-    if (sleepClock !== undefined || sleepTimerDeadline.value <= Date.now() || document.visibilityState === 'hidden') return
-    sleepClock = setInterval(() => { sleepTimerNow.value = Date.now(); if (!sleepTimerRemainingMs.value) stopSleepClock() }, 250)
-  }
-  function syncSleepTimer(sample: { remainingMs: number; deadlineMs?: number }) {
-    sleepTimerNow.value = Date.now(); sleepTimerDeadline.value = timerDeadline(sample, sleepTimerNow.value)
-    if (sleepTimerDeadline.value > sleepTimerNow.value) startSleepClock(); else stopSleepClock()
-  }
-  const sleepTimerMinutes = ref(30)
-  const cacheAllPlaylistsLoading = ref(false)
-  const cacheAllPlaylistsResult = ref('')
-  const autoMatchSources = ref(true)
-  let playbackTimer: ReturnType<typeof setInterval> | undefined
-  let playbackRequestPending = false
-  let cacheStatusPending = false
-  let cacheSettingsRevision = 0
-  let cachePollAt = 0
-  let lyricTrackId = 0
-  let trackListRequestId = 0
-  let lyricsRequestId = 0
-  let overlayRevision = 0
-  let overlayReadRequest = 0
-  let overlayTrackKey = ''
-  type OverlayValue = boolean | number
-  const overlayDrafts = new Map<keyof VutronLyricOverlaySettings, { value: OverlayValue; revision: number }>()
-  const offsetDrafts = new Map<string, { value: number; revision: number }>()
-  const trackVolumeDrafts = new Map<string, { value: number; revision: number }>()
-  const playlistVolumeDrafts = new Map<string, { value: number; revision: number }>()
-  let offsetRevision = 0
-  let volumeRevision = 0
-  type NumberWriter = ReturnType<typeof createLiveSettingWriter<number>>
-  const offsetWriters = new Map<string, NumberWriter>()
-  const trackVolumeWriters = new Map<string, NumberWriter>()
-  const playlistVolumeWriters = new Map<string, NumberWriter>()
-  const overlayWriter = createLiveSettingWriter<Partial<VutronLyricOverlaySettings>>({
-    merge: (previous, next) => ({ ...previous, ...next }),
-    write: async patch => {
-      const savedRevisions = new Map([...overlayDrafts].map(([key, draft]) => [key, draft.revision]))
-      const next = vutronPlugin.updateLyricOverlaySettings
-        ? await vutronPlugin.updateLyricOverlaySettings({ settings: patch })
-        : patch.enabled !== undefined && vutronPlugin.setLyricOverlayEnabled
-          ? await vutronPlugin.setLyricOverlayEnabled({ enabled: patch.enabled }) : undefined
-      for (const key of Object.keys(patch) as (keyof VutronLyricOverlaySettings)[]) {
-        const draft = overlayDrafts.get(key)
-        if (draft?.revision === savedRevisions.get(key) && draft?.value === patch[key]) {
-          if (key === 'enabled' && next?.enabled !== undefined) overlaySettings.value.enabled = next.enabled
-          overlayDrafts.delete(key)
-        }
-      }
-      // Full native snapshots can contain unrelated older slider values.
-      if (next?.permissionGranted !== undefined) overlaySettings.value.permissionGranted = next.permissionGranted
-      if (next?.temporaryHidden !== undefined) overlaySettings.value.temporaryHidden = next.temporaryHidden
-      if (next?.temporaryHiddenRemainingMs !== undefined) overlaySettings.value.temporaryHiddenRemainingMs = next.temporaryHiddenRemainingMs
-    },
-    onError: cause => { error.value = errorMessage(cause, t('mobile.runtimeText.overlaySaveFailed')) }
-  })
-  const playbackPlaylistCache = new Set<number>()
+  const { cacheStatus, cacheCapacityMb, artworkCacheCapacityMb, cachedTracks,
+    loadCacheStatus, setAutomaticCache, setCacheCapacity, setArtworkCacheCapacity,
+    cacheCurrent, clearCache, sleepTimerBusy, sleepTimerMinutes, sleepTimerActive, sleepTimerMode, sleepTimerRemainingTracks, sleepTimerFadeSeconds,
+    sleepTimerRemainingMs, sleepTimerLabel, stopSleepClock, startSleepClock,
+    setSleepTimer, setSleepTimerSeconds, setSleepTimerSettings, clearSleepTimer } = cache
 
   function playbackTrackKey(state = playback.value): string {
     const track = state.track
@@ -206,94 +149,9 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     return JSON.stringify([state.queueToken, state.queueIndex, state.queueCount, state.upNextCount, state.mode, playbackTrackKey(state)])
   }
 
-  function rememberPage() {
-    navigationHistory.value = [...navigationHistory.value, {
-      tab: activeTab.value, pluginId: activePluginId.value, musicSourceId: activeMusicSourceId.value, playlist: selectedPlaylist.value, entity: selectedEntity.value,
-      tracks: tracks.value, localCollection: selectedLocalCollection.value, scrollY: window.scrollY
-    }].slice(-40)
-    navigationDirection.value = 'forward'
-    navigationScrollY.value = 0
-  }
-
-  function navigateTo(tab: ShellTab) {
-    if (!activeMusicSourceId.value && !onlineAvailable.value && ['home', 'search', 'entity'].includes(tab)) return
-    if (tab === activeTab.value && !(tab === 'library' && selectedPlaylist.value)) return
-    rememberPage()
-    ++trackListRequestId
-    loading.value = false
-    activeTab.value = tab
-    if (tab === 'library') { selectedPlaylist.value = undefined; selectedEntity.value = undefined; selectedLocalCollection.value = undefined; tracks.value = [] }
-    if (tab === rootTab.value) navigationHistory.value = []
-  }
-
-  function navigateBack(): boolean {
-    const previous = navigationHistory.value.at(-1)
-    if (!previous && activeTab.value === rootTab.value) return false
-    ++trackListRequestId
-    loading.value = false
-    navigationDirection.value = 'back'
-    navigationScrollY.value = previous?.scrollY ?? 0
-    navigationHistory.value = navigationHistory.value.slice(0, -1)
-    selectedPlaylist.value = previous?.playlist
-    selectedEntity.value = previous?.entity
-    selectedLocalCollection.value = previous?.localCollection
-    activePluginId.value = previous?.pluginId ?? ''
-    activeMusicSourceId.value = previous?.musicSourceId ?? ''
-    tracks.value = previous?.tracks ?? []
-    activeTab.value = previous?.tab ?? rootTab.value
-    return true
-  }
-
-  function openPlugins(pluginId = '') {
-    if (activeTab.value === 'plugins' && activePluginId.value === pluginId) return
-    rememberPage()
-    activePluginId.value = pluginId
-    activeTab.value = 'plugins'
-  }
-
-  /** Source selection belongs to the main shell; plugin accounts stay with their owner. */
-  function selectMusicSource(pluginId: string, tab: 'home' | 'library' | 'search' = 'library') {
-    if (activeMusicSourceId.value === pluginId && activeTab.value === tab && !selectedPlaylist.value) return
-    rememberPage()
-    ++trackListRequestId; ++searchRequestId
-    loading.value = false; searchLoading.value = false
-    activeMusicSourceId.value = pluginId
-    selectedPlaylist.value = undefined; selectedEntity.value = undefined; selectedLocalCollection.value = undefined
-    tracks.value = []
-    activeTab.value = !pluginId && !onlineAvailable.value && tab !== 'library' ? 'library' : tab
-  }
-
-  function discardMusicSource(pluginId: string) {
-    navigationHistory.value = navigationHistory.value.filter(page => page.musicSourceId !== pluginId)
-    if (activeMusicSourceId.value === pluginId) activeMusicSourceId.value = ''
-    if (['home', 'library', 'search'].includes(activeTab.value)) {
-      ++trackListRequestId; ++searchRequestId
-      selectedPlaylist.value = undefined; selectedEntity.value = undefined; selectedLocalCollection.value = undefined
-      tracks.value = []; loading.value = false; activeTab.value = 'library'
-    }
-  }
-
-  function retainMusicSources(pluginIds: string[]) {
-    const available = new Set(pluginIds)
-    navigationHistory.value = navigationHistory.value.filter(page => !page.musicSourceId || available.has(page.musicSourceId))
-  }
-
   async function restoreLocalState() {
     try { await vutronPlugin.restorePlayback() } catch { /* No saved playback cursor. */ }
     await Promise.all([loadOfflinePlaylists(), loadPlaybackQueue(), refreshPlaybackState(), loadCacheStatus(), loadLocalMusic(), loadOverlaySettings(), loadSourceSettings()])
-  }
-
-  function resetToLocalLibrary() {
-    ++trackListRequestId; ++searchRequestId
-    activeMusicSourceId.value = ''
-    navigationHistory.value = []
-    selectedPlaylist.value = undefined
-    selectedEntity.value = undefined
-    selectedLocalCollection.value = undefined
-    activeTab.value = 'library'
-    tracks.value = []
-    loading.value = false
-    searchLoading.value = false
   }
 
   const onlineLibrary = createNeteaseLibrary({ profile, onlineAvailable, playlists, tracks, selectedPlaylist, error,
@@ -362,27 +220,45 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     rememberPage()
     const requestId = ++trackListRequestId
     const accountId = profile.value?.userId
-    selectedPlaylist.value = playlist; selectedEntity.value = undefined; tracks.value = []
+    const isCurrent = () => requestId === trackListRequestId && onlineAvailable.value && profile.value?.userId === accountId
+    const requestToken = `playlist:${accountId || 0}:${playlist.id}:${requestId}:${Date.now()}`
+    selectedPlaylist.value = { ...playlist, tracksIncomplete: true, tracksLoadError: '' }; selectedEntity.value = undefined; tracks.value = []
     activeTab.value = 'library'; loading.value = true; error.value = ''
     try {
-      const result = await vutronPlugin.getPlaylistTracks({ playlistId: playlist.id, playlist })
-      playbackPlaylistCache.add(playlist.id)
-      if (requestId === trackListRequestId && onlineAvailable.value && profile.value?.userId === accountId) {
-        tracks.value = result.tracks
-        if (result.playlist) selectedPlaylist.value = result.playlist
+      const result = await loadPlaylistTrackBatches({ playlist, userId: accountId || 0, requestToken, isCurrent,
+        publish: (rows, metadata) => { if (isCurrent()) { tracks.value = rows; if (metadata) selectedPlaylist.value = { ...metadata, tracksIncomplete: true, tracksLoadError: '' } } } })
+      if (!result || !isCurrent()) return
+      if (result.incomplete) {
+        const message = playlistLoadingText('incomplete', { count: result.tracks.length })
+        selectedPlaylist.value = { ...selectedPlaylist.value!, tracksIncomplete: true, tracksLoadError: message }
+        error.value = result.message || message
+      } else {
+        selectedPlaylist.value = { ...(result.playlist || selectedPlaylist.value!), trackCount: result.tracks.length, tracksIncomplete: false, tracksLoadError: '' }
+        playbackPlaylistCache.add(playlist.id); void loadOfflinePlaylists()
       }
-      void loadOfflinePlaylists()
-    } catch (cause) { if (requestId === trackListRequestId) error.value = errorMessage(cause, t('mobile.runtimeText.tracksReadFailed')) }
+    } catch (cause) { if (isCurrent()) { const message = errorMessage(cause, t('mobile.runtimeText.tracksReadFailed')); selectedPlaylist.value = { ...selectedPlaylist.value!, tracksIncomplete: true, tracksLoadError: message }; error.value = message } }
     finally { if (requestId === trackListRequestId) loading.value = false }
   }
 
-  async function reloadManagedLibrary(removed: { track?: VutronTrack; collectionId?: string } = {}) {
+  async function reloadManagedLibrary(removed: { track?: VutronTrack; tracks?: VutronTrack[]; collectionId?: string; refreshLocalSnapshots?: boolean } = {}) {
+    const sameLocal = (track: VutronTrack, target: VutronTrack) => track.localKey && target.localKey ? track.localKey === target.localKey
+      : (track.localPlaylistId?.startsWith('restored:') || !track.localUri) ? !!target.localEntryKey && target.localEntryKey === track.localEntryKey && track.localPlaylistId === target.localPlaylistId
+      : !!track.localUri && track.localUri === target.localUri && track.cueTrackNo === target.cueTrackNo && track.localPlaylistId === target.localPlaylistId
     const matches = (track: VutronTrack) => removed.collectionId
       ? track.localFolderId === removed.collectionId || track.localPlaylistId === removed.collectionId || track.playlistVolumeKey === removed.collectionId
-      : removed.track && (track.localKey && removed.track.localKey ? track.localKey === removed.track.localKey : track.localUri && track.localUri === removed.track.localUri)
+      : (removed.tracks ?? (removed.track ? [removed.track] : [])).some(target => sameLocal(track, target))
     navigationHistory.value = navigationHistory.value.filter(entry => !removed.collectionId || entry.localCollection?.id !== removed.collectionId)
       .map(entry => ({ ...entry, tracks: entry.tracks.filter(track => !matches(track)) }))
     await loadLocalMusic(false, false)
+    if (removed.refreshLocalSnapshots) {
+      const ids = [...new Set(navigationHistory.value.flatMap(entry => entry.localCollection ? [entry.localCollection.id] : []))]
+      const refreshed = new Map(await Promise.all(ids.map(async id => {
+        const source = [...localLibrary.value.folders, ...localLibrary.value.playlists].find(item => item.id === id)
+        const result = source?.isLocalBundle ? await vutronPlugin.getLocalPlaylistTracks?.({ playlistId: id }) : await vutronPlugin.getLocalFolderTracks?.({ folderId: id })
+        return [id, result?.tracks ?? []] as const
+      })))
+      navigationHistory.value = navigationHistory.value.map(entry => entry.localCollection && refreshed.has(entry.localCollection.id) ? { ...entry, tracks: refreshed.get(entry.localCollection.id)! } : entry)
+    }
     const collection = selectedLocalCollection.value
     if (collection) {
       const exists = [...localLibrary.value.folders, ...localLibrary.value.playlists].find(item => item.id === collection.id)
@@ -472,50 +348,6 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.openMvFailed')) }
   }
 
-  async function runSearch(category = searchCategory.value, keywords = searchKeywords.value, reset = true) {
-    if (!onlineAvailable.value) return
-    const requestId = ++searchRequestId
-    const normalizedKeywords = keywords.trim()
-    if (!reset && (submittedSearch.value.category !== category || submittedSearch.value.keywords !== normalizedKeywords)) reset = true
-    if (!vutronPlugin.search || !normalizedKeywords) {
-      submittedSearch.value = { category, keywords: '' }
-      searchResults.value = []
-      searchCount.value = 0
-      searchNextPage.value = 0
-      searchLoading.value = false
-      return
-    }
-    if (reset) {
-      searchCategory.value = category
-      searchKeywords.value = keywords
-      submittedSearch.value = { category, keywords: normalizedKeywords }
-    }
-    if (reset) {
-      searchResults.value = []
-      searchCount.value = 0
-      searchNextPage.value = 0
-    }
-    searchLoading.value = true
-    try {
-      const page = reset ? 1 : searchNextPage.value
-      const result = await vutronPlugin.search({ category, keywords: normalizedKeywords, page })
-      if (requestId !== searchRequestId || submittedSearch.value.category !== category || submittedSearch.value.keywords !== normalizedKeywords) return
-      searchResults.value = reset ? result.items : [...searchResults.value, ...result.items]
-      searchCount.value = result.count
-      searchNextPage.value = result.nextPage
-    } catch (cause) {
-      if (requestId === searchRequestId && submittedSearch.value.category === category && submittedSearch.value.keywords === normalizedKeywords) {
-        error.value = errorMessage(cause, t('mobile.runtimeText.searchFailed'))
-      }
-    } finally {
-      if (requestId === searchRequestId) searchLoading.value = false
-    }
-  }
-
-  async function loadMoreSearch() {
-    if (searchNextPage.value > 0 && !searchLoading.value) await runSearch(submittedSearch.value.category, submittedSearch.value.keywords, false)
-  }
-
   async function play(track: VutronTrack, playlistKey?: string, suppliedQueue?: VutronTrack[], position?: number) {
     if (libraryMutationBusy.value) return
     const fromPlaylist = activeTab.value === 'library' && selectedPlaylist.value
@@ -548,8 +380,8 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     }
     error.value = ''; navigateTo('player')
     playback.value = { ...emptyPlaybackState, trackId: track.id, title: track.name, artist: track.artists?.join(' / ') ?? '', track: contextual }
-    overlayTrackKey = ''
-    overlaySettings.value.currentLyricOffsetMs = offsetDrafts.get(playbackTrackKey())?.value ?? 0
+    overlay.invalidateOverlayTrack()
+    overlay.setOffsetForTrack(playbackTrackKey())
     try { queueReadKey = ''; await vutronPlugin.play({ track: contextual, queue, index, ...(position === undefined ? {} : { position }) }); await refreshPlaybackState() }
     catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.playFailed')) }
   }
@@ -574,16 +406,24 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
       navigateTo('player')
       playback.value = { ...emptyPlaybackState, trackId: accepted.track.id, title: accepted.track.name,
         artist: accepted.track.artists?.join(' / ') || '', track: accepted.track, loading: true }
-      overlayTrackKey = ''; lyricTrackId = 0
+      overlay.invalidateOverlayTrack(); lyricTrackId = 0
       await refreshPlaybackState()
     } catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.pluginPlayFailed')) }
   }
 
   async function queuePlugin(value: PluginPlayback, action: 'next' | 'append') {
+    return queuePluginBatch({ pluginId: value.pluginId, accountScope: value.accountScope, tracks: [value.track] }, action)
+  }
+  const queueMutationBusy = ref(false)
+  async function queuePluginBatch(value: { pluginId: string; accountScope?: string; tracks: PluginPlayback['track'][] }, action: 'next' | 'append'): Promise<boolean> {
+    if (!value.tracks.length || queueMutationBusy.value) return false
+    queueMutationBusy.value = true
     try {
-      playbackQueue.value = await vutronPlugin.queueMusicPlugin({ pluginId: value.pluginId, accountScope: value.accountScope, track: value.track, action })
-      queueNotice.value = action === 'next' ? t('mobile.runtimeText.queuedNext', { name: value.track.name }) : t('mobile.runtimeText.queuedAppend', { name: value.track.name })
-    } catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.pluginQueueFailed')) }
+      playbackQueue.value = await vutronPlugin.queueMusicPlugin({ pluginId: value.pluginId, accountScope: value.accountScope, tracks: value.tracks, action })
+      queueNotice.value = value.tracks.length > 1 ? t(action === 'next' ? 'mobile.batch.queuedNext' : 'mobile.batch.queuedAppend', { count:value.tracks.length }) : action === 'next' ? t('mobile.runtimeText.queuedNext', { name: value.tracks[0]!.name }) : t('mobile.runtimeText.queuedAppend', { name: value.tracks[0]!.name })
+      await refreshPlaybackState(); return true
+    } catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.pluginQueueFailed')); return false }
+    finally { queueMutationBusy.value = false }
   }
 
   async function pluginRadioTrash(value: PluginPlayback) {
@@ -601,11 +441,20 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
   async function resume() { try { await vutronPlugin.resume(); await refreshPlaybackState() } catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.resumeFailed')) } }
   async function stop() { try { await vutronPlugin.stop(); await refreshPlaybackState() } catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.stopFailed')) } }
   const playbackModeBusy = ref(false)
+  let playbackModeRevision = 0
   async function setPlaybackMode(mode: number) {
-    if (!vutronPlugin.setPlaybackMode || playbackModeBusy.value || ![0,1,2].includes(mode)) return
+    const previous = playback.value.mode ?? 0
+    if (!vutronPlugin.setPlaybackMode || playbackModeBusy.value || ![0,1,2].includes(mode) || mode === previous) return
     playbackModeBusy.value = true
-    try { playback.value.mode = (await vutronPlugin.setPlaybackMode({ mode })).mode }
-    catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.playbackModeSaveFailed')) }
+    playbackModeRevision++
+    try {
+      const confirmed = (await vutronPlugin.setPlaybackMode({ mode })).mode
+      playbackModeRevision++
+      playback.value.mode = confirmed
+      playbackQueue.value.mode = confirmed
+      if (confirmed !== previous) queueNotice.value = t(['mobile.player.listLoop', 'mobile.player.singleLoop', 'mobile.player.shuffle'][confirmed]!)
+    }
+    catch (cause) { playbackModeRevision++; error.value = errorMessage(cause, t('mobile.runtimeText.playbackModeSaveFailed')) }
     finally { playbackModeBusy.value = false }
   }
   async function cyclePlaybackMode() { await setPlaybackMode(((playback.value.mode ?? 0) + 1) % 3) }
@@ -618,43 +467,51 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
   async function refreshPlaybackState() {
     if (playbackRequestPending) return
     playbackRequestPending = true
-    const volumeReadRevision = volumeRevision
-    const pendingTrackVolumes = new Set([...trackVolumeWriters].filter(([, writer]) => writer.pending()).map(([key]) => key))
-    const pendingPlaylistVolumes = new Set([...playlistVolumeWriters].filter(([, writer]) => writer.pending()).map(([key]) => key))
+    const volumeRead = overlay.captureVolumeRead()
+    const loopRead = abLoopRevision
+    const modeRead = playbackModeRevision
+    const modeWritePending = playbackModeBusy.value
     try {
       const next = { ...emptyPlaybackState, ...(await vutronPlugin.getPlaybackState()) }
+      if (modeWritePending || playbackModeBusy.value || modeRead !== playbackModeRevision) next.mode = playback.value.mode ?? 0
       const previousTrackKey = playbackTrackKey()
       const nextKey = playbackTrackKey(next)
-      const trackDraft = trackVolumeDrafts.get(nextKey)
-      const playlistKey = next.track?.playlistVolumeKey ?? ''
-      const playlistDraft = playlistVolumeDrafts.get(playlistKey)
-      if (trackDraft) {
-        if (pendingTrackVolumes.has(nextKey) || trackVolumeWriters.get(nextKey)?.pending() || trackDraft.revision > volumeReadRevision || next.trackVolumePercent !== trackDraft.value) next.trackVolumePercent = trackDraft.value
-        else trackVolumeDrafts.delete(nextKey)
-      }
-      if (playlistDraft) {
-        if (pendingPlaylistVolumes.has(playlistKey) || playlistVolumeWriters.get(playlistKey)?.pending() || playlistDraft.revision > volumeReadRevision || next.playlistVolumePercent !== playlistDraft.value) next.playlistVolumePercent = playlistDraft.value
-        else playlistVolumeDrafts.delete(playlistKey)
+      overlay.applyVolumeDraftsToState(next, volumeRead)
+      if (loopRead !== abLoopRevision && next.trackId === playback.value.trackId) {
+        next.abLoop = playback.value.abLoop
+        next.abLoopEnabled = playback.value.abLoopEnabled
+        next.position = playback.value.position
+      } else if (typeof next.abLoopEnabled === 'boolean') abLoopEnabled.value = next.abLoopEnabled
+      else if (next.trackId === playback.value.trackId && next.abLoop === undefined && playback.value.abLoopEnabled !== undefined) {
+        next.abLoop = playback.value.abLoop
+        next.abLoopEnabled = playback.value.abLoopEnabled
       }
       const startedPlaying = next.playing && (!playback.value.playing || previousTrackKey !== nextKey)
-      playback.value = next
+      playback.value = sharePlaybackSnapshot(playback.value, next)
       if (startedPlaying && next.track?.playlistOrderScope && next.track.playlistOrderKey) {
         try { recordPlaylistPlayback(next.track.playlistOrderScope, next.track.playlistOrderKey) }
         catch (cause) { console.warn('Playlist history save failed', cause) }
       }
       const nextTrackKey = playbackTrackKey()
-      if (nextTrackKey !== previousTrackKey) overlaySettings.value.currentLyricOffsetMs = offsetDrafts.get(nextTrackKey)?.value ?? 0
-      if (next.trackId && nextTrackKey !== overlayTrackKey) await loadOverlaySettings()
+      if (nextTrackKey !== previousTrackKey) overlay.setOffsetForTrack(nextTrackKey)
+      if (next.trackId && overlay.needsOverlayReload(nextTrackKey)) await loadOverlaySettings()
       if (queueOpen.value && queueStateKey(next) !== queueReadKey) await loadPlaybackQueue()
-      if (vutronPlugin.getSleepTimer) {
-        const revision = sleepTimerRevision
-        try { const sample = await vutronPlugin.getSleepTimer(); if (revision === sleepTimerRevision && !sleepTimerBusy.value) syncSleepTimer(sample) }
-        catch { /* Timer support was added after the earliest WebShell build. */ }
-      }
+      await refreshVisibleSleepTimer()
       if (next.trackId && next.trackId !== lyricTrackId) await loadLyrics(next.trackId)
     } catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.playbackReadFailed')) }
     finally { playbackRequestPending = false }
   }
+
+  let timerReadPending = false
+  async function refreshVisibleSleepTimer() {
+    if (activeTab.value !== 'settings' || document.visibilityState === 'hidden' || timerReadPending || !vutronPlugin.getSleepTimer) return
+    timerReadPending = true
+    const revision = cache.captureTimerRevision()
+    try { const sample = await vutronPlugin.getSleepTimer(); cache.trySyncTimer(sample, revision) }
+    catch { /* Timer support was added after the earliest WebShell build. */ }
+    finally { timerReadPending = false }
+  }
+  watch(activeTab, tab => { if (tab === 'settings') void refreshVisibleSleepTimer() })
 
   async function loadLyrics(trackId: number) {
     if (!hasAccess.value || !vutronPlugin.getLyrics || !trackId) return
@@ -691,21 +548,23 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
       playlistOrderKey: fromPlaylist ? String(fromPlaylist.cacheOwnerId || profile.value?.userId || 0) + ':' + fromPlaylist.id : fromLocal?.id || (playlistKey ? undefined : track.playlistOrderKey) }
   }
   async function queueTrackNext(track: VutronTrack) {
-    if (!vutronPlugin.addToPlayNext) { error.value = t('mobile.runtimeText.playNextUnsupported'); return false }
-    const contextual = trackWithContext(track)
-    try {
-      playbackQueue.value = await vutronPlugin.addToPlayNext({ track: contextual })
-      queueNotice.value = t('mobile.runtimeText.queuedNext', { name: track.name })
-      return true
-    } catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.playNextFailed')); return false }
+    return queueTracks([track], 'next')
   }
   async function appendTrackToQueue(track: VutronTrack) {
-    if (!vutronPlugin.appendToPlaybackQueue) { error.value = t('mobile.runtimeText.appendUnsupported'); return false }
+    return queueTracks([track], 'append')
+  }
+  async function queueTracks(tracks: VutronTrack[], action: 'next' | 'append'): Promise<boolean> {
+    const operation = action === 'next' ? vutronPlugin.addToPlayNext : vutronPlugin.appendToPlaybackQueue
+    if (!tracks.length || queueMutationBusy.value) return false
+    if (!operation) { error.value = t(action === 'next' ? 'mobile.runtimeText.playNextUnsupported' : 'mobile.runtimeText.appendUnsupported'); return false }
+    queueMutationBusy.value = true
     try {
-      playbackQueue.value = await vutronPlugin.appendToPlaybackQueue({ track: trackWithContext(track) })
-      queueNotice.value = t('mobile.runtimeText.queuedEnd', { name: track.name })
-      return true
-    } catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.appendFailed')); return false }
+      const contextual = tracks.map(track => trackWithContext(track))
+      playbackQueue.value = await operation.call(vutronPlugin, contextual.length === 1 ? { track: contextual[0]! } : { tracks: contextual })
+      queueNotice.value = contextual.length > 1 ? t(action === 'next' ? 'mobile.batch.queuedNext' : 'mobile.batch.queuedAppend', { count:contextual.length }) : t(action === 'next' ? 'mobile.runtimeText.queuedNext' : 'mobile.runtimeText.queuedEnd', { name: tracks[0]!.name })
+      await refreshPlaybackState(); return true
+    } catch (cause) { error.value = errorMessage(cause, t(action === 'next' ? 'mobile.runtimeText.playNextFailed' : 'mobile.runtimeText.appendFailed')); return false }
+    finally { queueMutationBusy.value = false }
   }
   async function playQueueIndex(index: number, upNext = false) {
     if (!vutronPlugin.playQueueIndex) return
@@ -713,152 +572,37 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.queuePlayFailed')) }
   }
   async function removeQueueTrack(index: number, upNext = false) {
-    if (!vutronPlugin.removeQueueTrack) return
-    try { playbackQueue.value = await vutronPlugin.removeQueueTrack({ index, upNext }); await refreshPlaybackState() }
+    if (!vutronPlugin.removeQueueTrack || queueMutationBusy.value) return
+    queueMutationBusy.value = true
+    try { const result = await vutronPlugin.removeQueueTrack({ index, upNext }); playbackQueue.value = result; await refreshPlaybackState(); offerQueueUndo(result.undoToken, 'removedQueue') }
     catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.queueRemoveFailed')) }
+    finally { queueMutationBusy.value = false }
   }
   async function clearPlayNext() {
-    if (!vutronPlugin.clearPlayNext) return
-    try { playbackQueue.value = await vutronPlugin.clearPlayNext() }
+    if (!vutronPlugin.clearPlayNext || queueMutationBusy.value) return
+    queueMutationBusy.value = true
+    try { const result = await vutronPlugin.clearPlayNext(); playbackQueue.value = result; offerQueueUndo(result.undoToken, 'clearedNext') }
     catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.upNextClearFailed')) }
+    finally { queueMutationBusy.value = false }
+  }
+  function offerQueueUndo(undoToken: string | undefined, message: 'removedQueue' | 'clearedNext') {
+    if (!undoToken || !vutronPlugin.undoPlaybackQueue) return
+    offerUndo({ message: undoText(message), undo: async () => {
+      if (queueMutationBusy.value) throw new Error(undoText('busy'))
+      queueMutationBusy.value = true
+      try { playbackQueue.value = await vutronPlugin.undoPlaybackQueue!({ undoToken }); await refreshPlaybackState() }
+      catch (cause) {
+        const message = errorMessage(cause, undoText('restoreFailed'))
+        error.value = /队列已改变|queue.*chang/i.test(message) ? undoText('queueChanged') : message
+        await askAction({ title: undoText('undo'), message: error.value, confirmLabel: t('mobile.management.understood'), cancelLabel: t('mobile.management.cancel') })
+        throw new Error(error.value)
+      } finally { queueMutationBusy.value = false }
+    } })
   }
 
   async function setAutoMatchSources(enabled: boolean) {
     try { autoMatchSources.value = (await vutronPlugin.updateSourceSettings({ autoMatch: enabled })).autoMatch }
     catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.sourcesSaveFailed')) }
-  }
-
-  async function setCurrentTrackVolume(percent: number) {
-    if (!Number.isInteger(percent) || percent < 0 || percent > 100 || !playback.value.trackId) return
-    const key = playbackTrackKey()
-    const track = playback.value.track ? { ...playback.value.track } : { id: playback.value.trackId, name: playback.value.title }
-    trackVolumeDrafts.set(key, { value: percent, revision: ++volumeRevision })
-    playback.value.trackVolumePercent = percent
-    let writer = trackVolumeWriters.get(key)
-    if (!writer) {
-      writer = createLiveSettingWriter<number>({
-        write: async value => { await vutronPlugin.setTrackVolume({ track, percent: value }) },
-        onError: cause => { error.value = errorMessage(cause, t('mobile.runtimeText.trackVolumeSaveFailed')) }
-      })
-      trackVolumeWriters.set(key, writer)
-    }
-    await writer.queue(percent)
-  }
-
-  async function setCurrentPlaylistVolume(percent: number) {
-    const playlistKey = playback.value.track?.playlistVolumeKey
-    if (!playlistKey || !Number.isInteger(percent) || percent < 0 || percent > 100) return
-    playlistVolumeDrafts.set(playlistKey, { value: percent, revision: ++volumeRevision })
-    playback.value.playlistVolumePercent = percent
-    let writer = playlistVolumeWriters.get(playlistKey)
-    if (!writer) {
-      writer = createLiveSettingWriter<number>({
-        write: async value => { await vutronPlugin.setPlaylistVolume({ playlistKey, percent: value }) },
-        onError: cause => { error.value = errorMessage(cause, t('mobile.runtimeText.playlistVolumeSaveFailed')) }
-      })
-      playlistVolumeWriters.set(playlistKey, writer)
-    }
-    await writer.queue(percent)
-  }
-
-  async function loadOverlaySettings() {
-    if (!vutronPlugin.getLyricOverlaySettings) return
-    const requestId = ++overlayReadRequest
-    const revision = overlayRevision
-    const readOffsetRevision = offsetRevision
-    const trackKey = playbackTrackKey()
-    const readingDirtyKeys = [...overlayDrafts.keys()]
-    const readingOffsetWrite = offsetWriters.get(trackKey)?.pending()
-    try {
-      const next = await vutronPlugin.getLyricOverlaySettings()
-      if (requestId !== overlayReadRequest) return
-      const { currentLyricOffsetMs, ...globalSettings } = next
-      if (revision === overlayRevision) {
-        const safeSettings: Partial<VutronLyricOverlaySettings> = { ...globalSettings }
-        for (const key of readingDirtyKeys) delete safeSettings[key]
-        for (const key of overlayDrafts.keys()) delete safeSettings[key]
-        overlaySettings.value = { ...overlaySettings.value, ...safeSettings }
-      }
-      const draft = offsetDrafts.get(trackKey)
-      if (!readingOffsetWrite && trackKey === playbackTrackKey() && !offsetWriters.get(trackKey)?.pending() && (!draft || draft.revision <= readOffsetRevision)) {
-        if (!draft || currentLyricOffsetMs === draft.value) {
-          overlaySettings.value.currentLyricOffsetMs = currentLyricOffsetMs ?? 0
-          offsetDrafts.delete(trackKey)
-        }
-        overlayTrackKey = trackKey
-      }
-    } catch (cause) {
-      error.value = errorMessage(cause, t('mobile.runtimeText.overlayReadFailed'))
-    }
-  }
-
-  async function toggleLyricOverlay() {
-    const enabled = !overlaySettings.value.enabled
-    await updateOverlayField('enabled', enabled)
-  }
-
-  async function updateOverlayField(key: keyof VutronLyricOverlaySettings, value: boolean | number) {
-    if (key === 'currentLyricOffsetMs') { await updateCurrentLyricOffset(Number(value)); return }
-    const patch = { [key]: value } as Partial<VutronLyricOverlaySettings>
-    overlayDrafts.set(key, { value, revision: ++overlayRevision })
-    overlaySettings.value = { ...overlaySettings.value, ...patch }
-    await overlayWriter.queue(patch)
-  }
-
-  async function temporarilyHideOverlay() {
-    if (!vutronPlugin.temporaryHideLyricOverlay) return
-    try {
-      const next = await vutronPlugin.temporaryHideLyricOverlay({ durationMs: 30_000 })
-      overlaySettings.value.temporaryHidden = next.temporaryHidden
-      overlaySettings.value.temporaryHiddenRemainingMs = next.temporaryHiddenRemainingMs
-    }
-    catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.overlayHideFailed')) }
-  }
-  async function restoreOverlay() {
-    if (!vutronPlugin.restoreLyricOverlay) return
-    try {
-      const next = await vutronPlugin.restoreLyricOverlay()
-      overlaySettings.value.temporaryHidden = next.temporaryHidden
-      overlaySettings.value.temporaryHiddenRemainingMs = next.temporaryHiddenRemainingMs
-    }
-    catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.overlayRestoreFailed')) }
-  }
-
-  async function updateOverlayColor(key: 'playedColor' | 'unplayedColor' | 'shadowColor', value: string) {
-    const parsed = Number.parseInt(value.replace('#', ''), 16)
-    if (!Number.isFinite(parsed)) return
-    const alpha = key === 'shadowColor' ? overlaySettings.value.shadowColor & 0xff000000 : 0xff000000
-    await updateOverlayField(key, (alpha | parsed) >>> 0)
-  }
-
-  async function updateOverlayBackgroundOpacity(percent: number) {
-    const alpha = Math.round(Math.max(0, Math.min(100, percent)) * 255 / 100)
-    const rgb = overlaySettings.value.backgroundColor & 0x00ffffff
-    await updateOverlayField('backgroundColor', ((alpha << 24) | rgb) >>> 0)
-  }
-
-  async function updateCurrentLyricOffset(offsetMs: number) {
-    if (!vutronPlugin.setLyricOffset || !playback.value.trackId) return
-    if (!Number.isFinite(offsetMs) || offsetMs < -30_000 || offsetMs > 30_000) { error.value = t('mobile.runtimeText.offsetRange'); return }
-    const trackId = playback.value.trackId
-    const trackKey = playbackTrackKey()
-    const track = playback.value.track ? { ...playback.value.track } : { id: trackId, name: playback.value.title }
-    offsetDrafts.set(trackKey, { value: offsetMs, revision: ++offsetRevision })
-    overlaySettings.value.currentLyricOffsetMs = offsetMs
-    overlayTrackKey = trackKey
-    let writer = offsetWriters.get(trackKey)
-    if (!writer) {
-      writer = createLiveSettingWriter<number>({
-        write: async value => { await vutronPlugin.setLyricOffset!({ trackId, track, offsetMs: value }) },
-        onError: cause => { error.value = errorMessage(cause, t('mobile.runtimeText.offsetSaveFailed')) }
-      })
-      offsetWriters.set(trackKey, writer)
-    }
-    await writer.queue(offsetMs)
-  }
-
-  async function flushLiveSettings() {
-    await Promise.all([flushRegisteredLiveSettings(), overlayWriter.flush(), ...[...offsetWriters.values(), ...trackVolumeWriters.values(), ...playlistVolumeWriters.values()].map(writer => writer.flush())])
   }
 
   async function openLocalCollection(collection: VutronLocalCollection) {
@@ -874,76 +618,6 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     } catch (cause) { if (requestId === trackListRequestId) error.value = errorMessage(cause, t('mobile.runtimeText.localPlaylistReadFailed')) }
     finally { if (requestId === trackListRequestId) loading.value = false }
   }
-  async function setAutomaticCache(enabled: boolean) {
-    if (!vutronPlugin.setCacheEnabled) return
-    ++cacheSettingsRevision
-    try { cacheStatus.value = await vutronPlugin.setCacheEnabled({ enabled }) }
-    catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.autoCacheSaveFailed')) }
-  }
-  async function loadCacheStatus(updateInputs = true) {
-    if (!vutronPlugin.getCacheStatus || cacheStatusPending) return
-    cacheStatusPending = true
-    const revision = cacheSettingsRevision
-    try {
-      const status = await vutronPlugin.getCacheStatus()
-      if (revision !== cacheSettingsRevision) return
-      cacheStatus.value = status
-      if (updateInputs) {
-        cacheCapacityMb.value = status.capacityMb
-        artworkCacheCapacityMb.value = status.artworkCapacityMb ?? artworkCacheCapacityMb.value
-      }
-      if (vutronPlugin.getCachedTracks) {
-        const cached = await vutronPlugin.getCachedTracks()
-        if (revision === cacheSettingsRevision) cachedTracks.value = cached.tracks ?? []
-      }
-    } catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.cacheStatusReadFailed')) }
-    finally { cacheStatusPending = false }
-  }
-  async function setCacheCapacity() {
-    if (!vutronPlugin.setCacheCapacity) return
-    ++cacheSettingsRevision
-    try { cacheStatus.value = await vutronPlugin.setCacheCapacity({ capacityMb: cacheCapacityMb.value }) }
-    catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.cacheCapacitySaveFailed')) }
-  }
-  async function setArtworkCacheCapacity() {
-    if (!vutronPlugin.setArtworkCacheCapacity) return
-    ++cacheSettingsRevision
-    try { cacheStatus.value = await vutronPlugin.setArtworkCacheCapacity({ capacityMb: artworkCacheCapacityMb.value }) }
-    catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.artworkCapacitySaveFailed')) }
-  }
-  async function cacheCurrent() {
-    if (!onlineAvailable.value || !vutronPlugin.cacheTrack || !playback.value.trackId) return
-    const track = playback.value.track ?? [...tracks.value, ...localTracks.value].find(item => item.id === playback.value.trackId)
-    if (!track) return
-    try { await vutronPlugin.cacheTrack({ track }); await loadCacheStatus() }
-    catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.trackCacheFailed')) }
-  }
-  async function clearCache() {
-    if (!vutronPlugin.clearCache) return
-    try { await vutronPlugin.clearCache(); await Promise.all([loadCacheStatus(), loadOfflinePlaylists()]) }
-    catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.cacheClearFailed')) }
-  }
-
-  async function setSleepTimer(minutes: number) {
-    await setSleepTimerSeconds(minutes * 60)
-  }
-  async function setSleepTimerSeconds(seconds: number) {
-    if (sleepTimerBusy.value || !vutronPlugin.setSleepTimer || !Number.isFinite(seconds) || seconds < 1 || seconds > 18000) return
-    sleepTimerBusy.value = true; ++sleepTimerRevision; error.value = ''
-    try { syncSleepTimer(await vutronPlugin.setSleepTimer({ durationMs: Math.round(seconds * 1000) })) }
-    catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.timerSaveFailed')) }
-    finally { sleepTimerBusy.value = false }
-  }
-
-  async function clearSleepTimer() {
-    if (sleepTimerBusy.value || !vutronPlugin.clearSleepTimer) return
-    sleepTimerBusy.value = true; ++sleepTimerRevision
-    try { syncSleepTimer(await vutronPlugin.clearSleepTimer()) }
-    catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.timerCancelFailed')) }
-    finally { sleepTimerBusy.value = false }
-  }
-
-  const sleepTimerLabel = computed(() => timerLabel(sleepTimerRemainingMs.value))
 
   function startPlaybackPolling(intervalMs = 2000) {
     stopPlaybackPolling(); void refreshPlaybackState()
@@ -951,30 +625,29 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     playbackTimer = setInterval(() => {
       if (document.visibilityState === 'hidden') return
       void refreshPlaybackState()
-      if (!['settings', 'library'].includes(activeTab.value)) return
-      const now = Date.now()
-      if (now - cachePollAt >= 5000) { cachePollAt = now; void loadCacheStatus(false) }
+      cache.pollCacheStatus()
     }, intervalMs)
   }
   function stopPlaybackPolling() { if (playbackTimer !== undefined) clearInterval(playbackTimer); playbackTimer = undefined; stopSleepClock() }
   return {
     ...onlineLibrary,
-    profile, playlists, playlistsLoading, cachedPlaylists, removeCachedPlaylistView, tracks, selectedPlaylist, selectedEntity, localTracks, cachedTracks, folderName, cacheStatus, cacheCapacityMb,
+    profile, playlists, playlistsLoading, cachedPlaylists, removeCachedPlaylistView, tracks, playlistLoadIncomplete, playlistLoadError, selectedPlaylist, selectedEntity, localTracks, cachedTracks, folderName, cacheStatus, cacheCapacityMb,
     localLibrary, selectedLocalCollection, libraryLoading, localScanLoading, loadLocalLibrary, importLocalPlaylist, openLocalCollection, reloadManagedLibrary,
     homeData, homeLoading, searchCategory, searchKeywords, submittedSearch, searchResults, searchCount, searchNextPage, searchLoading,
-    sleepTimerRemainingMs, sleepTimerMinutes, sleepTimerLabel, cacheAllPlaylistsLoading, cacheAllPlaylistsResult,
-    lyrics, lyricsLoading, activeTab, loading, error, playback, loggedIn, localOnly, manualLocalOnly, networkConnected, hasAccess, onlineAvailable, loginVisible, localModeLoading, enterLocalOnly, useAutomaticMode, refreshConnectivity, disposeNetworkMonitoring, requestLogin,
-    playbackQueue, queueOpen, queueNotice, showPlaybackQueue, loadPlaybackQueue, trackWithContext, queueTrackNext, appendTrackToQueue, playQueueIndex, removeQueueTrack, clearPlayNext,
+    sleepTimerRemainingMs, sleepTimerMinutes, sleepTimerLabel, sleepTimerActive, sleepTimerMode, sleepTimerRemainingTracks, sleepTimerFadeSeconds, cacheAllPlaylistsLoading, cacheAllPlaylistsResult,
+    lyrics, lyricsLoading, activeTab, loading, error, playback, abLoopEnabled, applyAbLoopState, loggedIn, localOnly, manualLocalOnly, networkConnected, hasAccess, onlineAvailable, loginVisible, localModeLoading, enterLocalOnly, useAutomaticMode, refreshConnectivity, disposeNetworkMonitoring, requestLogin,
+    playbackQueue, queueOpen, queueNotice, queueMutationBusy, showPlaybackQueue, loadPlaybackQueue, trackWithContext, queueTrackNext, appendTrackToQueue, queueTracks, playQueueIndex, removeQueueTrack, clearPlayNext,
     canNavigateBack, navigationDirection, navigationScrollY, navigateTo, navigateBack, activePluginId, openPlugins, activeMusicSourceId, selectMusicSource, discardMusicSource, retainMusicSources,
     qrLoginKey, qrLoginImage, qrLoginStatus, qrLoginLoading,
     restore, login, createQrLogin, checkQrLogin, cancelQrLogin, loadPlaylists, loadOfflinePlaylists, loadHomeData, openPlaylist, cachePlaylist, cacheAllPlaylists, openCachedPlaylist, openEntityTracks,
-    runSearch, loadMoreSearch, openMv, play, playPlugin, queuePlugin, pluginRadioTrash, reorderLocalPlayback, playAdjacent, pause, resume, stop, seek, cyclePlaybackMode, setPlaybackMode, playbackModeBusy, refreshPlaybackState, loadLyrics,
+    runSearch, loadMoreSearch, openMv, play, playPlugin, queuePlugin, queuePluginBatch, pluginRadioTrash, reorderLocalPlayback, playAdjacent, pause, resume, stop, seek, cyclePlaybackMode, setPlaybackMode, playbackModeBusy, refreshPlaybackState, loadLyrics,
     pickMusicFolder, loadLocalMusic, loadCacheStatus, setCacheCapacity, setArtworkCacheCapacity, artworkCacheCapacityMb, cacheCurrent, clearCache,
-    setSleepTimer, setSleepTimerSeconds, sleepTimerBusy, clearSleepTimer, setAutomaticCache, temporarilyHideOverlay, restoreOverlay,
+    setSleepTimer, setSleepTimerSeconds, setSleepTimerSettings, sleepTimerBusy, clearSleepTimer, setAutomaticCache, temporarilyHideOverlay, restoreOverlay,
     autoMatchSources, loadSourceSettings, setAutoMatchSources, setCurrentTrackVolume, setCurrentPlaylistVolume,
     overlaySettings, overlayEnabled, overlayPlayedColor, overlayUnplayedColor, overlayShadowColor, overlayBackgroundOpacity,
     loadOverlaySettings, toggleLyricOverlay, updateOverlayField, updateOverlayColor,
     updateOverlayBackgroundOpacity, updateCurrentLyricOffset, flushLiveSettings,
     startPlaybackPolling, stopPlaybackPolling, logout
   }
+
 })

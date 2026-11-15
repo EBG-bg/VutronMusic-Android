@@ -72,14 +72,51 @@ final class LocalTrackStore {
         return result;
     }
     static synchronized void exclude(Context context, JSONObject track) {
-        java.util.Set<String> excluded = exclusions(context); excluded.add(exclusionKey(track));
+        excludeMany(context, java.util.Collections.singletonList(track));
+    }
+    static synchronized void excludeMany(Context context, java.util.List<JSONObject> tracks) {
+        java.util.Set<String> excluded = exclusions(context); boolean changed = false;
+        for (JSONObject track : tracks) changed |= excluded.add(exclusionKey(track));
+        if (!changed) return;
         JSONArray folders = filterExcluded(loadFolderIndex(context), excluded);
         JSONArray selected = filterExcluded(load(context), excluded);
         if (!context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putStringSet("excluded_tracks", excluded)
                 .putString("folder_index", folders.toString()).putString(KEY, selected.toString()).commit()) throw new IllegalStateException("移除记录保存失败");
     }
     static synchronized void restoreExcluded(Context context) {
+        if (exclusions(context).isEmpty()) return;
         if (!context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove("excluded_tracks").commit()) throw new IllegalStateException("恢复记录保存失败");
+    }
+    static synchronized boolean restoreRecords(Context context, JSONArray records, boolean clearLegacy) throws Exception {
+        java.util.Set<String> authorized = new java.util.HashSet<>(); JSONArray trees = LocalFolderStore.loadTreeUris(context);
+        for (int i = 0; i < trees.length(); i++) authorized.add(LocalFolderStore.folderId(trees.getString(i)));
+        RestoredIndex result = planRestore(loadFolderIndex(context), load(context), exclusions(context), authorized, records, clearLegacy);
+        if (!result.changed) return false;
+        if (!context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putStringSet("excluded_tracks", result.excluded)
+                .putString("folder_index", result.folders.toString()).putString(KEY, result.selected.toString()).commit()) throw new java.io.IOException("恢复曲目保存失败");
+        return true;
+    }
+    static final class RestoredIndex {
+        final JSONArray folders, selected; final java.util.Set<String> excluded; final boolean changed;
+        RestoredIndex(JSONArray folders, JSONArray selected, java.util.Set<String> excluded, boolean changed) { this.folders = folders; this.selected = selected; this.excluded = excluded; this.changed = changed; }
+    }
+    static RestoredIndex planRestore(JSONArray currentFolders, JSONArray currentSelected, java.util.Set<String> previousExcluded,
+            java.util.Set<String> authorized, JSONArray records, boolean clearLegacy) throws Exception {
+        java.util.Set<String> excluded = new java.util.HashSet<>(previousExcluded); JSONArray folderRows = new JSONArray(), selectedRows = new JSONArray();
+        boolean changed = clearLegacy && !excluded.isEmpty();
+        for (int i = 0; i < records.length(); i++) {
+            JSONObject item = records.getJSONObject(i), track = item.getJSONObject("track"), rows = item.getJSONObject("rows");
+            if (!excluded.contains(exclusionKey(track))) continue;
+            String folderId = track.optString("localFolderId");
+            if (!folderId.isEmpty() && !authorized.contains(folderId)) throw new java.io.IOException("请先重新授权原本的本地文件夹");
+            excluded.remove(exclusionKey(track)); changed = true;
+            for (int j = 0; j < rows.getJSONArray("folders").length(); j++) folderRows.put(rows.getJSONArray("folders").getJSONObject(j));
+            for (int j = 0; j < rows.getJSONArray("selected").length(); j++) selectedRows.put(rows.getJSONArray("selected").getJSONObject(j));
+        }
+        if (!changed) return new RestoredIndex(currentFolders, currentSelected, excluded, false);
+        if (clearLegacy) excluded.clear();
+        return new RestoredIndex(LocalRemovalRows.restore(currentFolders, folderRows, LocalTrackStore::exclusionKey),
+                LocalRemovalRows.restore(currentSelected, selectedRows, LocalTrackStore::exclusionKey), excluded, true);
     }
     static synchronized void removeMatching(Context context, java.util.function.Predicate<JSONObject> removed) {
         JSONArray folders = keep(loadFolderIndex(context), removed), selected = keep(load(context), removed);

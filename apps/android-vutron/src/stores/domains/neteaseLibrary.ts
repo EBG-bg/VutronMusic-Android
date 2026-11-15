@@ -3,7 +3,7 @@ import { askAction } from '../../platform/actionDialog'
 import { translate as t } from '../../platform/i18n'
 import { vutronPlugin, type VutronNeteaseMutation, type VutronOnlineLibrary, type VutronPlaylist, type VutronProfile, type VutronTrack } from '../../platform/vutronPlugin'
 
-export type OnlinePlaylistDialog = { kind: 'create' } | { kind: 'more' | 'edit'; playlist: VutronPlaylist } | { kind: 'add'; track: VutronTrack }
+export type OnlinePlaylistDialog = { kind: 'create' } | { kind: 'more' | 'edit'; playlist: VutronPlaylist } | { kind: 'add'; track: VutronTrack; tracks: VutronTrack[] }
 interface Options {
   profile: Ref<VutronProfile | undefined>
   onlineAvailable: Ref<boolean>
@@ -20,6 +20,12 @@ export function onlineTrackId(track: VutronTrack): number {
   if (track.missingLocal || track.pluginId) return 0
   const id = track.neteaseId || (!track.localUri && !track.localPath || track.cached ? track.id : 0)
   return Number.isSafeInteger(id) && id > 0 ? id : 0
+}
+const normalizedDescription = (value: string | undefined) => (value || '').replace(/\r\n?/g, '\n').trim()
+const normalizedTags = (values: string[] | undefined) => [...new Set((values || []).map(value => value.trim()).filter(Boolean))]
+function uniqueOnlineTracks(tracks: VutronTrack[]) {
+  const ids = new Set<number>()
+  return tracks.filter(track => { const id = onlineTrackId(track); if (!id || ids.has(id)) return false; ids.add(id); return true })
 }
 
 /** Account relations and writes are separate from local playback and its cache. */
@@ -135,22 +141,35 @@ export function createNeteaseLibrary(options: Options) {
   function openCreateOnlinePlaylist() { if (options.onlineAvailable.value && !onlineMutationBusy.value) onlinePlaylistDialog.value = { kind: 'create' } }
   function openOnlinePlaylistMore(playlist: VutronPlaylist) { if (canManageOnlinePlaylist(playlist) && !onlineMutationBusy.value) onlinePlaylistDialog.value = { kind: 'more', playlist: { ...playlist, tags: playlist.tags?.slice() } } }
   function openEditOnlinePlaylist(playlist: VutronPlaylist) { if (canManageOnlinePlaylist(playlist) && !onlineMutationBusy.value) onlinePlaylistDialog.value = { kind: 'edit', playlist: { ...playlist, tags: playlist.tags?.slice() } } }
-  function openAddToOnlinePlaylist(track: VutronTrack) {
-    if (options.onlineAvailable.value && onlineTrackId(track) && !onlineMutationBusy.value) {
-      onlinePlaylistDialog.value = { kind: 'add', track: { ...track } }
+  function openAddToOnlinePlaylist(trackOrTracks: VutronTrack | VutronTrack[]) {
+    const tracks = uniqueOnlineTracks(Array.isArray(trackOrTracks) ? trackOrTracks : [trackOrTracks])
+    if (options.onlineAvailable.value && tracks.length && !onlineMutationBusy.value) {
+      const copies = tracks.map(track => ({ ...track }))
+      onlinePlaylistDialog.value = { kind: 'add', track: copies[0], tracks: copies }
       if (!options.playlists.value.length && !onlineNeedsRefresh.value) void refreshOnlineLibrary()
     }
   }
   async function saveOnlinePlaylist(form: { name: string; description: string; tags: string[]; privacy: number }) {
+    if (onlineMutationBusy.value || onlineNeedsRefresh.value) return false
     const dialog = onlinePlaylistDialog.value
-    if (dialog?.kind === 'create') return mutate({ action: 'create', name: form.name, privacy: form.privacy })
-    if (dialog?.kind === 'edit' && canManageOnlinePlaylist(dialog.playlist)) return mutate({ action: 'edit', playlistId: dialog.playlist.id, name: form.name, description: form.description, tags: form.tags })
+    const name = form.name.trim(), description = normalizedDescription(form.description), tags = normalizedTags(form.tags)
+    if (dialog?.kind === 'create') return mutate({ action: 'create', name, privacy: form.privacy })
+    if (dialog?.kind === 'edit' && canManageOnlinePlaylist(dialog.playlist)) {
+      const playlist = dialog.playlist
+      const sameTags = JSON.stringify(tags.slice().sort()) === JSON.stringify(normalizedTags(playlist.tags).sort())
+      if (name === playlist.name.trim() && description === normalizedDescription(playlist.description) && sameTags) {
+        onlinePlaylistDialog.value = undefined
+        return true
+      }
+      return mutate({ action: 'edit', playlistId: playlist.id, name, description, tags })
+    }
     return false
   }
   async function addTrackToOnlinePlaylist(playlist: VutronPlaylist) {
     const dialog = onlinePlaylistDialog.value
     if (dialog?.kind !== 'add' || !canManageOnlinePlaylist(playlist)) return false
-    return mutate({ action: 'add', playlistId: playlist.id, trackId: onlineTrackId(dialog.track) })
+    const ids = dialog.tracks.map(onlineTrackId)
+    return mutate({ action: 'add', playlistId: playlist.id, trackIds: ids })
   }
   async function deleteOnlinePlaylist(playlist: VutronPlaylist) {
     if (!canManageOnlinePlaylist(playlist) || confirmationPending || onlineMutationBusy.value) return false
@@ -162,19 +181,35 @@ export function createNeteaseLibrary(options: Options) {
       return await mutate({ action: 'delete', playlistId: playlist.id })
     } finally { confirmationPending = false }
   }
-  async function removeTrackFromOnlinePlaylist(track: VutronTrack) {
-    const playlist = removableOnlinePlaylist(track)
-    if (!playlist || confirmationPending || onlineMutationBusy.value) return false
+  async function removeTracksFromOnlinePlaylist(tracks: VutronTrack[]) {
+    if (tracks.some(track => !onlineTrackId(track))) return false
+    const selected = uniqueOnlineTracks(tracks), playlist = selected.length ? removableOnlinePlaylist(selected[0]) : undefined
+    if (!playlist || selected.some(track => removableOnlinePlaylist(track)?.id !== playlist.id) || confirmationPending || onlineMutationBusy.value) return false
     const token = generation, uid = options.profile.value!.userId
     confirmationPending = true
     try {
       const choice = await askAction({ title: t('mobile.netease.remove'), message: t('mobile.netease.removeHint', { name: playlist.name }), confirmLabel: t('mobile.netease.remove'), cancelLabel: t('mobile.management.cancel') })
-      if (choice !== 'confirm' || !sameAccount(token, uid) || removableOnlinePlaylist(track)?.id !== playlist.id) return false
-      return await mutate({ action: 'remove', playlistId: playlist.id, trackId: onlineTrackId(track) })
+      if (choice !== 'confirm' || !sameAccount(token, uid) || selected.some(track => removableOnlinePlaylist(track)?.id !== playlist.id)) return false
+      return await mutate({ action: 'remove', playlistId: playlist.id, trackIds: selected.map(onlineTrackId) })
     } finally { confirmationPending = false }
+  }
+  function removeTrackFromOnlinePlaylist(track: VutronTrack) { return removeTracksFromOnlinePlaylist([track]) }
+  async function reorderOnlinePlaylist(ordered: VutronTrack[]) {
+    const playlist = options.selectedPlaylist.value
+    if (!playlist || playlist.offlineSnapshot || !canManageOnlinePlaylist(playlist)) return false
+    const ids = ordered.map(onlineTrackId), current = options.tracks.value.map(onlineTrackId), currentIds = new Set(current)
+    if (ids.length !== current.length || ids.some(id => !id) || new Set(ids).size !== ids.length || ids.some(id => !currentIds.has(id))) return false
+    if (ids.every((id, index) => id === current[index])) return true
+    // An uncertain earlier write must be read before another attempt.
+    if (onlineNeedsRefresh.value && !await refreshOnlineLibrary()) return false
+    if (options.selectedPlaylist.value?.id !== playlist.id || !canManageOnlinePlaylist(options.selectedPlaylist.value)) return false
+    const fresh = options.tracks.value.map(onlineTrackId), freshIds = new Set(fresh)
+    if (ids.length !== fresh.length || ids.some(id => !freshIds.has(id))) return false
+    if (ids.every((id, index) => id === fresh[index])) return true
+    return mutate({ action: 'reorder', playlistId: playlist.id, trackIds: ids })
   }
   return { likedTrackIds, likedLoaded, likesLoading, onlineMutationBusy, onlineNeedsRefresh, onlineOperationNotice, onlinePlaylistDialog, ownedPlaylists,
     canManageOnlinePlaylist, isTrackLiked, removableOnlinePlaylist, loadLikedTracks, refreshOnlineLibrary, toggleTrackLike,
     openCreateOnlinePlaylist, openOnlinePlaylistMore, openEditOnlinePlaylist, openAddToOnlinePlaylist, saveOnlinePlaylist, addTrackToOnlinePlaylist,
-    deleteOnlinePlaylist, removeTrackFromOnlinePlaylist, closeOnlinePlaylistDialog: () => { onlinePlaylistDialog.value = undefined } }
+    deleteOnlinePlaylist, removeTrackFromOnlinePlaylist, removeTracksFromOnlinePlaylist, reorderOnlinePlaylist, closeOnlinePlaylistDialog: () => { onlinePlaylistDialog.value = undefined } }
 }

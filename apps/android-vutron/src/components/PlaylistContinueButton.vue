@@ -4,6 +4,7 @@ import { vutronPlugin, type VutronTrack } from '../platform/vutronPlugin'
 import { useAndroidShellStore } from '../stores/androidShell'
 import { formatTime } from '../utils/formatting'
 import OriginalIcon from './OriginalIcon.vue'
+import { appNavigation } from '../composables/navigationGuard'
 
 const props = defineProps<{ tracks: VutronTrack[]; scope: string; playlistKey: string }>()
 const store = useAndroidShellStore()
@@ -30,6 +31,7 @@ const track = computed(() => props.tracks.find(row => !row.missingLocal && (!sto
   && (row.neteaseId || row.id) === bookmark.value?.trackId && (row.cueTrackNo || 0) === (bookmark.value?.cueTrackNo || 0)))
 async function resume() {
   if (!track.value || busy.value) return
+  if (appNavigation.intercept(() => { void resume() })) return
   busy.value = true
   try {
     if (current.value) { store.navigateTo('player'); if (!current.value.playing) await store.resume() }

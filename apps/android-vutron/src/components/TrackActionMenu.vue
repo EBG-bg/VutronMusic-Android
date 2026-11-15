@@ -10,6 +10,7 @@ import { createLiveSettingWriter } from '../platform/liveSettingWrites'
 import OriginalIcon from './OriginalIcon.vue'
 import CollapsibleSettingsCard from './CollapsibleSettingsCard.vue'
 import { useModalFocus } from '../composables/modalFocus'
+import { useModalIsolation } from '../composables/modalIsolation'
 import { actionDialog } from '../platform/actionDialog'
 import { useSheetDrag } from '../composables/sheetDrag'
 import SheetDragHandle from './SheetDragHandle.vue'
@@ -33,6 +34,7 @@ async function removeFromOnlinePlaylist() { if (await store.removeTrackFromOnlin
 async function deleteCache() { if (await management.deleteCachedTrack(props.track)) close() }
 async function removeLocal() { if (await management.removeLocalTrack(props.track)) close() }
 const dialog = ref<HTMLElement>()
+useModalIsolation(dialog)
 const busy = ref(false)
 const volume = ref<number | string>(100)
 const notice = ref('')
@@ -130,8 +132,8 @@ onUnmounted(() => { mounted = false; volumeRead++; for (const lane of volumeLane
 </script>
 
 <template>
-    <div class="track-action-layer" :inert="suspended || Boolean(actionDialog)" @click.self="close">
-      <section ref="dialog" class="track-action-menu" role="dialog" aria-modal="true" :aria-label="$t('mobile.trackActions.title')">
+    <div class="track-action-layer" @click.self="close">
+      <section ref="dialog" class="track-action-menu" :inert="suspended || Boolean(actionDialog)" role="dialog" aria-modal="true" :aria-label="$t('mobile.trackActions.title')">
         <SheetDragHandle @close="close" />
         <header data-sheet-drag-handle><div><h2>{{ track.name }}</h2><p>{{ track.artists?.join(' / ') || track.album || $t('mobile.trackActions.title') }}</p></div><button class="icon-button" type="button" :aria-label="$t('mobile.trackActions.close')" @click="close"><OriginalIcon name="close" /></button></header>
         <div class="track-action-options">

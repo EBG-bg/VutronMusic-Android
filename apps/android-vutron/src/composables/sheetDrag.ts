@@ -1,10 +1,11 @@
-import { onBeforeUnmount, watch, type Ref } from 'vue'
+import { nextTick, onBeforeUnmount, onUnmounted, watch, type Ref } from 'vue'
 import { reducedMotion } from '../platform/motion'
 
 /** Shared downward dismissal. Scrolled content and value controls keep their gestures. */
 export function useSheetDrag(element: Ref<HTMLElement | undefined>, options: { close(): void; enabled?: () => boolean }) {
   let detach: (() => void) | undefined
   let animation: Animation | undefined
+  let backdropAnimation: Animation | undefined
   let closing = false
   let suppressClickUntil = 0
   let state: { id: number; touch:boolean; x: number; y: number; at: number; dy: number; active: boolean; scroller: HTMLElement; handle: boolean; transform: string; priority: string } | undefined
@@ -15,7 +16,7 @@ export function useSheetDrag(element: Ref<HTMLElement | undefined>, options: { c
     panel.removeAttribute('data-sheet-dragging')
   }
   function reset(keepClosing = false) {
-    if (!keepClosing || !closing) { animation?.cancel(); animation = undefined }
+    if (!keepClosing || !closing) { animation?.cancel(); animation = undefined; backdropAnimation?.cancel(); backdropAnimation = undefined }
     const saved = state, panel = element.value; state = undefined
     if (saved && panel) {
       if (!saved.touch && panel.hasPointerCapture(saved.id)) panel.releasePointerCapture(saved.id)
@@ -30,7 +31,7 @@ export function useSheetDrag(element: Ref<HTMLElement | undefined>, options: { c
   }
   function begin(target: HTMLElement, x: number, y: number, id: number, touch: boolean) {
     const panel = element.value
-    if (!panel || !enabled() || state
+    if (!panel || !enabled() || state || closing
       || target.closest('input,textarea,select,a,[role="slider"],[contenteditable="true"],.thumb-range,.offset-slider,.arc-wheel-control,[data-sheet-no-drag]')) return
     const scroller = scrollerFor(target, panel), handle = !!target.closest('[data-sheet-drag-handle]')
     if (!handle && scroller.scrollTop > 1) return
@@ -43,6 +44,7 @@ export function useSheetDrag(element: Ref<HTMLElement | undefined>, options: { c
     if (event.pointerType !== 'touch' && event.isPrimary && event.button === 0) begin(event.target as HTMLElement,event.clientX,event.clientY,event.pointerId,false)
   }
   function touchStart(event: TouchEvent) {
+    if (closing) return
     if (event.touches.length !== 1) { reset(); return }
     const touch=event.touches[0]
     begin(event.target as HTMLElement,touch.clientX,touch.clientY,touch.identifier,true)
@@ -84,7 +86,39 @@ export function useSheetDrag(element: Ref<HTMLElement | undefined>, options: { c
     animation?.cancel()
     animation = panel.animate([{ transform:from }, { transform:close ? `translate3d(0, ${panel.offsetHeight + 32}px, 0)` : 'translate3d(0, 0, 0)' }],
       { duration:reducedMotion.value ? 0 : close ? 200 : 180, easing:'cubic-bezier(.2,.7,.25,1)', fill:close ? 'forwards' : 'none' })
-    if (close) options.close()
+    if (close) {
+      const layer = panel.parentElement
+      if (layer) backdropAnimation = layer.animate([{ opacity:getComputedStyle(layer).opacity }, { opacity:0 }],
+        { duration:reducedMotion.value ? 0 : 200, easing:'ease-out', fill:'forwards' })
+      const exit = animation
+      const backdrop = backdropAnimation
+      void exit.finished.then(() => {
+        if (animation !== exit) return
+        if (!panel.isConnected) {
+          exit.cancel();backdrop?.cancel();animation=undefined;backdropAnimation=undefined;closing=false
+          return
+        }
+        animation = undefined; backdropAnimation = undefined
+        let observer: MutationObserver | undefined
+        const pointerEvents=layer?.style.getPropertyValue('pointer-events')||'', priority=layer?.style.getPropertyPriority('pointer-events')||''
+        const cleanup=()=>{
+          observer?.disconnect();exit.cancel();backdrop?.cancel()
+          if(layer){if(pointerEvents)layer.style.setProperty('pointer-events',pointerEvents,priority);else layer.style.removeProperty('pointer-events')}
+        }
+        if (layer) {
+          layer.style.setProperty('pointer-events', 'none')
+        }
+        options.close()
+        void nextTick(()=>{
+          if(!layer?.isConnected){cleanup();return}
+          observer=new MutationObserver(()=>{if(!layer.isConnected)cleanup()})
+          observer.observe(document.body,{childList:true,subtree:true})
+        })
+      }).catch(() => {})
+    } else {
+      const rebound = animation
+      void rebound.finished.then(() => { if (animation === rebound) { rebound.cancel(); animation = undefined } }).catch(() => {})
+    }
   }
   function pointerEnd(event: PointerEvent) { if (!state?.touch) end(event,event.pointerId,event.type==='pointercancel') }
   function touchEnd(event: TouchEvent) {
@@ -92,10 +126,12 @@ export function useSheetDrag(element: Ref<HTMLElement | undefined>, options: { c
   }
   function click(event: MouseEvent) { if (performance.now() < suppressClickUntil) { event.preventDefault(); event.stopImmediatePropagation() } }
   function lost(event: PointerEvent) { if (state && !state.touch && state.id === event.pointerId) reset() }
-  function visibility() { if (document.visibilityState === 'hidden') reset() }
+  function visibility() { if (document.visibilityState === 'hidden') { if (closing) { animation?.finish(); backdropAnimation?.finish() } else reset() } }
   watch(element, panel => {
     detach?.(); detach = undefined; reset(true)
     if (!panel) return
+    animation?.cancel();backdropAnimation?.cancel();animation=undefined;backdropAnimation=undefined
+    closing = false
     panel.addEventListener('pointerdown', down)
     panel.addEventListener('pointermove', move)
     panel.addEventListener('pointerup', pointerEnd)
@@ -117,6 +153,11 @@ export function useSheetDrag(element: Ref<HTMLElement | undefined>, options: { c
     }
   }, { flush:'post' })
   watch(() => options.enabled?.() !== false, value => { if (!value && !closing) reset() })
-  watch(reducedMotion, value => { if (value) { animation?.finish() } })
+  watch(reducedMotion, value => { if (value) { animation?.finish(); backdropAnimation?.finish() } })
   onBeforeUnmount(() => { detach?.(); reset(true) })
+  onUnmounted(() => {
+    animation?.cancel(); backdropAnimation?.cancel()
+    // A Vue leave transition can outlive the component. Its filled exit is
+    // released by the one-shot DOM observer as soon as that layer is removed.
+  })
 }

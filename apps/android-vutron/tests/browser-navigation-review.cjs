@@ -1,0 +1,55 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+module.exports=async({page,evaluate,wait,delay,root})=>{
+  const nav=async tab=>{await evaluate(`window.featureHarness.store.navigateTo(${JSON.stringify(tab)})`);await wait(`document.querySelector('.${tab==='settings'?'settings':tab==='library'?'library':tab==='player'?'player':'home'}-page')`);await delay(600)};
+  const click=selector=>evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const touch=async(type,x,y)=>page.send('Input.dispatchTouchEvent',{type,touchPoints:type==='touchEnd'||type==='touchCancel'?[]:[{x,y}]});
+  await page.send('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:1});
+  await nav('home');
+  const indicator=()=>evaluate(`(()=>{const e=document.querySelector('.bottom-nav-indicator'),r=e.getBoundingClientRect();return {x:r.left,width:r.width,transition:getComputedStyle(e).transitionDuration}})()`);
+  const initial=await indicator();
+  await click('.bottom-nav button:nth-of-type(2)');await delay(70);
+  const middle=await indicator();await delay(700);const final=await indicator();
+  assert.ok(middle.x>initial.x&&middle.x<final.x,'The selected navigation surface moves through intermediate positions');
+  assert.ok(Math.abs(final.x-initial.x-initial.width-2)<2,'Indicator lands under the next tab');
+  await nav('home');await evaluate('scrollTo(0,0)');await delay(80);
+  const pos=await evaluate(`(()=>{const r=document.querySelector('.home-greeting h2').getBoundingClientRect();return {x:Math.min(innerWidth-24,r.right+35),y:r.top+r.height/2}})()`);
+  await touch('touchStart',pos.x,pos.y);await touch('touchMove',pos.x-60,pos.y+2);await delay(30);
+  assert.ok(await evaluate("parseFloat(getComputedStyle(document.querySelector('.page-stage')).translate)<0"),'Swipe tracks the finger before navigation');
+  await touch('touchMove',pos.x-140,pos.y+2);await touch('touchEnd');await delay(750);
+  assert.equal(await evaluate('window.featureHarness.store.activeTab'),'library');
+  // Vertical movement remains a scroll and does not switch sections.
+  await evaluate('scrollTo(0,0)');await touch('touchStart',pos.x,pos.y);await touch('touchMove',pos.x+4,pos.y-90);await touch('touchEnd');await delay(100);
+  assert.equal(await evaluate('window.featureHarness.store.activeTab'),'library');
+  await evaluate(`window.featureHarness.store.stopPlaybackPolling();window.featureHarness.store.cachedTracks=Array.from({length:240},(_,i)=>({id:10000+i,name:'Cached '+i,artists:['Artist'],cached:true,localUri:'file:///cache/'+i+'.mp3',duration:180000}))`);
+  await evaluate("Array.from(document.querySelectorAll('.library-page .segmented-control button')).find(e=>e.textContent.includes('缓存')).click()");
+  await wait("document.querySelector('.offline-content .track-list .track-row')");await delay(400);
+  assert.equal(await evaluate("document.querySelectorAll('.offline-content .track-list .track-row').length"),80);
+  await click('.offline-content .track-list-pager');
+  await wait("Array.from(document.querySelectorAll('.track-appended')).some(e=>e.getAnimations().some(a=>a.playState==='running'))");
+  assert.equal(await evaluate("document.querySelectorAll('.offline-content .track-list .track-row').length"),160);
+  await delay(400);
+  await evaluate('scrollTo(0,1600)');await delay(100);const remembered=await evaluate('scrollY');
+  await click('.bottom-nav button:last-of-type');await delay(750);
+  await click('.bottom-nav button:nth-of-type(2)');
+  await wait("document.querySelector('.offline-content .track-list .track-row')");
+  // This is during entry, not after the 300ms animation.
+  assert.ok(Math.abs(await evaluate('scrollY')-remembered)<3,'The return position is restored before the new page is shown');
+  await delay(550);assert.ok(Math.abs(await evaluate('scrollY')-remembered)<3);
+  assert.equal(await evaluate("document.querySelectorAll('.offline-content .track-list .track-row').length"),160);
+  await nav('settings');await evaluate('scrollTo(0,0)');
+  const summary='[data-settings-section=cache] > summary';await click(summary);await delay(400);
+  assert.equal(await evaluate("document.querySelectorAll('.cache-input-row').length"),0,'Automatic capacity settings have no redundant save row');
+  assert.equal(await evaluate("document.querySelector('[role=meter]').getAttribute('aria-label')"),'封面缓存上限');
+  const diagnostic=await evaluate('window.featureHarness.store.error');if(diagnostic)console.log('Synthetic bridge diagnostic: '+diagnostic);
+  await evaluate("document.querySelector('[data-settings-section=cache]').scrollIntoView({block:'start'})");await delay(300);
+  const screenshot=await page.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
+  fs.writeFileSync(path.join(root,'navigation-cache-review.png'),Buffer.from(screenshot.data,'base64'));
+  // Reduced motion removes decoration; full mode can override the OS preference.
+  await evaluate("localStorage.setItem('vutron:motion-preference','reduced');window.featureReady=false");await page.send('Page.reload');await wait('window.featureReady===true');await delay(200);
+  assert.equal(await evaluate('document.documentElement.dataset.motion'),'reduced');
+  assert.ok(parseFloat((await indicator()).transition)<.001);
+  await evaluate("localStorage.setItem('vutron:motion-preference','full')");
+  await page.send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});await evaluate('window.featureReady=false');await page.send('Page.reload');await wait('window.featureReady===true');await delay(200);
+  assert.equal(await evaluate('document.documentElement.dataset.motion'),'full');assert.ok(parseFloat((await indicator()).transition)>.1);
+  console.log('PASS: sliding navigation, whitespace swipes and vertical scroll, early return restoration, animated cache append, automatic capacity UI, motion preferences');
+};

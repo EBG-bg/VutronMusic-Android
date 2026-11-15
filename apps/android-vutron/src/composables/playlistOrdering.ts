@@ -19,12 +19,14 @@ function read() { try { return sanitizePlaylistOrders(JSON.parse(localStorage.ge
 const records = ref(read())
 const defaultOrder = (): PlaylistOrder => ({ mode: 'original', keys: [], recent: {} })
 function save(scope: string, order: PlaylistOrder) {
-  const next = sanitizePlaylistOrders({ ...read(), [scope]: order })
+  const before = read(), next = sanitizePlaylistOrders({ ...before, [scope]: order })
+  if (JSON.stringify(before[scope] || defaultOrder()) === JSON.stringify(next[scope] || defaultOrder())) return
   localStorage.setItem(PLAYLIST_ORDER_KEY, JSON.stringify(next)); records.value = next
 }
 export function recordPlaylistPlayback(scope: string, key: string, time = Date.now()) {
   if (!/^(netease:[1-9][0-9]*|local:device)$/.test(scope)) return
   const order = read()[scope] || defaultOrder()
+  if (order.recent[key] === time) return
   save(scope, { ...order, recent: { ...order.recent, [key]: time } })
 }
 export function applyPlaylistOrder<T extends PlaylistEntry>(items: T[], order: PlaylistOrder): T[] {

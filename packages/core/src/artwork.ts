@@ -20,11 +20,18 @@ export function isHttpUrl(value: unknown): value is string {
   }
 }
 
-export function artworkRequestUrl(source: string): string {
+export function artworkPixelEdge(cssWidth: number, density = 1): number {
+  const width = Number.isFinite(cssWidth) && cssWidth > 0 ? cssWidth : 160
+  const scale = Number.isFinite(density) && density > 0 ? Math.max(1, Math.min(4, density)) : 1
+  return [96, 192, 320, 512].find(edge => edge >= width * scale) ?? 512
+}
+
+export function artworkRequestUrl(source: string, size = 512): string {
   if (!isHttpUrl(source)) return ''
   const url = new URL(source)
   if (url.hostname !== 'music.126.net' && !url.hostname.endsWith('.music.126.net')) return source
   url.protocol = 'https:'
-  url.searchParams.set('param', '512y512')
+  const edge = [96, 192, 320, 512].includes(size) ? size : 512
+  url.searchParams.set('param', `${edge}y${edge}`)
   return url.toString()
 }

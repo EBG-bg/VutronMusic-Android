@@ -87,4 +87,18 @@ public class LocalPlaylistStoreTest {
             } catch (java.io.IOException expected) { assertEquals(0, root.list().length); }
         }
     }
+    @Test public void undoRestoresOnlyTheRemovedManifestEntryWithoutDeletingAudioOrOverwritingNewEntries() throws Exception {
+        File root = temporary.newFolder("undo");
+        String manifest = "{\"format\":1,\"generator\":\"vutron-desktop-export\",\"name\":\"Local\",\"tracks\":[{\"fileName\":\"song.mp3\",\"name\":\"Original title\"}]}";
+        JSONObject imported = LocalPlaylistStore.importArchive(root, new ByteArrayInputStream(archive(manifest, "song.mp3")));
+        String id = imported.getString("id"); File directory = LocalPlaylistStore.directory(root, id), metadata = new File(directory, "manifest.json");
+        JSONObject local = imported.getJSONArray("localTracks").getJSONObject(0); File audio = new File(new java.net.URI(local.getString("localUri")));
+        JSONArray inverse = LocalRemovalRows.capture(imported.getJSONArray("tracks"), row -> true, LocalPlaylistStore::removalIdentity);
+        LocalPlaylistStore.removeTracks(root, id, java.util.List.of(local)); assertTrue(audio.isFile());
+        JSONObject later = LocalPlaylistStore.load(directory); later.put("name", "Later playlist name").put("tracks", new JSONArray().put(new JSONObject().put("onlineOnly", true).put("neteaseId", 99).put("name", "Later song")));
+        later.remove("localTracks"); LibraryFiles.writeJson(metadata, later);
+        LocalPlaylistStore.restoreRemoved(root, id, inverse);
+        JSONObject restored = LocalPlaylistStore.load(directory); assertEquals("Later playlist name", restored.getString("name")); assertEquals(2, restored.getJSONArray("tracks").length()); assertTrue(audio.isFile());
+        assertTrue(metadata.setLastModified(1234000)); LocalPlaylistStore.restoreRemoved(root, id, inverse); assertEquals(1234000, metadata.lastModified());
+    }
 }

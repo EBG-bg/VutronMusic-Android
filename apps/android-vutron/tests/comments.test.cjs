@@ -58,3 +58,8 @@ test('recommendations with no comments fall back to latest once',async()=>{
  const calls=[],s=setup({getComments:async q=>{calls.push(q.sort);return page(q.sort===99?[]:[row()])}});await tick();
  assert.deepEqual(calls,[99,3]);assert.equal(s.api.sort.value,3);s.scope.stop();
 });
+test('a filtered empty page keeps manual pagination when the server has more',async()=>{
+ let calls=0;const s=setup({getComments:async()=>{calls++;return calls===1?page([row()],true):calls===2?page([],true):page([row('next')],false)}});await tick();
+ await s.api.load();assert.equal(s.api.more.value,true);assert.equal(s.api.comments.value.length,1);
+ await s.api.load();assert.equal(s.api.comments.value.length,2);assert.equal(s.api.more.value,false);s.scope.stop();
+});

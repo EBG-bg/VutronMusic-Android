@@ -186,6 +186,27 @@ test('the original NetEase virtual API dispatches in-process with only its own c
  }finally{await finish(instance)}
 });
 
+test('original NetEase comment and floor calls filter foreign resource threads before upstream formatting',async()=>{
+ const matching={commentId:1129476750,threadId:'R_SO_4_553135737',content:'same content',user:{userId:7,nickname:'Listener'}};
+ const foreign={...matching,commentId:9691851703,threadId:'R_SO_4_1391891631'};
+ const legacy={...matching,commentId:3};delete legacy.threadId;
+ const body={code:200,data:{comments:[foreign,matching,legacy],cursor:'42',time:123,hasMore:true,totalCount:1598}};
+ const instance=host({neteaseApi:{
+  comment_new:async()=>({status:200,cookie:[],body:structuredClone(body)}),
+  comment_floor:async()=>({status:200,cookie:[],body:structuredClone(body)})
+ }});
+ try{
+  await instance.manage({action:'enable',id:'netease'});
+  const comments=await instance.call('netease','getComments',{id:'553135737',type:'track'},true);
+  assert.equal(comments.code,200);assert.deepEqual(comments.data.map(row=>String(row.id)),['1129476750','3']);
+  assert.equal(comments.count,1598);assert.equal(comments.sourceContext.cursor,'42');assert.equal(comments.sourceContext.hasMore,true);
+  const floor=await instance.call('netease','getFloorComments',{sourceContext:{id:'553135737'},commentInfo:{id:1129476750},type:'track'},true);
+  assert.equal(floor.code,200);assert.deepEqual(floor.data.map(row=>String(row.id)),['1129476750','3']);
+  assert.equal(floor.count,1598);assert.equal(floor.sourceContext.hasMore,true);assert.equal(floor.sourceContext.time,123);
+  assert.equal(body.data.comments.length,3);assert.equal(comments.data[0].content,'same content');
+ }finally{await finish(instance)}
+});
+
 test('rescanning local tracks preserves likes and playback statistics but removes revoked recordings',async()=>{
  const instance=host();
  try{

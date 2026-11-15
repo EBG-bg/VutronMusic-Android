@@ -73,7 +73,7 @@ async function main() {
     assert.equal(await evaluate('window.onlineHarness.store.selectedPlaylist'),undefined);
     assert.equal(await evaluate('window.onlineHarness.store.playlists.some(row=>row.id===42)'),false);
     await evaluate("window.onlineHarness.store.localOnly=true;document.querySelector('#new-playlist').click();window.onlineHarness.openMenu()"); await delay(150);
-    assert.equal(await evaluate("document.querySelectorAll('.online-dialog-layer').length"),0);
+    await wait("document.querySelectorAll('.online-dialog-layer').length===0");
     assert.equal(await evaluate("Array.from(document.querySelectorAll('.track-action-options button')).some(el=>/喜欢|添加到歌单|当前歌单移除/.test(el.textContent))"),false);
     await evaluate("document.querySelector('.track-action-menu header button').click();window.onlineHarness.store.activeTab='settings'");
     await evaluate("document.querySelector('[data-settings-section=app-update] > summary').click()"); await delay(150);

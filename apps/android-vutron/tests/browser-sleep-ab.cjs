@@ -1,0 +1,92 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+module.exports=async({page,evaluate,wait,delay,root})=>{
+  await page.send('Page.bringToFront');await page.send('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:1});
+  const click=selector=>evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  const choose=async(selector,value)=>{await click(selector+' .app-select-trigger');await wait("document.querySelector('.app-select-panel')");await click('.app-select-options [data-value="'+value+'"]');await wait("!document.querySelector('.app-select-panel')");await delay(350)};
+  const native=()=>evaluate('window.featureHarness.backend.sleepAb');
+  const store="window.featureHarness.store";
+  const navigate=async tab=>{await evaluate(`${store}.navigateTo(${JSON.stringify(tab)})`);await wait(`document.querySelector('.${tab==='player'?'player':'settings'}-page')`);await delay(600)};
+  const openTimer=async()=>{await navigate('settings');await evaluate("(()=>{const s=document.querySelector('[data-settings-section=timer]>summary');if(s.getAttribute('aria-expanded')==='false')s.click()})()");await delay(400)};
+  const startTimer=()=>evaluate("Array.from(document.querySelectorAll('[data-settings-section=timer] .timer-actions button')).find(e=>e.textContent.includes('开始')||e.textContent.includes('Start')||e.textContent.includes('啟動')).click()");
+  const key=async(name,code)=>{for(const type of ['keyDown','keyUp'])await page.send('Input.dispatchKeyEvent',{type,key:name,code:name,windowsVirtualKeyCode:code});await delay(300)};
+  const openAb=async()=>{await navigate('player');await evaluate("(()=>{const e=document.querySelector('.ab-loop-button');e.focus();e.click()})()");await wait("document.querySelector('.ab-loop-sheet')");await delay(400)};
+  await evaluate(`${store}.stopPlaybackPolling();${store}.error=''`);
+  await openTimer();
+  await evaluate("(()=>{window.sleepModeGeometry=[];const until=performance.now()+650;function sample(){const r=document.querySelector('[data-settings-section=timer]').getBoundingClientRect();window.sleepModeGeometry.push({height:r.height,scroll:scrollY});if(performance.now()<until)requestAnimationFrame(sample)}requestAnimationFrame(sample)})()");
+  await choose('[data-settings-section=timer]', 'count');await delay(300);
+  const geometry=await evaluate('window.sleepModeGeometry');fs.writeFileSync(path.join(root,'sleep-mode-geometry.json'),JSON.stringify(geometry,null,2));
+  assert.ok(geometry.filter(row=>row.height<geometry[0].height-2&&row.height>geometry.at(-1).height+2).length>2,'The mode body changes height through intermediate frames instead of collapsing in one step');
+  await evaluate("(()=>{const input=document.querySelector('.sleep-track-count input');input.value='3';input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}))})()");
+  await choose('.sleep-fade','5');await startTimer();await delay(200);
+  assert.equal((await native()).timer.mode,'count');assert.equal((await native()).timer.remainingTracks,3);assert.equal((await native()).timer.fadeSeconds,5);
+  assert.equal(await evaluate(`${store}.sleepTimerActive`),true,'Song timers stay active with remainingMs=0');
+  assert.ok(await evaluate("document.querySelector('[data-settings-section=timer]>summary').textContent.includes('3')"));
+  await evaluate(`${store}.playback.duration=0;${store}.playback.buffering=true;window.featureHarness.backend.sleepAb.prepared=false`);
+  await openAb();
+  assert.equal(await evaluate("document.querySelector('.app-shell').inert"),true);
+  assert.equal(await evaluate("document.querySelector('.ab-points button').disabled"),true);
+  const preparedReads=(await native()).abReads;
+  await evaluate(`window.featureHarness.backend.sleepAb.prepared=true;${store}.playback.duration=180000;${store}.playback.buffering=false`);
+  await wait("!document.querySelector('.ab-points button').disabled");
+  assert.equal((await native()).abReads,preparedReads+1,'Preparation completes in the same sheet without a new track ID or recurring poll');
+  await evaluate('window.featureHarness.backend.setSleepAbPosition(10000)');await click('.ab-points section:first-child button');await delay(80);
+  await evaluate('window.featureHarness.backend.setSleepAbPosition(20000)');await click('.ab-points section:last-child button');await delay(80);
+  assert.equal((await native()).loop.startMs,10000);assert.equal((await native()).loop.endMs,20000);
+  const calls=(await native()).calls.length;await click('.ab-actions button:first-child');await delay(80);
+  assert.equal((await native()).calls.length,calls,'Conflicting song timer is not silently disabled');assert.equal((await native()).loop.enabled,false);
+  await click('.ab-loop-sheet .inline-error button');await delay(100);assert.equal((await native()).timer.active,false);
+  await click('.ab-actions button:first-child');await delay(100);assert.equal((await native()).loop.enabled,true);
+  assert.equal(await evaluate(`${store}.abLoopEnabled`),true);
+  const reads=(await native()).abReads;for(let i=0;i<3;i++)await evaluate(`${store}.refreshPlaybackState()`);
+  assert.equal((await native()).abReads,reads,'Progress polling does not reread loop state or reset the active indicator');
+  await evaluate("document.querySelector('.ab-actions button:first-child').focus()");await key('Tab',9);
+  assert.equal(await evaluate("Boolean(document.activeElement.closest('.ab-loop-sheet'))"),true,'Focus remains in the sheet');
+  await key('Escape',27);await wait("!document.querySelector('.ab-loop-sheet')");assert.equal(await evaluate("document.activeElement.classList.contains('ab-loop-button')"),true);
+  await openTimer();await startTimer();await delay(100);assert.equal((await native()).loop.enabled,true,'Conflicting timer start preserves A/B until explicitly turned off');
+  await click('[data-settings-section=timer] .inline-error button');await delay(100);assert.equal((await native()).loop.enabled,false);assert.equal(await evaluate(`${store}.abLoopEnabled`),false);
+  await startTimer();await delay(100);assert.equal((await native()).timer.active,true);
+  await openAb();await evaluate("(()=>{const e=document.querySelector('.ab-points section:first-child input');e.value='12.34';e.dispatchEvent(new Event('change',{bubbles:true}))})()");await delay(100);
+  assert.equal((await native()).loop.startMs,12340);assert.equal((await native()).loop.enabled,false);
+  await click('.ab-actions button:last-child');await delay(100);assert.equal((await native()).loop.startMs,-1);assert.equal((await native()).loop.endMs,-1);
+  assert.equal(await evaluate("document.querySelector('.ab-actions button:first-child').disabled"),true);
+  await evaluate("document.querySelector('.ab-loop-sheet').scrollTop=0");
+  const drag=await evaluate("(()=>{const r=document.querySelector('.ab-loop-sheet header').getBoundingClientRect();return {x:r.left+35,y:r.top+r.height/2}})()");
+  await page.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[drag]});
+  for(let i=1;i<=7;i++){await page.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:drag.x,y:drag.y+i*24}]});await delay(16)}
+  await page.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await wait("!document.querySelector('.ab-loop-sheet')");
+  assert.equal((await native()).loop.enabled,false);assert.equal(await evaluate("document.querySelector('.app-shell').inert"),false);
+  await click('.ab-loop-button');await wait("document.querySelector('.ab-loop-sheet')");await delay(400);
+  await page.send('Emulation.setDeviceMetricsOverride',{width:320,height:720,deviceScaleFactor:1,mobile:true});await evaluate("document.documentElement.style.setProperty('--ui-font-scale','1.5')");
+  for(const language of ['zh','zht','en']){
+    await evaluate(`import('/src/platform/i18n.ts').then(m=>m.setAppLocale(${JSON.stringify(language)}))`);await delay(150);
+    assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true);assert.equal(await evaluate("Boolean(document.querySelector('.ab-loop-sheet select'))"),false);
+    const picture=await page.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});fs.writeFileSync(path.join(root,'sleep-ab-'+language+'.png'),Buffer.from(picture.data,'base64'));
+  }
+  for(const preference of ['reduced','system','full']){
+    await page.send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+    await evaluate(`import('/src/platform/motion.ts').then(m=>m.motionPreference.value=${JSON.stringify(preference)})`);await delay(50);
+    assert.equal(await evaluate('document.documentElement.dataset.motion'),preference==='full'?'full':'reduced');
+  }
+  await key('Escape',27);await wait("!document.querySelector('.ab-loop-sheet')");await evaluate("import('/src/platform/i18n.ts').then(m=>m.setAppLocale('zh'))");
+  // A 500ms loop stays inside its lyric range across multiple frames without extra native seeks/polls.
+  const seeksBefore=(await native()).calls.filter(row=>row[0]==='seek').length;
+  await evaluate(`(()=>{const s=${store};s.playback.position=5200;s.playback.playing=true;s.playback.buffering=false;s.playback.rate=1;s.playback.abLoopEnabled=true;s.playback.abLoop={trackKey:'track:61',trackId:61,startMs:5000,endMs:5500,enabled:true,minSpanMs:500,durationMs:180000};s.lyricsLoading=false;s.lyrics={original:[{start:5000,end:5500,text:'Inside loop',words:[]},{start:5500,end:8000,text:'Outside loop',words:[]},{start:8000,end:9000,text:'Far outside',words:[]}],translation:[],pairedTranslations:[],source:'lrc'};document.querySelectorAll('.player-view-tabs button')[1]?.click()})()`);
+  await wait("document.querySelector('.original-lyric-row.active')");
+  for(let i=0;i<8;i++){await delay(180);assert.ok(await evaluate("document.querySelector('.original-lyric-row.active').textContent.includes('Inside loop')"),'Lyric interpolation must wrap within A/B between native samples')}
+  assert.equal((await native()).calls.filter(row=>row[0]==='seek').length,seeksBefore);
+  await evaluate(`${store}.playback.playing=false;window.featureHarness.backend.sleepAb.loop={...${store}.playback.abLoop};window.featureHarness.backend.setSleepAbPosition(5200)`);await delay(50);
+  await evaluate("(()=>{const row=Array.from(document.querySelectorAll('.original-lyric-row')).find(row=>row.textContent.includes('Outside loop'));row.click();row.click()})()");await delay(100);
+  assert.equal((await native()).calls.filter(row=>row[0]==='seek').at(-1)[1],5499,'Confirmed out-of-loop lyrics clamp before emitting their seek');
+  assert.ok(await evaluate("document.querySelector('.original-lyric-row.active').textContent.includes('Inside loop')"),'Paused A/B lyric confirmation never paints an out-of-loop anchor');
+  await evaluate(`${store}.playback.playing=false;${store}.playback.abLoopEnabled=false;${store}.playback.abLoop=undefined;window.featureHarness.backend.sleepAb.loop.enabled=false`);
+  await openTimer();
+  await choose('[data-settings-section=timer]', 'duration');await startTimer();await delay(100);assert.equal((await native()).timer.mode,'duration');
+  assert.equal((await native()).timer.fadeSeconds,5);assert.equal(await evaluate("localStorage.getItem('vutron:sleep-mode')"),'duration');
+  await choose('[data-settings-section=timer]', 'track');await startTimer();await delay(100);assert.equal((await native()).timer.mode,'track');
+  await evaluate('window.featureHarness.backend.completeSleepAbTrack()');await evaluate(`${store}.refreshPlaybackState()`);assert.equal(await evaluate(`${store}.sleepTimerActive`),false);
+  await choose('[data-settings-section=timer]', 'count');await evaluate("import('/src/platform/i18n.ts').then(m=>m.setAppLocale('en'))");
+  await evaluate("document.querySelector('[data-settings-section=timer]').scrollIntoView({block:'start'})");await delay(250);
+  assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true);
+  const timerShot=await page.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});fs.writeFileSync(path.join(root,'sleep-timer-count-en.png'),Buffer.from(timerShot.data,'base64'));
+  console.log('PASS: sleep modes/count/fade, explicit A/B conflict resolution, current native positions, exact points, active state, no progress-driven rereads, themed narrow three-language layout and modal focus/back');
+};

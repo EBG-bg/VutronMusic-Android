@@ -38,6 +38,15 @@ final class ArtworkSource {
     }
 
     static String requestUrl(String source) {
+        return requestUrl(source, 512);
+    }
+
+    static int requestSize(int size) {
+        return size == 96 || size == 192 || size == 320 || size == 512 ? size : 512;
+    }
+
+    static String requestUrl(String source, int size) {
+        size = requestSize(size);
         String value = source == null ? "" : source.trim();
         if (!isHttpUrl(value)) return "";
         URI uri = URI.create(value);
@@ -59,6 +68,6 @@ final class ArtworkSource {
             parameters.append(part);
         }
         if (parameters.length() > 0) parameters.append('&');
-        return base + "?" + parameters + "param=512y512" + fragment;
+        return base + "?" + parameters + "param=" + size + "y" + size + fragment;
     }
 }

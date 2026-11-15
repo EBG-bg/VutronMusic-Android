@@ -6,12 +6,14 @@ import { appearance, accent, type Appearance } from '../platform/appearance'
 import { motionPreference, type MotionPreference } from '../platform/motion'
 import { playlistView, playlistColumns } from '../platform/libraryLayout'
 import { ORDER_STORAGE_KEY } from './localTrackOrdering'
+import { ORDER_HISTORY_STORAGE_KEY, exportCollectionOrderHistories, restoreCollectionOrderHistories } from './collectionOrderHistory'
 import { INTERFACE_KEYS } from '../platform/interfacePreferences'
 import { PLAYLIST_ORDER_KEY, sanitizePlaylistOrders } from './playlistOrdering'
 import { libraryMutationBusy } from '../platform/libraryActivity'
 import { useAndroidShellStore } from '../stores/androidShell'
 
-const keys = ['vutron:language', 'vutron:appearance', 'vutron:accent', 'vutron:motion-preference', 'vutron:playlist-view', 'vutron:playlist-columns', 'vutron:local-track-order', ...INTERFACE_KEYS, PLAYLIST_ORDER_KEY]
+const keys = ['vutron:language', 'vutron:appearance', 'vutron:accent', 'vutron:motion-preference', 'vutron:playlist-view', 'vutron:playlist-columns', 'vutron:local-track-order', ...INTERFACE_KEYS, PLAYLIST_ORDER_KEY, ORDER_STORAGE_KEY, ORDER_HISTORY_STORAGE_KEY]
+function setIfChanged(key: string, value: string) { if (localStorage.getItem(key) !== value) localStorage.setItem(key, value) }
 export function useUserBackup() {
   const busy = ref(false), message = ref('')
   const store = useAndroidShellStore()
@@ -20,7 +22,9 @@ export function useUserBackup() {
     busy.value = true
     try {
       await store.flushLiveSettings()
-      const frontend = Object.fromEntries(keys.flatMap(key => { const value = localStorage.getItem(key); return value === null ? [] : [[key, value]] }))
+      const frontend = Object.fromEntries(keys.filter(key => key !== ORDER_HISTORY_STORAGE_KEY).flatMap(key => { const value = localStorage.getItem(key); return value === null ? [] : [[key, value]] }))
+      const histories = exportCollectionOrderHistories()
+      if (Object.keys(histories).length) frontend[ORDER_HISTORY_STORAGE_KEY] = JSON.stringify(histories)
       const orders = JSON.parse(localStorage.getItem(ORDER_STORAGE_KEY) || '{}')
       const result = await vutronPlugin.exportUserBackup({ frontend, orders })
       if (!result.cancelled) message.value = t('mobile.backup.exported', { count: result.collectionCount || 0 })
@@ -37,14 +41,19 @@ export function useUserBackup() {
       const result = await vutronPlugin.importUserBackup()
       if (result.cancelled) return
       for (const key of keys) if (typeof result.frontend?.[key] === 'string') {
-        if (key === PLAYLIST_ORDER_KEY) {
+        if (key === ORDER_HISTORY_STORAGE_KEY) {
+          restoreCollectionOrderHistories(JSON.parse(result.frontend[key]))
+        } else if (key === PLAYLIST_ORDER_KEY) {
           const existing = sanitizePlaylistOrders(JSON.parse(localStorage.getItem(key) || '{}'))
           const restored = sanitizePlaylistOrders(JSON.parse(result.frontend[key]))
-          localStorage.setItem(key, JSON.stringify({ ...existing, ...restored }))
-        } else localStorage.setItem(key, result.frontend[key])
+          setIfChanged(key, JSON.stringify({ ...existing, ...restored }))
+        } else if (key === ORDER_STORAGE_KEY) {
+          const existing = JSON.parse(localStorage.getItem(key) || '{}'), restored = JSON.parse(result.frontend[key])
+          setIfChanged(key, JSON.stringify({ ...existing, ...restored }))
+        } else setIfChanged(key, result.frontend[key])
       }
       const previous = JSON.parse(localStorage.getItem(ORDER_STORAGE_KEY) || '{}')
-      localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify({ ...previous, ...result.orders }))
+      setIfChanged(ORDER_STORAGE_KEY, JSON.stringify({ ...previous, ...result.orders }))
       const values = result.frontend || {}
       if (values['vutron:language']) setAppLocale(values['vutron:language'])
       if (values['vutron:appearance']) appearance.value = values['vutron:appearance'] as Appearance

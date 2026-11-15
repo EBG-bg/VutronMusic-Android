@@ -59,6 +59,12 @@ function update(patch: TuningPatch) {
     const value = patch[key]
     if (value !== undefined && (!Number.isFinite(value) || value < .5 || value > 2)) return
   }
+  const changed = Object.fromEntries(Object.entries(patch).filter(([key, value]) => settings[key as keyof TuningPatch] !== value)) as TuningPatch
+  if (!Object.keys(changed).length) {
+    if (Object.keys(patch).some(key => revisions.has(key as keyof TuningPatch))) void writer.flush()
+    return
+  }
+  patch = changed
   const revision = ++editRevision
   for (const key of Object.keys(patch) as (keyof TuningPatch)[]) revisions.set(key, revision)
   Object.assign(settings, patch)

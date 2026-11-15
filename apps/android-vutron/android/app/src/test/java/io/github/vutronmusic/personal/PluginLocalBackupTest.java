@@ -80,4 +80,41 @@ public class PluginLocalBackupTest {
         assertEquals(LibraryBackup.fingerprint(authorized),LibraryBackup.fingerprint(portable));
         assertFalse(portable.toString().contains("private-marker"));assertFalse(portable.toString().contains("sourceContext"));
     }
+    @Test public void localPluginHistoryUsesPortableKeysAndRestoresToTheCorrespondingMainLibraryCollection() throws Exception {
+        File folder=temporary.newFolder();write(folder,"local",state());byte[] before=Files.readAllBytes(new File(folder,"local.state.json").toPath());
+        String scope=new JSONArray().put("plugin").put("local").put("local-account").put("p1").toString();
+        JSONArray keys=new JSONArray().put(new JSONArray().put("local").put("a").toString()).put(new JSONArray().put("local").put("b").toString());
+        JSONObject history=new JSONObject().put("limit",4).put("legacyMigrated",true).put("entries",new JSONArray().put(new JSONObject()
+                .put("id","practice").put("createdAt",123).put("mode","custom").put("keys",keys).put("name","Practice").put("pinned",true)));
+        JSONArray exported=PluginLocalBackup.collections(folder,plugins(),new JSONArray(),new PluginLocalBackup.Settings(){
+            @Override public int trackVolume(String plugin,String scope,JSONObject track){return 100;}
+            @Override public long lyricOffset(String plugin,String scope,JSONObject track){return 0;}
+            @Override public int playlistVolume(String plugin,String scope,String playlist){return 100;}
+        },new JSONObject().put(scope,history));
+        JSONObject playlist=exported.getJSONObject(1),snapshot=playlist.getJSONObject("orderHistory").getJSONArray("entries").getJSONObject(0);
+        assertEquals(playlist.getJSONArray("tracks").getJSONObject(1).getString("key"),snapshot.getJSONArray("keys").getString(0));
+        assertFalse(playlist.toString().contains("local-account"));assertFalse(playlist.toString().contains("private-marker"));
+        assertEquals("Practice",snapshot.getString("name"));assertTrue(snapshot.getBoolean("pinned"));
+        LibraryBackup.RestorePlan plan=LibraryBackup.planRestore(new JSONObject().put("collections",new JSONArray()),document(exported));
+        String id=plan.added.get(1).getString("id");JSONObject restored=new JSONObject(plan.safe.getJSONObject("frontend").getString(CollectionOrderHistoryBackup.KEY)).getJSONObject(id);
+        JSONArray expected=plan.orders.getJSONObject(id).getJSONArray("keys"),actual=restored.getJSONArray("entries").getJSONObject(0).getJSONArray("keys");
+        assertEquals(expected.getString(1),actual.getString(0));assertEquals(expected.getString(0),actual.getString(1));
+        assertEquals(4,restored.getInt("limit"));assertTrue(restored.getBoolean("legacyMigrated"));
+        assertArrayEquals(before,Files.readAllBytes(new File(folder,"local.state.json").toPath()));
+    }
+    @Test public void numericLocalPlaylistIdsSelectTheirExactHistoryScope() throws Exception {
+        File folder=temporary.newFolder();JSONObject data=state();data.getJSONObject("db").getJSONArray("Playlist").getJSONObject(0).put("id",42);
+        JSONArray entries=data.getJSONObject("db").getJSONArray("PlaylistEntry");for(int n=0;n<entries.length();n++)entries.getJSONObject(n).put("playlistId",42);
+        write(folder,"local",data);
+        String numeric=new JSONArray().put("plugin").put("local").put("local-account").put(42).toString(),text=new JSONArray().put("plugin").put("local").put("local-account").put("42").toString();
+        JSONObject snapshot=new JSONObject().put("id","a1").put("createdAt",123).put("mode","custom").put("keys",new JSONArray().put(new JSONArray().put("local").put("a").toString())).put("name","Number");
+        JSONObject history=new JSONObject().put("limit",4).put("entries",new JSONArray().put(snapshot));
+        JSONObject alternate=new JSONObject(history.toString());alternate.getJSONArray("entries").getJSONObject(0).put("name","Text");
+        JSONArray exported=PluginLocalBackup.collections(folder,plugins(),new JSONArray(),new PluginLocalBackup.Settings(){
+            @Override public int trackVolume(String plugin,String scope,JSONObject track){return 100;}
+            @Override public long lyricOffset(String plugin,String scope,JSONObject track){return 0;}
+            @Override public int playlistVolume(String plugin,String scope,String playlist){return 100;}
+        },new JSONObject().put(numeric,history).put(text,alternate));
+        assertEquals("Number",exported.getJSONObject(1).getJSONObject("orderHistory").getJSONArray("entries").getJSONObject(0).getString("name"));
+    }
 }

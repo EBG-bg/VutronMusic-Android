@@ -413,25 +413,40 @@ public final class VutronMusicPlugin extends Plugin {
     @PluginMethod
     public void getPlaylistTracks(PluginCall call) {
         worker.execute(() -> {
+            Context context = getContext();
+            long playlistId = longArg(call, "playlistId", 0L), owner = cachedUserId(context);
+            String requestToken = call.getString("requestToken", ""), cookie = SessionStore.load(context);
+            JSONArray values = new JSONArray();
             try {
                 NeteaseApi api = authenticated();
-                long playlistId = longArg(call, "playlistId", 0L);
-                Context context = getContext();
+                if (longArg(call, "userId", owner) != owner) throw new java.io.IOException("账号已变化，请重新打开歌单");
                 JSONObject metadata = api.playlistDetail(playlistId);
-                List<JSONObject> fetched = api.tracks(metadata);
-                try { PlaylistCache.saveTracks(context, cachedUserId(context), playlistId, fetched, metadata); }
+                JSObject summary = playlist(metadata, context);
+                List<JSONObject> fetched = api.tracks(metadata, (appended, total) -> {
+                    if (!cookie.equals(SessionStore.load(context)) || owner != cachedUserId(context) || LocalOnlyMode.enabled(context)) throw new java.io.IOException("账号或网络模式已变化，请重新打开歌单");
+                    JSONArray batch = new JSONArray(); int offset = values.length();
+                    for (JSONObject item : appended) {
+                        JSObject standardized = track(item, context); values.put(standardized); batch.put(standardized);
+                        if (batch.length() == 80) {
+                            if (!requestToken.isEmpty()) notifyListeners("playlistTracksProgress", new JSObject().put("requestToken", requestToken).put("userId", owner).put("playlistId", playlistId).put("offset", offset).put("total", total).put("tracks", batch).put("playlist", summary));
+                            offset = values.length(); batch = new JSONArray();
+                        }
+                    }
+                    if (batch.length() > 0 && !requestToken.isEmpty()) notifyListeners("playlistTracksProgress", new JSObject().put("requestToken", requestToken).put("userId", owner).put("playlistId", playlistId).put("offset", offset).put("total", total).put("tracks", batch).put("playlist", summary));
+                });
+                if (!cookie.equals(SessionStore.load(context)) || owner != cachedUserId(context) || LocalOnlyMode.enabled(context)) throw new java.io.IOException("账号或网络模式已变化，请重新打开歌单");
+                try { PlaylistCache.saveTracks(context, owner, playlistId, fetched, metadata); }
                 catch (Exception cacheFailure) { android.util.Log.w("VutronPlaylistCache", "Unable to persist the opened playlist", cacheFailure); }
-                JSONArray values = new JSONArray();
-                for (JSONObject item : fetched) values.put(track(item, context));
-                call.resolve(new JSObject().put("tracks", values).put("playlist", playlist(metadata, context)));
+                call.resolve(new JSObject().put("tracks", values).put("playlist", summary));
             } catch (Exception error) {
-                long playlistId = longArg(call, "playlistId", 0L);
-                JSONArray values = new JSONArray();
-                for (JSONObject item : PlaylistCache.readTracks(getContext(), cachedUserId(getContext()), playlistId)) values.put(track(item, getContext()));
-                if (values.length() == 0 && !PlaylistCache.hasTrackSnapshot(getContext(), cachedUserId(getContext()), playlistId)) {
+                if (!cookie.equals(SessionStore.load(context)) || owner != cachedUserId(context)) { call.reject(message(error, "账号已变化，请重新打开歌单")); return; }
+                JSONArray cached = new JSONArray();
+                for (JSONObject item : PlaylistCache.readTracks(context, owner, playlistId)) cached.put(track(item, context));
+                if (cached.length() == 0 && !PlaylistCache.hasTrackSnapshot(context, owner, playlistId)) {
+                    if (values.length() > 0) { call.resolve(new JSObject().put("tracks", values).put("incomplete", true).put("message", message(error, "歌曲未全部加载，请重试"))); return; }
                     call.reject(message(error, "读取歌曲列表失败")); return;
                 }
-                call.resolve(new JSObject().put("tracks", values).put("cached", true));
+                call.resolve(new JSObject().put("tracks", cached).put("cached", true));
             }
         });
     }
@@ -615,29 +630,57 @@ public final class VutronMusicPlugin extends Plugin {
     }
 
     private JSObject sleepTimerSnapshot() {
-        long remaining = AndroidPlaybackService.sleepTimerRemainingMs(getContext());
-        long deadline = getContext().getSharedPreferences("vutron_playback", Context.MODE_PRIVATE).getLong("sleepTimerDeadlineEpochMs", 0L);
-        return new JSObject().put("remainingMs", remaining).put("deadlineMs", remaining > 0 ? deadline : 0L);
+        try{return new JSObject(AndroidPlaybackService.sleepTimerSnapshot(getContext()).toString());}
+        catch(Exception invalid){throw new IllegalStateException(invalid);}
     }
 
     @PluginMethod
     public void getSleepTimer(PluginCall call) {
-        call.resolve(sleepTimerSnapshot());
+        getActivity().runOnUiThread(()->call.resolve(sleepTimerSnapshot()));
     }
 
     @PluginMethod
     public void setSleepTimer(PluginCall call) {
-        long durationMs = longArg(call, "durationMs", 0L);
-        try {
-            AndroidPlaybackService.setSleepTimer(getContext(), durationMs);
-            call.resolve(sleepTimerSnapshot());
-        } catch (Exception error) { call.reject(message(error, "睡眠定时设置失败")); }
+        getActivity().runOnUiThread(()->{
+            try {
+                AndroidPlaybackService.setSleepTimer(getContext(),call.getString("mode","duration"),longArg(call,"durationMs",0L),call.getInt("trackCount",1),call.getInt("fadeSeconds",0));
+                call.resolve(sleepTimerSnapshot());
+            }catch(Exception error){call.reject(message(error,"睡眠定时设置失败"));}
+        });
     }
 
     @PluginMethod
     public void clearSleepTimer(PluginCall call) {
-        AndroidPlaybackService.clearSleepTimer(getContext());
-        call.resolve(new JSObject().put("remainingMs", 0));
+        getActivity().runOnUiThread(()->{
+            AndroidPlaybackService.clearSleepTimer(getContext());
+            call.resolve(sleepTimerSnapshot());
+        });
+    }
+
+    @PluginMethod public void getAbLoop(PluginCall call){
+        getActivity().runOnUiThread(()->{
+            try{call.resolve(new JSObject(AndroidPlaybackService.abLoopSnapshot().toString()));}
+            catch(Exception error){call.reject(message(error,"读取 A/B 循环失败"));}
+        });
+    }
+
+    @PluginMethod public void setAbLoop(PluginCall call){
+        getActivity().runOnUiThread(()->{
+            try{
+                if(call.getData().has("enabled")&&!(call.getData().opt("enabled") instanceof Boolean))throw new IllegalArgumentException("A/B 循环开关无效");
+                JSONObject state=AndroidPlaybackService.setAbLoop(call.getString("expectedTrackKey",""),call.getString("action","set"),abPoint(call,"startMs"),abPoint(call,"endMs"),call.getData().has("enabled")?call.getBoolean("enabled",false):null);
+                call.resolve(new JSObject(state.toString()));
+            }catch(Exception error){call.reject(message(error,"设置 A/B 循环失败"));}
+        });
+    }
+
+    private static Long abPoint(PluginCall call,String key){
+        if(!call.getData().has(key))return null;
+        Object value=call.getData().opt(key);
+        if(!(value instanceof Number))throw new IllegalArgumentException("A/B 标记位置无效");
+        double number=((Number)value).doubleValue();
+        if(!Double.isFinite(number)||number!=Math.rint(number)||number< -1||number>Integer.MAX_VALUE)throw new IllegalArgumentException("A/B 标记位置无效");
+        return (long)number;
     }
 
     @PluginMethod
@@ -768,7 +811,7 @@ public final class VutronMusicPlugin extends Plugin {
     }
 
     @PluginMethod public void resolveMusicPluginArtwork(PluginCall call) {
-        PluginArtwork.request(getContext(), call.getString("pluginId", ""), call.getString("uri", ""), call.getObject("sourceContext",new JSObject()),new ArtworkCache.Result() {
+        PluginArtwork.request(getContext(), call.getString("pluginId", ""), call.getString("uri", ""), call.getObject("sourceContext",new JSObject()),call.getInt("size",512),new ArtworkCache.Result() {
             @Override public void success(String uri) { call.resolve(new JSObject().put("uri", uri)); }
             @Override public void failure(Exception error) { call.reject(message(error, "读取插件封面失败")); }
         });
@@ -861,13 +904,16 @@ public final class VutronMusicPlugin extends Plugin {
             String id=call.getString("pluginId", "");
             String ownerScope=AndroidPluginManager.accountScope(getContext(),id);
             if (!call.getString("accountScope",ownerScope).equals(ownerScope)) throw new java.io.IOException("插件账号已变化，请重新打开音乐库");
-            JSONObject raw = call.getObject("track");
-            if (raw == null) throw new java.io.IOException("缺少插件歌曲");
-            String source = raw.optString("pluginId", id); if (source.isEmpty()) source=id;
-            JSONObject track = PluginTrackAdapter.track(source, raw, AndroidPluginManager.accountScope(getContext(),source));
+            JSONObject raw = call.getObject("track"); JSONArray many = call.getArray("tracks");
+            if (raw == null && (many == null || many.length() == 0)) throw new java.io.IOException("缺少插件歌曲");
+            JSONArray values = many == null ? new JSONArray().put(raw) : many, converted = new JSONArray();
+            for (int i = 0; i < values.length(); i++) {
+                JSONObject row = values.getJSONObject(i); String source = row.optString("pluginId", id); if (source.isEmpty()) source = id;
+                converted.put(PluginTrackAdapter.track(source, row, AndroidPluginManager.accountScope(getContext(), source)));
+            }
             String action = call.getString("action", "");
             if (!("next".equals(action) || "append".equals(action))) throw new java.io.IOException("队列操作无效");
-            editPlaybackQueue(call, "next".equals(action) ? "add" : "append", track);
+            editPlaybackQueue(call, "next".equals(action) ? "addMany" : "appendMany", new JSONObject().put("tracks", converted));
         } catch (Exception failure) { call.reject(message(failure, "插件歌曲加入队列失败")); }
     }
 
@@ -896,6 +942,8 @@ public final class VutronMusicPlugin extends Plugin {
 
     @PluginMethod
     public void addToPlayNext(PluginCall call) {
+        JSArray many = call.getArray("tracks");
+        if (many != null) { if (many.length() == 0) { call.reject("歌曲列表为空"); return; } editPlaybackQueue(call, "addMany", new JSObject().put("tracks", many)); return; }
         JSObject value = call.getObject("track");
         if (value == null || value.optLong("id") <= 0) { call.reject("歌曲信息无效"); return; }
         editPlaybackQueue(call, "add", value);
@@ -903,6 +951,8 @@ public final class VutronMusicPlugin extends Plugin {
 
     @PluginMethod
     public void appendToPlaybackQueue(PluginCall call) {
+        JSArray many = call.getArray("tracks");
+        if (many != null) { if (many.length() == 0) { call.reject("歌曲列表为空"); return; } editPlaybackQueue(call, "appendMany", new JSObject().put("tracks", many)); return; }
         JSObject value = call.getObject("track");
         if (value == null || value.optLong("id") <= 0) { call.reject("歌曲信息无效"); return; }
         editPlaybackQueue(call, "append", value);
@@ -916,6 +966,8 @@ public final class VutronMusicPlugin extends Plugin {
 
     @PluginMethod
     public void clearPlayNext(PluginCall call) { editPlaybackQueue(call, "clearNext", null); }
+
+    @PluginMethod public void undoPlaybackQueue(PluginCall call) { editPlaybackQueue(call, "undo", new JSObject().put("undoToken", call.getString("undoToken", ""))); }
 
     @PluginMethod
     public void reorderLocalPlaybackQueue(PluginCall call) {
@@ -942,7 +994,7 @@ public final class VutronMusicPlugin extends Plugin {
         return new JSObject().put("tracks", value == null ? new JSONArray() : localLibraryTracks(value.songs))
                 .put("index", value == null ? -1 : value.index)
                 .put("upNext", value == null ? new JSONArray() : localLibraryTracks(value.upNext))
-                .put("mode", AndroidPlaybackService.getMode(getContext()));
+                .put("mode", AndroidPlaybackService.getMode(getContext())).put("undoToken", PlaybackQueueUndo.token(value));
     }
 
     @PluginMethod
@@ -1055,9 +1107,7 @@ public final class VutronMusicPlugin extends Plugin {
         worker.execute(() -> {
             try {
                 JSONObject backup = LibraryBackup.snapshot(getContext(), call.getObject("frontend", new JSObject()), call.getObject("orders", new JSObject()));
-                LibraryBackup.validate(backup);
-                byte[] bytes = backup.toString(2).getBytes(java.nio.charset.StandardCharsets.UTF_8);
-                if (bytes.length > LibraryBackup.MAX_BYTES) throw new java.io.IOException("资料超过 8 MiB，请先精简歌单");
+                byte[] bytes = LibraryBackup.exportBytes(backup);
                 try (java.io.OutputStream output = getContext().getContentResolver().openOutputStream(uri, "wt")) {
                     if (output == null) throw new java.io.IOException("无法写入备份位置"); output.write(bytes); output.flush();
                 }
@@ -1209,10 +1259,23 @@ public final class VutronMusicPlugin extends Plugin {
 
     @PluginMethod public void manageLocalLibrary(PluginCall call) {
         worker.execute(() -> {
-            try { call.resolve(LocalLibraryManager.manage(getContext(), libraryTasks, call.getString("action", ""),
-                    call.getObject("track"), call.getString("collectionId", ""), call.getBoolean("stopCurrent", false))); }
+            try {
+                String action = call.getString("action", "");
+                if ("removeTracks".equals(action)) call.resolve(LocalRemovalStore.remove(getContext(), libraryTasks, call.getArray("tracks", new JSArray()), call.getBoolean("stopCurrent", false)));
+                else if ("restoreTrack".equals(action) || "restoreRemoval".equals(action)) call.resolve(new JSObject().put("changed", LocalRemovalStore.restore(getContext(), call.getString("recordId", ""), "restoreRemoval".equals(action))));
+                else call.resolve(LocalLibraryManager.manage(getContext(), libraryTasks, action,
+                    call.getObject("track"), call.getString("collectionId", ""), call.getBoolean("stopCurrent", false)));
+            }
             catch (Exception error) { call.reject(message(error, "本地资料修改失败")); }
         });
+    }
+
+    @PluginMethod public void getRemovedLocalTracks(PluginCall call) {
+        worker.execute(() -> { try {
+            int offset = Math.max(0, call.getInt("offset", 0)), limit = Math.min(100, Math.max(1, call.getInt("limit", 80)));
+            call.resolve(LocalRemovalStore.list(getContext(), offset, limit));
+        }
+            catch (Exception error) { call.reject(message(error, "读取移除记录失败")); } });
     }
 
     @PluginMethod
@@ -1224,6 +1287,17 @@ public final class VutronMusicPlugin extends Plugin {
                 boolean removed = AudioCache.remove(getContext(), id);
                 call.resolve(new JSObject().put("removed", removed).put("inUse", !removed));
             } catch (Exception error) { call.reject(message(error, "缓存删除失败")); }
+        });
+    }
+
+    @PluginMethod public void deleteCachedTracks(PluginCall call) {
+        worker.execute(() -> {
+            JSONArray ids = call.getArray("trackIds", new JSArray()); java.util.Set<Long> seen = new java.util.HashSet<>(); int removed = 0, skipped = 0, failed = 0;
+            for (int i = 0; i < ids.length(); i++) {
+                long id = ids.optLong(i); if (id <= 0 || !seen.add(id)) continue;
+                try { if (AudioCache.remove(getContext(), id)) removed++; else skipped++; } catch (Exception error) { failed++; android.util.Log.w("VutronCache", "Could not remove cached track " + id, error); }
+            }
+            call.resolve(new JSObject().put("removed", removed).put("skipped", skipped).put("failed", failed));
         });
     }
 
@@ -1249,7 +1323,9 @@ public final class VutronMusicPlugin extends Plugin {
 
     @PluginMethod
     public void getArtwork(PluginCall call) {
-        ArtworkCache.fetch(getContext(), call.getString("url", ""), new ArtworkCache.Result() {
+        String url = call.getString("url", ""), localUri = call.getString("localUri", "");
+        int size = call.getInt("size", 512);
+        ArtworkCache.Result result = new ArtworkCache.Result() {
             @Override public void success(String uri) {
                 call.resolve(new JSObject().put("uri", uri));
             }
@@ -1257,7 +1333,18 @@ public final class VutronMusicPlugin extends Plugin {
             @Override public void failure(Exception error) {
                 call.reject(message(error, "封面下载失败"), "ARTWORK_UNAVAILABLE", error);
             }
-        });
+        };
+        if (!localUri.isEmpty() && ArtworkThumbnail.isOwned(getContext(), localUri)) {
+            ArtworkThumbnail.request(getContext(), localUri, size, ArtworkCache.thumbnailKey(url, size), result);
+        } else if (!localUri.isEmpty() && !ArtworkThumbnail.isOwnedPath(getContext(), localUri)) {
+            result.success(localUri);
+        } else if (!url.isEmpty()) {
+            ArtworkCache.fetch(getContext(), url, size, result);
+        } else if (!localUri.isEmpty()) {
+            // Imported/SAF covers keep their existing URI; the thumbnail worker
+            // reads only files owned by the bounded artwork cache.
+            result.success(localUri);
+        } else result.failure(new java.io.IOException("封面地址为空"));
     }
 
     @PluginMethod
@@ -1306,10 +1393,7 @@ public final class VutronMusicPlugin extends Plugin {
             try {
                 JSONArray values = new JSONArray();
                 for (JSONObject song : AudioCache.list(getContext())) {
-                    long id = song.optLong("id");
                     if (song.optString("trackVolumeKey", "").isEmpty()) song.put("trackVolumeKey", PlaybackVolume.trackKey(song));
-                    AudioCache.Entry entry = AudioCache.find(getContext(), id);
-                    if (entry != null) song.put("localPath", entry.file.getAbsolutePath()).put("localUri", "file://" + entry.file.getAbsolutePath());
                     song.put("source", "cache");
                     values.put(track(song, getContext()));
                 }
@@ -1425,11 +1509,13 @@ public final class VutronMusicPlugin extends Plugin {
     }
 
     private JSObject cacheStatus(AudioCache.Stats stats) {
+        long artworkBytes = ArtworkCache.bytes(getContext());
         return new JSObject().put("capacityMb", stats.maxBytes / (1024L * 1024L))
                 .put("enabled", stats.enabled)
                 .put("usedBytes", stats.bytes).put("trackCount", stats.count)
-                .put("libraryBytes", PlaylistCache.bytes(getContext()) + ArtworkCache.bytes(getContext()))
+                .put("libraryBytes", PlaylistCache.bytes(getContext()) + artworkBytes)
                 .put("artworkCapacityMb", ArtworkCache.capacityMiB(getContext()))
+                .put("artworkBytes", artworkBytes)
                 .put("queued", stats.queued).put("downloading", stats.downloading)
                 .put("downloadedBytes", stats.downloadedBytes).put("downloadTotalBytes", stats.downloadTotalBytes)
                 .put("error", stats.error == null ? "" : stats.error);
@@ -1594,6 +1680,10 @@ public final class VutronMusicPlugin extends Plugin {
                 .put("trackVolumePercent", state.getInt("trackVolumePercent", 100))
                 .put("playlistVolumePercent", state.getInt("playlistVolumePercent", 100));
         if (current != null && current.optLong("id") == trackId) snapshot.put("track", track(current, getContext()));
+        JSONObject loop=AndroidPlaybackService.abPlaybackSnapshot();
+        boolean loopEnabled=loop.optBoolean("enabled")&&loop.optLong("trackId")==trackId;
+        snapshot.put("abLoopEnabled",loopEnabled);
+        if(loopEnabled)snapshot.put("abLoop",loop);
         call.resolve(snapshot);
     }
 

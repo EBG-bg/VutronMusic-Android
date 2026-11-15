@@ -1,0 +1,81 @@
+const assert = require('node:assert/strict')
+
+module.exports = async ({ evaluate, wait, delay, click, fill }) => {
+  const ids = () => evaluate('Array.from(document.querySelectorAll(".plugin-track"),row=>JSON.parse(row.dataset.pluginTrackId)[1])')
+  const writes = () => evaluate('window.pluginHarness.backend.calls.filter(row=>row.method==="reorderPlaylistTracks").length')
+  const expected = await ids(), beforeWrites = await writes(), beforePlays = await evaluate('window.pluginHarness.plays.length')
+  const initialHistory = await evaluate('(async()=>{const m=await import("/src/composables/collectionOrderHistory.ts");return m.exportCollectionOrderHistories()})()')
+  for (const record of Object.values(initialHistory)) for (const entry of record.entries) assert.equal(entry.keys.length, expected.length, 'A successful server refresh must not archive a partial playlist as another complete order')
+  const open = async () => { await click('.playlist-order-history-button'); await wait('document.querySelector(".collection-history-sheet")'); await delay(350) }
+  const expand = async selector => {
+    if (!await evaluate('document.querySelector('+JSON.stringify(selector)+').open')) await click(selector+' > summary')
+    await wait('document.querySelector('+JSON.stringify(selector)+').open'); await delay(350)
+  }
+  const backToList = async () => { await click('.history-preview-back'); await wait('document.querySelector(".history-overview")'); await delay(250) }
+  const confirm = async () => { await click('.history-load-actions .primary-button'); await wait('!document.querySelector(".collection-history-sheet")'); await delay(300) }
+  await evaluate('document.querySelector(".playlist-order-history-button").click();window.pluginHarness.back()')
+  await delay(450)
+  assert.equal(await evaluate('Boolean(document.querySelector(".collection-history-sheet"))'), false)
+  assert.equal(await evaluate('Boolean(document.querySelector(".plugin-detail"))'), true, 'Immediate back consumes a pending lazy sheet instead of leaving the playlist')
+  assert.equal(await writes(), beforeWrites)
+  await open()
+  await click('.history-recent'); await wait('document.querySelector(".history-preview")'); await delay(300)
+  assert.deepEqual(await ids(), expected, 'Preview keeps the active plugin playlist untouched')
+  assert.equal(await writes(), beforeWrites)
+  await expand('.history-manage')
+  await fill('.history-name-form input', 'Pinned fixture order')
+  await evaluate('document.querySelector(".history-name-form").requestSubmit()')
+  await wait('document.querySelector(".history-preview-heading h3")?.textContent==="Pinned fixture order"')
+  await click('.history-pin-toggle'); await wait('document.querySelector(".history-pin-toggle").getAttribute("aria-checked")==="true"')
+  const pinnedId = await evaluate('(async()=>{const {exportCollectionOrderHistories}=await import("/src/composables/collectionOrderHistory.ts");return Object.values(exportCollectionOrderHistories()).flatMap(record=>record.entries).find(entry=>entry.name==="Pinned fixture order").id})()')
+  await backToList()
+  await expand('.history-retention')
+  await fill('.history-limit-form input', '1'); await evaluate('document.querySelector(".history-limit-form").requestSubmit()')
+  await wait('document.querySelectorAll(".history-entry").length===2')
+  assert.equal(await writes(), beforeWrites, 'Renaming, pinning and retention edits never write a server playlist')
+  await click('.history-recent'); await wait('document.querySelector(".history-preview")'); await delay(250)
+  await click('.history-load-actions .text-button'); await wait('document.querySelector(".history-overview")'); await delay(250)
+  await click('.collection-history-sheet header .icon-button'); await wait('!document.querySelector(".collection-history-sheet")')
+  await wait('document.activeElement?.classList.contains("playlist-order-history-button")')
+  assert.deepEqual(await ids(), expected, 'Cancelled preview preserves the active custom order')
+  assert.equal(await evaluate('window.pluginHarness.plays.length'), beforePlays, 'History browsing cannot change the playback queue')
+
+  await open()
+  await evaluate('Array.from(document.querySelectorAll(".history-entry")).find(row=>!row.querySelector(".history-pinned")).click()')
+  await wait('document.querySelector(".history-preview")'); await delay(250)
+  const loadedPreview = await evaluate('({heading:document.querySelector(".history-preview-heading h3").textContent,names:Array.from(document.querySelectorAll(".history-preview-list li b"),row=>row.textContent)})')
+  assert.deepEqual(await ids(), expected)
+  await confirm()
+  assert.notDeepEqual(await ids(), expected, 'Only confirmed history loading changes the view: ' + JSON.stringify({ loadedPreview, histories: await evaluate('(async()=>{const m=await import("/src/composables/collectionOrderHistory.ts");return m.exportCollectionOrderHistories()})()') }))
+  assert.equal(await writes(), beforeWrites, 'Confirmed history remains a draft until an explicit save')
+  await open()
+  await evaluate(`Array.from(document.querySelectorAll('.history-entry')).find(row=>row.dataset.historyId===${JSON.stringify(pinnedId)}).click()`)
+  await wait('document.querySelector(".history-preview")'); await delay(250)
+  assert.equal(await evaluate('document.querySelector(".history-preview-heading h3").textContent'), 'Pinned fixture order')
+  await confirm()
+  assert.deepEqual(await ids(), expected, 'Named permanent order restores through the same custom order and queue path')
+  assert.equal(await writes(), beforeWrites)
+  assert.equal(await evaluate('Boolean(document.querySelector(".order-draft-actions"))'), false, 'Returning to the already-saved order clears the dirty state')
+  await click('.plugin-playlist-order .app-select-trigger'); await wait('document.querySelector(".app-select-options")')
+  await evaluate('document.querySelector(".app-select-options [data-value=title]").click()'); await delay(250)
+  const pending = await ids()
+  assert.notDeepEqual(pending, expected)
+  await evaluate(`(()=>{
+    window.historyStorageSetItem=Storage.prototype.setItem;window.historyQuotaAttempts=0;
+    Storage.prototype.setItem=function(key,value){if(key.startsWith('vutron:collection-order-history:v2:')){window.historyQuotaAttempts++;throw new DOMException('Fixture quota failure','QuotaExceededError')}return window.historyStorageSetItem.call(this,key,value)};
+    window.pluginHarness.back();
+  })()`)
+  await wait('document.querySelector(".action-dialog")')
+  assert.equal(await evaluate('document.querySelectorAll(".action-dialog button").length'), 3)
+  assert.equal(await evaluate('window.historyQuotaAttempts'), 0, 'Leaving asks before attempting a history or cloud write')
+  await click('.action-dialog [data-default-action]'); await wait('!document.querySelector(".action-dialog")')
+  assert.ok(await evaluate('window.historyQuotaAttempts') > 0)
+  assert.equal(await writes(), beforeWrites, 'A failed history write blocks the server reorder')
+  await evaluate('Storage.prototype.setItem=window.historyStorageSetItem')
+  await evaluate('window.pluginHarness.back()'); await wait('document.querySelector(".action-dialog")')
+  await click('.action-dialog button:first-child'); await wait('!document.querySelector(".action-dialog")')
+  assert.deepEqual(await ids(), pending, 'Continue editing retains the draft after a failed pre-sync archive')
+  // The caller now leaves again and asserts a successful reorder: this also
+  // proves the failed task is not permanently cached after storage recovers.
+  console.log('PASS: plugin sharded history preview/cancel, name/permanence/retention, focus restoration, no-op restore and explicit save after a failed archive')
+}

@@ -3,12 +3,15 @@ import type { VutronCommentTarget, VutronCommentQuery, VutronCommentPage } from 
 import type { PluginPlayback } from '../plugins/protocol'
 
 export interface VutronProfile { userId: number; nickname: string; avatarUrl?: string; isVip?: boolean }
-export interface VutronPlaylist { createTime?: number; id: number; name: string; coverImgUrl?: string; coverLocalUri?: string; trackCount?: number; copywriter?: string; creatorUserId?: number; subscribed?: boolean; privacy?: number; description?: string; tags?: string[]; specialType?: number; offlineSnapshot?: boolean; cacheOwnerId?: number }
+export interface VutronPlaylist { createTime?: number; id: number; name: string; coverImgUrl?: string; coverLocalUri?: string; trackCount?: number; copywriter?: string; creatorUserId?: number; subscribed?: boolean; privacy?: number; description?: string; tags?: string[]; specialType?: number; offlineSnapshot?: boolean; cacheOwnerId?: number; tracksIncomplete?: boolean; tracksLoadError?: string }
+export interface VutronPlaylistTracksResult { tracks: VutronTrack[]; playlist?: VutronPlaylist; cached?: boolean; incomplete?: boolean; message?: string }
+export interface VutronPlaylistTracksProgress { requestToken: string; userId: number; playlistId: number; offset: number; total: number; tracks: VutronTrack[]; playlist?: VutronPlaylist }
 export interface VutronNetworkState { enabled: boolean; manual?: boolean; connected?: boolean }
 export interface VutronOnlineLibrary { userId: number; playlists?: VutronPlaylist[]; likedIds?: number[]; playlist?: VutronPlaylist; tracks?: VutronTrack[]; committed?: boolean; refreshFailed?: boolean; deletedPlaylistId?: number; createdPlaylistId?: number; message?: string }
-export interface VutronNeteaseMutation { action: 'like' | 'create' | 'edit' | 'delete' | 'add' | 'remove'; playlistId?: number; trackId?: number; liked?: boolean; name?: string; description?: string; tags?: string[]; privacy?: number; refreshPlaylistId?: number }
+export interface VutronNeteaseMutation { action: 'like' | 'create' | 'edit' | 'delete' | 'add' | 'remove' | 'reorder'; playlistId?: number; trackId?: number; trackIds?: number[]; liked?: boolean; name?: string; description?: string; tags?: string[]; privacy?: number; refreshPlaylistId?: number }
 export interface VutronLocalCollection { createTime?: number; id: string; name: string; trackCount: number; uri?: string; isLocalBundle?: boolean; permissionGranted?: boolean }
 export interface VutronLocalLibrary { folders: VutronLocalCollection[]; playlists: VutronLocalCollection[]; excludedTrackCount?: number }
+export interface VutronRemovedLocalTrack { id: string; name: string; artists: string[]; album: string; removedAt: number }
 export interface VutronLibraryTask { kind: string; running: boolean; cancelled?: boolean; done: number; total: number }
 export interface VutronLocalImportResult { cancelled?: boolean; playlist?: VutronLocalCollection; needsMode?: boolean; importToken?: string; audioCount?: number; canMatchOnline?: boolean; matched?: number; total?: number; failed?: number; matchingCancelled?: boolean; matchingPaused?: boolean; matchingFailed?: boolean }
 export interface VutronTrack {
@@ -81,6 +84,7 @@ export interface VutronCacheStatus {
   trackCount: number
   libraryBytes?: number
   artworkCapacityMb?: number
+  artworkBytes?: number
   enabled?: boolean
   queued?: number
   downloading?: boolean
@@ -115,6 +119,8 @@ export interface VutronLyricOverlaySettings {
   temporaryHiddenRemainingMs?: number
 }
 export interface VutronPlaybackState {
+  abLoop?: VutronAbLoopState
+  abLoopEnabled?: boolean
   loading?: boolean
   tuningApplied?: boolean
   rate?: number
@@ -141,7 +147,18 @@ export interface VutronPlaybackState {
   upNextCount?: number
 }
 export interface VutronPlaybackTuning { speed: number; pitch: number; prefetchWifi: boolean; actualSpeed: number; actualPitch: number; warning: string }
-export interface VutronQueue { tracks: VutronTrack[]; index: number; upNext: VutronTrack[]; mode: number }
+export interface VutronQueue { tracks: VutronTrack[]; index: number; upNext: VutronTrack[]; mode: number; undoToken?: string }
+export type VutronSleepTimerMode = 'duration' | 'track' | 'count'
+export interface VutronSleepTimerState {
+  remainingMs: number
+  deadlineMs?: number
+  active?: boolean
+  mode?: VutronSleepTimerMode
+  remainingTracks?: number
+  fadeSeconds?: number
+}
+export interface VutronSleepTimerOptions { mode?: VutronSleepTimerMode; durationMs?: number; trackCount?: number; fadeSeconds?: number }
+export interface VutronAbLoopState { trackKey: string; trackId: number; startMs: number; endMs: number; enabled: boolean; minSpanMs: number; durationMs: number; positionMs?: number }
 
 export interface VutronAppUpdateState {
   currentVersion: string
@@ -165,7 +182,7 @@ export interface VutronAppUpdateState {
 export interface VutronMusicPlugin extends Plugin {
   playMusicPlugin(options: PluginPlayback & { index?: number; position?: number }): Promise<{ track: VutronTrack }>
   getMusicPluginPlaylistProgress(options: { pluginId: string; accountScope?: string; playlistKey: string }): Promise<{ available: boolean; trackId: string; sourcePluginId: string; position: number }>
-  queueMusicPlugin(options: { pluginId: string; accountScope?: string; track: PluginPlayback['track']; action: 'next' | 'append' }): Promise<VutronQueue>
+  queueMusicPlugin(options: { pluginId: string; accountScope?: string; track?: PluginPlayback['track']; tracks?: PluginPlayback['track'][]; action: 'next' | 'append' }): Promise<VutronQueue>
   setSystemAppearance(options: { dark: boolean }): Promise<void>
   getPlaybackTuning(): Promise<VutronPlaybackTuning>
   updatePlaybackTuning(options: Partial<Pick<VutronPlaybackTuning, 'speed' | 'pitch' | 'prefetchWifi'>>): Promise<VutronPlaybackTuning>
@@ -186,7 +203,7 @@ export interface VutronMusicPlugin extends Plugin {
   cancelQrLogin?(options: { key: string }): Promise<void>
   logout(): Promise<void>
   getPlaylists(options: { userId: number }): Promise<{ playlists: VutronPlaylist[]; cached?: boolean }>
-  getPlaylistTracks(options: { playlistId: number; playlist?: VutronPlaylist }): Promise<{ tracks: VutronTrack[]; playlist?: VutronPlaylist; cached?: boolean }>
+  getPlaylistTracks(options: { playlistId: number; playlist?: VutronPlaylist; userId?: number; requestToken?: string }): Promise<VutronPlaylistTracksResult>
   getLikedTrackIds?(): Promise<{ userId: number; likedIds: number[] }>
   getOnlineLibrary?(options: { playlistId?: number }): Promise<VutronOnlineLibrary>
   manageNeteaseLibrary?(options: VutronNeteaseMutation): Promise<VutronOnlineLibrary>
@@ -210,11 +227,12 @@ export interface VutronMusicPlugin extends Plugin {
   next(): Promise<void>
   previous(): Promise<void>
   getPlaybackQueue?(): Promise<VutronQueue>
-  addToPlayNext?(options: { track: VutronTrack }): Promise<VutronQueue>
-  appendToPlaybackQueue?(options: { track: VutronTrack }): Promise<VutronQueue>
+  addToPlayNext?(options: { track?: VutronTrack; tracks?: VutronTrack[] }): Promise<VutronQueue>
+  appendToPlaybackQueue?(options: { track?: VutronTrack; tracks?: VutronTrack[] }): Promise<VutronQueue>
   playQueueIndex?(options: { index: number; upNext?: boolean }): Promise<VutronQueue>
   removeQueueTrack?(options: { index: number; upNext?: boolean }): Promise<VutronQueue>
   clearPlayNext?(): Promise<VutronQueue>
+  undoPlaybackQueue?(options: { undoToken: string }): Promise<VutronQueue>
   exportUserBackup?(options: { frontend: Record<string, string>; orders: Record<string, unknown> }): Promise<{ cancelled?: boolean; collectionCount?: number }>
   importUserBackup?(): Promise<{ cancelled?: boolean; frontend?: Record<string, string>; orders?: Record<string, unknown>; collectionCount?: number }>
   reorderLocalPlaybackQueue?(options: { collectionId: string; keys: string[] }): Promise<VutronQueue>
@@ -230,7 +248,7 @@ export interface VutronMusicPlugin extends Plugin {
   getLocalMusicIndex?(): Promise<{ tracks: VutronLocalTrack[]; indexed: boolean; updatedAt: number; incomplete?: boolean; retryAfter?: number }>
   setPlaybackMode?(options: { mode: number }): Promise<{ mode: number }>
   getCacheStatus?(): Promise<VutronCacheStatus>
-  getArtwork?(options: { url: string }): Promise<{ uri: string }>
+  getArtwork?(options: { url: string; localUri?: string; size?: number }): Promise<{ uri: string }>
   setCacheCapacity?(options: { capacityMb: number }): Promise<VutronCacheStatus>
   setCacheEnabled?(options: { enabled: boolean }): Promise<VutronCacheStatus>
   setArtworkCacheCapacity?(options: { capacityMb: number }): Promise<VutronCacheStatus>
@@ -238,7 +256,9 @@ export interface VutronMusicPlugin extends Plugin {
   getCachedTracks?(): Promise<{ tracks: VutronLocalTrack[] }>
   clearCache?(): Promise<void>
   deleteCachedTrack?(options: { trackId: number }): Promise<{ removed: boolean; inUse?: boolean }>
-  manageLocalLibrary?(options: { action: 'removeTrack' | 'deletePlaylist' | 'forgetFolder' | 'restoreRemoved'; track?: VutronTrack; collectionId?: string; stopCurrent?: boolean }): Promise<{ changed: boolean; requiresStop?: boolean }>
+  deleteCachedTracks?(options: { trackIds: number[] }): Promise<{ removed: number; skipped: number; failed: number }>
+  manageLocalLibrary?(options: { action: 'removeTrack' | 'removeTracks' | 'deletePlaylist' | 'forgetFolder' | 'restoreRemoved' | 'restoreTrack' | 'restoreRemoval'; track?: VutronTrack; tracks?: VutronTrack[]; collectionId?: string; recordId?: string; stopCurrent?: boolean }): Promise<{ changed: boolean; requiresStop?: boolean; undoToken?: string; removedCount?: number }>
+  getRemovedLocalTracks?(options?: { offset?: number; limit?: number }): Promise<{ records: VutronRemovedLocalTrack[]; total?: number }>
   cancelLibraryTask?(): Promise<VutronLibraryTask>
   getLibraryTaskState?(): Promise<VutronLibraryTask>
   getLyricOverlaySettings?(): Promise<VutronLyricOverlaySettings>
@@ -249,9 +269,11 @@ export interface VutronMusicPlugin extends Plugin {
   temporaryHideLyricOverlay?(options: { durationMs: number }): Promise<VutronLyricOverlaySettings>
   restoreLyricOverlay?(): Promise<VutronLyricOverlaySettings>
   setLyricOffset?(options: { trackId: number; offsetMs: number; track?: VutronTrack }): Promise<void>
-  getSleepTimer?(): Promise<{ remainingMs: number; deadlineMs?: number }>
-  setSleepTimer?(options: { durationMs: number }): Promise<{ remainingMs: number; deadlineMs?: number }>
-  clearSleepTimer?(): Promise<{ remainingMs: number; deadlineMs?: number }>
+  getSleepTimer?(): Promise<VutronSleepTimerState>
+  setSleepTimer?(options: VutronSleepTimerOptions): Promise<VutronSleepTimerState>
+  clearSleepTimer?(): Promise<VutronSleepTimerState>
+  getAbLoop?(): Promise<VutronAbLoopState>
+  setAbLoop?(options: { action?: 'set' | 'clear'; expectedTrackKey: string; startMs?: number; endMs?: number; enabled?: boolean }): Promise<VutronAbLoopState>
   getSourceSettings(): Promise<{ autoMatch: boolean }>
   updateSourceSettings(options: { autoMatch: boolean }): Promise<{ autoMatch: boolean }>
   getVolumeSettings(options?: { track?: VutronTrack; playlistKey?: string }): Promise<{ trackPercent: number; playlistPercent: number }>

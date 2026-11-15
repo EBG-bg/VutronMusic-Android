@@ -26,7 +26,11 @@ final class PlaybackRequest {
             song.put("trackVolumeKey", PlaybackVolume.trackKey(song));
         }
         long id = song.optLong("id");
-        String source = localSource(song);
+        boolean selectedCache = song.optBoolean("cached") || "cache".equals(song.optString("source"));
+        // Cache rows contain display paths, not an integrity guarantee. Verify only
+        // the chosen recording, including notification/process-restored selections.
+        AudioCache.Entry cached = selectedCache ? selectedCache(context, song) : null;
+        String source = cached == null ? localSource(song) : Uri.fromFile(cached.file).toString();
         if (source.isEmpty() && !PluginMedia.isPlugin(song)) {
             JSONObject local = LocalPlaybackResolver.match(context, song);
             if (local != null) {
@@ -44,12 +48,10 @@ final class PlaybackRequest {
         JSONObject location = null;
         boolean usedPrefetchedSource = false;
         if (source.isEmpty()) {
-            AudioCache.Entry cached = AudioCache.find(context, id);
+            if (!selectedCache) cached = AudioCache.find(context, id);
             if (cached != null) {
                 source = Uri.fromFile(cached.file).toString();
-                song.put("playbackSource", cached.source).put("playbackBitrate", cached.bitrate)
-                        .put("playbackFormat", cached.format).put("playbackLossless", cached.lossless)
-                        .put("playbackCached", true);
+                cachedPlayback(song, cached);
             } else {
                 if (PluginMedia.isPlugin(song)) location = PluginMedia.resolve(context, song);
                 else {
@@ -65,12 +67,8 @@ final class PlaybackRequest {
                                 || "flac".equalsIgnoreCase(location.optString("type", "")))
                         .put("playbackCached", false);
             }
-        } else if (song.optBoolean("cached") || "cache".equals(song.optString("source"))) {
-            song.put("playbackSource", song.optString("cacheSource", "离线缓存"))
-                    .put("playbackBitrate", song.optLong("cacheBitrate"))
-                    .put("playbackFormat", song.optString("cacheFormat", ""))
-                    .put("playbackLossless", song.optBoolean("cacheLossless"))
-                    .put("playbackCached", true);
+        } else if (cached != null) {
+            cachedPlayback(song, cached);
         } else {
             song.put("playbackSource", "本地文件").put("playbackBitrate", 0)
                     .put("playbackFormat", "").put("playbackLossless", false).put("playbackCached", false);
@@ -87,6 +85,27 @@ final class PlaybackRequest {
                 .putExtra("usedPrefetchedSource", usedPrefetchedSource)
                 .putExtra("cacheLocation", location == null ? "" : location.toString())
                 .putExtra("sourceHeaders", headers == null ? "{}" : headers.toString());
+    }
+
+    static AudioCache.Entry selectedCache(Context context, JSONObject song) throws java.io.InterruptedIOException {
+        AudioCache.Entry entry = AudioCache.find(context, song.optLong("id"));
+        if (Thread.currentThread().isInterrupted()) throw new java.io.InterruptedIOException("播放解析已取消");
+        if (entry == null) {
+            // Evicted/corrupt cache falls through to the existing local match and
+            // online resolver, retaining plugin account and recording identities.
+            song.remove("localUri");
+            song.remove("localPath");
+            song.remove("cached");
+            song.remove("offlineOnly");
+            if ("cache".equals(song.optString("source"))) song.remove("source");
+        }
+        return entry;
+    }
+
+    static void cachedPlayback(JSONObject song, AudioCache.Entry entry) throws org.json.JSONException {
+        song.put("playbackSource", entry.source).put("playbackBitrate", entry.bitrate)
+                .put("playbackFormat", entry.format).put("playbackLossless", entry.lossless)
+                .put("playbackCached", true);
     }
 
     static JSONObject remembered(Context context) throws Exception {

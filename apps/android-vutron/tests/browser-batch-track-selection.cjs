@@ -1,0 +1,88 @@
+// Real App.vue and the isolated native bridge; no account or Android writes.
+const assert = require('node:assert/strict'), fs = require('node:fs'), path = require('node:path')
+const { chromium } = require('@playwright/test')
+async function main() {
+  const browser = await chromium.launch({ executablePath: process.env.EDGE_PATH || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true })
+  const output = path.resolve(__dirname, '../../../_analysis/personal-0.4.16'); fs.mkdirSync(output, { recursive: true })
+  try {
+    const page = await browser.newPage({ viewport: { width: 360, height: 800 } }), errors = []
+    page.on('pageerror', error => errors.push(error.message))
+    await page.goto((process.argv[2] || 'http://127.0.0.1:5173') + '/tests/fixtures/features.html')
+    await page.waitForFunction(() => window.featureReady === true)
+    await page.evaluate(async () => {
+      const { vutronPlugin: native } = await import('/src/platform/vutronPlugin.ts'), store = window.featureHarness.store
+      const make = (prefix, base, count, fields) => Array.from({ length: count }, (_, index) => ({ id:base+index,name:prefix+' '+String(index).padStart(4,'0'),artists:['Fixture artist'],duration:180000,...fields(index) }))
+      const local = make('Local',10000,1800,index=>({localUri:'content://fixture/'+index,localKey:'fixture-'+index,localFolderId:'folder:test'}))
+      let cached = make('Cached',20000,1200,index=>({localUri:'file:///cache/'+index+'.audio',cached:true,source:'cache'}))
+      const search = make('Search',30000,1500,()=>({})), queue = {tracks:[],index:-1,upNext:[],mode:0}, calls=[]
+      const playback = {...store.playback,track:local[1350],trackId:local[1350].id,title:local[1350].name,playing:false,queueToken:'batch-fixture'}
+      window.batchFixture = {local,search,calls,queue,playback,get cached(){return cached}}
+      native.getPlaybackState=async()=>structuredClone(playback)
+      native.getPlaybackQueue=async()=>structuredClone(queue)
+      native.getLocalMusicIndex=async()=>({tracks:structuredClone(local),indexed:true,updatedAt:Date.now()})
+      native.getCachedTracks=async()=>({tracks:structuredClone(cached)})
+      native.search=async()=>({items:structuredClone(search),count:search.length,page:1})
+      for(const [name,field] of [['addToPlayNext','upNext'],['appendToPlaybackQueue','tracks']])native[name]=async options=>{
+        const tracks=options.tracks||[options.track];calls.push({method:name,ids:tracks.map(row=>row.id)})
+        await new Promise(resolve=>setTimeout(resolve,60));queue[field].push(...tracks);return structuredClone(queue)
+      }
+      native.deleteCachedTracks=async({trackIds})=>{calls.push({method:'deleteCachedTracks',ids:trackIds});const ids=new Set(trackIds);cached=cached.filter(row=>!ids.has(row.id));return {removed:trackIds.length,skipped:0,failed:0}}
+      store.localTracks=structuredClone(local);store.cachedTracks=structuredClone(cached);store.playback=structuredClone(playback);store.navigateTo('library')
+    })
+    await page.waitForSelector('.library-page'); await page.locator('.local-shortcut').click()
+    await page.waitForSelector('.local-track-section .track-row'); await page.waitForTimeout(300)
+    assert.ok(await page.locator('.local-track-section .track-row').count()<80)
+    await page.locator('.local-order-tools > .text-button').filter({hasText:'选择歌曲'}).click()
+    const localRow = name => page.locator('.local-track-section .track-row').filter({has:page.locator('b',{hasText:new RegExp('^'+name+'$')})})
+    await localRow('Local 0002').click(); await localRow('Local 0000').click()
+    for(const [name,width,language,scale,theme] of [['batch-local-zh-360',360,'zh',100,'light'],['batch-local-en-320-150',320,'en',150,'light'],['batch-local-zht-dark-150',360,'zht',150,'dark']]){
+      await page.setViewportSize({width,height:800})
+      await page.evaluate(async({language,scale,theme})=>{const {fontScale}=await import('/src/platform/interfacePreferences.ts'),{appearance}=await import('/src/platform/appearance.ts');document.querySelector('#app').__vue_app__.config.globalProperties.$i18n.locale=language;fontScale.value=scale;appearance.value=theme;window.featureHarness.store.error=''},{language,scale,theme})
+      await page.locator('.track-selection-bar').scrollIntoViewIfNeeded()
+      await page.locator('.track-selection-bar').evaluate(bar=>window.scrollTo({top:scrollY+bar.getBoundingClientRect().top-12,behavior:'instant'}))
+      await page.waitForTimeout(180);await page.screenshot({path:path.join(output,name+'.png')})
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Selection toolbar does not overflow at 150% text')
+    }
+    await page.evaluate(async()=>{const {fontScale}=await import('/src/platform/interfacePreferences.ts'),{appearance}=await import('/src/platform/appearance.ts');document.querySelector('#app').__vue_app__.config.globalProperties.$i18n.locale='zh';fontScale.value=100;appearance.value='light'})
+    await page.locator('.selection-actions .secondary-button').first().evaluate(button=>{button.click();button.click()})
+    await page.waitForFunction(()=>window.batchFixture.calls.length===1&&window.batchFixture.queue.upNext.length===2)
+    assert.deepEqual(await page.evaluate(()=>window.batchFixture.calls[0]),{method:'addToPlayNext',ids:[10000,10002]},'Batch follows displayed source order, not click order, and duplicate submits are blocked')
+    await page.locator('.selection-actions .text-button').click()
+    assert.match(await page.locator('.selection-heading').textContent(),/1800/)
+    await page.locator('.selection-actions .secondary-button').nth(1).click()
+    await page.waitForFunction(()=>window.batchFixture.calls.length===2&&window.batchFixture.queue.tracks.length===1800)
+    assert.equal(await page.evaluate(()=>window.batchFixture.calls[1].ids.at(-1)),11799)
+    assert.ok(await page.locator('.local-track-section .track-row').count()<80,'Select all retains a bounded DOM while selecting all 1800 source rows')
+    await page.locator('.selection-heading .icon-button').click()
+    await page.locator('.locate-current').click(); await page.waitForTimeout(450)
+    assert.match(await page.locator('.local-track-section .track-row[aria-current=true]').textContent(),/Local 1350/)
+    const anchor = () => page.evaluate(()=>{const row=[...document.querySelectorAll('.local-track-section .track-row')].find(row=>row.getBoundingClientRect().bottom>0);return {name:row.querySelector('b').textContent,top:row.getBoundingClientRect().top}})
+    const before=await anchor();await page.evaluate(()=>window.featureHarness.store.navigateTo('player'));await page.waitForSelector('.player-page');await page.waitForTimeout(350)
+    await page.evaluate(()=>window.featureHarness.store.navigateBack());await page.waitForSelector('.local-track-section');await page.waitForTimeout(400)
+    const after=await anchor();assert.equal(after.name,before.name);assert.ok(Math.abs(after.top-before.top)<2,'Main App list returns to the same measured row offset')
+    await page.locator('.segmented-control button').last().click();await page.waitForSelector('.offline-content .track-row');await page.waitForTimeout(300)
+    await page.locator('.offline-content > .select-tracks-button').click()
+    const cacheRow = name => page.locator('.offline-content .track-row').filter({has:page.locator('b',{hasText:new RegExp('^'+name+'$')})})
+    await cacheRow('Cached 0003').click();await cacheRow('Cached 0001').click();await page.locator('.selection-actions .secondary-button').nth(1).click()
+    await page.waitForFunction(()=>window.batchFixture.calls.length===3)
+    await page.waitForSelector('.track-selection-bar[aria-busy=false]')
+    assert.deepEqual(await page.evaluate(()=>window.batchFixture.calls[2]),{method:'appendToPlaybackQueue',ids:[20001,20003]})
+    await cacheRow('Cached 0003').click();await cacheRow('Cached 0001').click();await page.locator('.selection-actions .danger-text').click()
+    await page.waitForSelector('.action-dialog');await page.locator('.action-dialog [data-default-action]').click()
+    await page.waitForFunction(()=>window.featureHarness.store.cachedTracks.length===1198)
+    assert.deepEqual(await page.evaluate(()=>window.batchFixture.calls[3]),{method:'deleteCachedTracks',ids:[20001,20003]})
+    assert.equal(await page.evaluate(()=>window.featureHarness.store.localTracks.length),1800,'Deleting audio cache leaves the device library intact')
+    await page.locator('.selection-heading .icon-button').click()
+    await page.evaluate(async()=>{window.featureHarness.store.navigateTo('search');await window.featureHarness.store.runSearch('tracks','fixture',true)})
+    await page.waitForSelector('.search-page .track-row');await page.waitForTimeout(300)
+    await page.locator('.search-page .select-tracks-button').click()
+    const searchRow = name => page.locator('.search-page .track-row').filter({has:page.locator('b',{hasText:new RegExp('^'+name+'$')})})
+    await searchRow('Search 0004').click();await searchRow('Search 0001').click();await page.locator('.selection-actions .secondary-button').nth(1).click()
+    await page.waitForFunction(()=>window.batchFixture.calls.length===5)
+    assert.deepEqual(await page.evaluate(()=>window.batchFixture.calls[4]),{method:'appendToPlaybackQueue',ids:[30001,30004]})
+    assert.ok(await page.locator('.search-page .track-row').count()<80)
+    assert.deepEqual(errors,[])
+    console.log('PASS: real App local/cache/search multi-select; source-order batches; double-click guard; select all 1800; cache-only deletion; deep locate and measured return; three locale/theme/font screenshots')
+  } finally { await browser.close() }
+}
+main().catch(error=>{console.error(error);process.exitCode=1})

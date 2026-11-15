@@ -9,11 +9,18 @@ import java.util.Set;
 final class CommentData {
     private CommentData() { }
     static JSONObject page(JSONObject data,int nextPage,int sort,boolean floor) throws IOException {
+        return page(data,nextPage,sort,floor,"");
+    }
+    static JSONObject page(JSONObject data,int nextPage,int sort,boolean floor,String thread) throws IOException {
         if (data==null || !(data.opt("comments") instanceof JSONArray)) throw new IOException("评论响应不完整，请重试");
         try {
             JSONArray input=data.getJSONArray("comments"), rows=new JSONArray(); Set<String> seen=new HashSet<>();
             for (int i=0;i<input.length();i++) {
                 JSONObject raw=input.optJSONObject(i); if (raw==null) continue;
+                // Recommended feeds can inject activity comments from another song.
+                // Their parent IDs are invalid in this song's floor API as well.
+                String owner=raw.optString("threadId","");
+                if (!thread.isEmpty() && !owner.isEmpty() && !owner.equals("null") && !thread.equals(owner)) continue;
                 String id=raw.optString("commentId","");
                 if (!id.matches("[1-9][0-9]{0,18}") || !seen.add(id)) continue;
                 JSONObject user=raw.optJSONObject("user");
@@ -37,7 +44,7 @@ final class CommentData {
             }
             String cursor=data.optString(floor?"time":"cursor","0"); if(cursor.equals("null"))cursor="0";
             return new JSONObject().put("comments",rows).put("total",Math.max(0,data.optInt("totalCount",data.optInt("total"))))
-                    .put("hasMore",data.optBoolean("hasMore") && rows.length()>0).put("cursor",cursor).put("nextPage",nextPage).put("sort",sort);
+                    .put("hasMore",data.optBoolean("hasMore") && input.length()>0).put("cursor",cursor).put("nextPage",nextPage).put("sort",sort);
         } catch(JSONException invalid) { throw new IOException("评论响应无效",invalid); }
     }
 }

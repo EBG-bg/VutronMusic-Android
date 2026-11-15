@@ -28,7 +28,7 @@ final class LyricRepository {
     private static final int MAX_TEXT_BYTES = 256 * 1024;
     private static final int MAX_CACHE_BYTES = 512 * 1024;
     private static final Object CACHE_LOCK = new Object();
-    private static final int CACHE_REVISION = 3;
+    private static final int CACHE_REVISION = 4;
     private static final long VALIDATION_AGE_MS = 24 * 60 * 60 * 1000L;
     private static final Set<Long> VALIDATING = new HashSet<>();
     private static final Map<Long, Long> LAST_ATTEMPT = new HashMap<>();
@@ -181,6 +181,13 @@ final class LyricRepository {
             throw new IOException("Cannot prepare lyric text", impossible);
         }
         Lyrics result = new Lyrics(texts);
+        Lyrics enriched = TtmlLyricSource.enrich(context, id, result);
+        if (enriched != result) try {
+            JSONObject timed = LyricPayload.encode(enriched);
+            for (String key : new String[]{"lrc", "tlyric", "yrc", "ytlrc"}) texts.put(key, timed.optString(key));
+            texts.put("_wordSource", "amll-ttml-db");
+            result = enriched;
+        } catch (org.json.JSONException impossible) { throw new IOException("Cannot prepare community lyric text", impossible); }
         if (previous != null) {
             Lyrics saved = new Lyrics(previous);
             if (!saved.original.lines.isEmpty() && result.original.lines.isEmpty())

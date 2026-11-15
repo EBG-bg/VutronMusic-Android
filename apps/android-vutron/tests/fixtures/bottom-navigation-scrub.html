@@ -1,0 +1,15 @@
+<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app"></div><script type="module">
+import {createApp,h,ref,computed} from 'vue'
+import {useBottomNavigationScrub} from '/src/composables/bottomNavigationScrub'
+const Root={setup(){
+  const root=ref(),tabs=ref(['home','library','search','player','settings']),current=ref('home'),enabled=ref(true),calls=[],clicks=[]
+  const navigate=tab=>{calls.push(tab);current.value=tab},scrub=useBottomNavigationScrub(root,tabs,current,()=>enabled.value,navigate)
+  const normal=computed(()=>{const b=root.value?.querySelectorAll(':scope>button')[tabs.value.indexOf(current.value)];return b?{width:b.offsetWidth+'px',height:b.offsetHeight+'px',transform:`translate3d(${b.offsetLeft}px,${b.offsetTop}px,0)`}:{}})
+  window.scrubHarness={current,tabs,enabled,calls,clicks,scrub,navigate}
+  return()=>h('main',[h('h1','Navigation scrub'),h('p',{id:'current'},current.value),h('div',{class:'scroll-space'},'Vertical page space'),h('nav',{ref:root,class:'scrub-nav','data-scrubbing':scrub.dragging.value?'':undefined,onPointerdown:scrub.start,onClickCapture:scrub.click},[
+    h('span',{class:'scrub-indicator',style:scrub.indicatorStyle.value??normal.value}),...tabs.value.map(tab=>h('button',{'data-tab':tab,onClick:()=>{clicks.push(tab);navigate(tab)}},tab))])])
+}}
+const app=createApp(Root);app.mount('#app');window.scrubHarness.unmount=()=>app.unmount();window.scrubReady=true
+</script><style>
+:root{--duration:260ms;color:#202532;background:#f6f7fa;font-family:system-ui}body{margin:0}main{padding:24px}.scroll-space{height:150vh}.scrub-nav{position:fixed;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));inset:auto 12px 12px;padding:5px;gap:4px;border:1px solid #e0e3eb;border-radius:20px;background:#fff;touch-action:pan-y;user-select:none}.scrub-nav button{height:68px;min-width:0;padding:0;border:0;border-radius:14px;background:transparent;position:relative;font:inherit;font-size:12px;touch-action:inherit}.scrub-indicator{position:absolute;top:0;left:0;background:#dce3ff;border-radius:14px;pointer-events:none;transition:transform var(--duration) ease,width var(--duration) ease,height var(--duration) ease}.scrub-nav[data-scrubbing] .scrub-indicator{transition:none}html[data-motion='reduced']{--duration:0ms}
+</style></body></html>

@@ -4,6 +4,28 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class LibraryBackupTest {
+    @Test public void sleepPreferencesArePortableButActiveLoopAndInvalidChoicesAreExcluded() throws Exception {
+        JSONObject input=new JSONObject().put("vutron:sleep-mode","count").put("vutron:sleep-track-count","100")
+                .put("vutron:sleep-fade-seconds","15").put("vutron:ab-loop","private recording");
+        JSONObject safe=LibraryBackup.safeFrontend(input);assertEquals(3,safe.length());
+        assertEquals("count",safe.getString("vutron:sleep-mode"));assertEquals("100",safe.getString("vutron:sleep-track-count"));
+        assertEquals("15",safe.getString("vutron:sleep-fade-seconds"));assertFalse(safe.has("vutron:ab-loop"));
+        assertEquals(0,LibraryBackup.safeFrontend(new JSONObject().put("vutron:sleep-mode","other").put("vutron:sleep-track-count","101").put("vutron:sleep-fade-seconds","4")).length());
+    }
+    @Test public void onlineTrackSortModesAndCustomIdsRoundTripWithoutLocalPathsOrMediaContext() throws Exception {
+        String pluginScope = new JSONArray().put("plugin").put("kugou").put("account-a").put("playlist-42").toString();
+        String pluginKey = new JSONArray().put("kugou").put("hash-2").toString();
+        JSONObject raw = new JSONObject().put("netease:7:playlist:42",new JSONObject().put("mode","artist").put("keys",new JSONArray().put("netease:3").put("netease:2").put("file:///private/audio")))
+                .put(pluginScope,new JSONObject().put("mode","custom").put("keys",new JSONArray().put(pluginKey).put(new JSONArray().put("local").put("content://private/audio").toString())).put("cookie","secret"))
+                .put("bundle:old",new JSONObject().put("mode","custom").put("keys",new JSONArray().put("/private/audio")));
+        JSONObject safe = LibraryBackup.safeFrontend(new JSONObject().put("vutron:collection-orders:v1",raw.toString()));
+        JSONObject restored = new JSONObject(safe.getString("vutron:collection-orders:v1"));
+        assertEquals(2,restored.length());assertEquals("artist",restored.getJSONObject("netease:7:playlist:42").getString("mode"));
+        assertEquals(2,restored.getJSONObject("netease:7:playlist:42").getJSONArray("keys").length());
+        assertEquals(pluginKey,restored.getJSONObject(pluginScope).getJSONArray("keys").getString(0));
+        assertFalse(safe.toString().contains("secret"));assertFalse(safe.toString().contains("private"));assertFalse(restored.has("bundle:old"));
+        assertEquals(safe.toString(),LibraryBackup.safeFrontend(safe).toString());
+    }
     @Test public void localPlaylistOrderRemapsToRestoredIdsAndKeepsOtherAccountScopes() throws Exception {
         JSONObject source=backup(new JSONArray().put(song()));
         source.getJSONArray("collections").getJSONObject(0).put("collectionKey","bundle:old").put("createTime",1234L);

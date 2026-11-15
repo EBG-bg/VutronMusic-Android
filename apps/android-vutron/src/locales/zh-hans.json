@@ -1,4 +1,21 @@
 {
+  "batch": {"title":"批量操作","select":"选择歌曲","selected":"已选 {count} / {total} 首","all":"全选当前结果","clear":"清除选择","removeHint":"从当前歌单移除选中的 {count} 首歌曲？原始音频文件会保留。","onlineOnly":"添加到网易云歌单需要所选歌曲都有网易云歌曲标识。","queuedNext":"已按顺序插队 {count} 首歌曲","queuedAppend":"已添加 {count} 首歌曲到队列末尾"},
+  "orderDraft": { "title": "保存排序修改？", "message": "本次排序尚未保存。保存后会更新此歌单的顺序；放弃则恢复进入编辑前的排序。", "save": "保存排序", "discard": "放弃修改", "changed": "排序尚未保存" },
+  "orderHistory": {
+    "retentionSummary": "自动历史 · {limit} 份",
+    "previewTitle": "排序预览",
+    "title": "排序历史", "scopeHint": "仅用于当前歌单。", "original": "操作前的顺序", "serverOrder": "服务端当前顺序", "cachedOrder": "缓存歌单顺序", "restoreSource": "使用{label}", "restoredSource": "已切换到{label}",
+    "recentCustom": "加载最近自定义排序", "chooseHint": "选择记录预览，确认后加载。", "limit": "自动保留份数", "applyLimit": "应用", "limitHint": "此歌单自动保留最近 {limit} 份不同排序，超出后移除最旧的自动记录。永久保存的版本不计入上限。", "limitInvalid": "请输入 1–50 的整数。", "counts": "自动 {automatic} · 永久 {permanent}", "versions": "已保存的排序", "empty": "还没有排序历史", "emptyHint": "调整排序时会保存新顺序，并保留操作前的顺序。不同歌单的记录各自独立。",
+    "backToHistory": "返回历史列表", "previewHint": "预览中，尚未应用。", "reconcile": "匹配 {matched} 首 · 跳过 {missing} 首 · 末尾追加 {added} 首", "previewList": "歌曲顺序预览", "noSharedTracks": "这份记录中的歌曲均已不在当前歌单，无法加载。", "added": "新加入", "confirmLoad": "确认加载", "manage": "名称与保留方式", "name": "排序名称", "nameHint": "可选，最多 80 个字符", "saveName": "保存名称", "keepPermanent": "永久保存", "permanentHint": "不占自动保留份数；只有手动删除才会移除。", "permanent": "永久", "delete": "删除这份排序", "deleteTitle": "删除排序记录？", "deleteHint": "删除「{name}」后无法恢复；歌单、音频文件和当前排序会保留。", "deleted": "已删除排序记录", "loaded": "已加载为自定义顺序", "saveFailed": "排序历史保存失败，请重试。", "saveBeforeSyncFailed": "排序历史未能保存，本次未同步服务端。请重试。", "readFailed": "排序历史读取失败，请重试。", "unavailable": "这份排序已不存在，或没有可恢复的歌曲。"
+  },
+  "playbackFeatureErrors": { "notReady": "请等待歌曲准备好并可定位进度。", "trackChanged": "歌曲已切换，请为当前歌曲重新设置循环。", "abRange": "A、B 标记必须在当前歌曲范围内。", "abSpan": "B 点必须至少比 A 点晚 0.5 秒。", "sleepConflict": "先取消按歌曲结束的睡眠定时，再开启 A/B 循环。", "abConflict": "先关闭 A/B 循环，再设置按歌曲结束的睡眠定时。", "sleepCount": "完成歌曲数应为 1 至 100 首。", "sleepDuration": "请选择有效的倒计时时长。", "sleepFade": "淡出可选择关闭、5、15 或 30 秒。", "invalidRequest": "播放设置参数无效，请重新选择。", "hint": "调整相关设置后重试；原始错误保留在详细信息中。" },
+  "sleepEnhanced": {
+    "mode": "暂停方式", "mode_duration": "倒计时", "mode_track": "本曲结束", "mode_count": "播放若干首后", "count": "完成歌曲数", "tracks": "首", "fade": "暂停前淡出", "noFade": "不淡出", "fadeSeconds": "{count} 秒",
+    "fadeHint": "暂停前临时降低音量，不改变歌曲和歌单的音量设置。", "runningTrack": "本曲播放结束后暂停", "runningCount": "再完成 {count} 首后暂停", "countHint": "仅自然播放结束才计数；手动切歌不计数，单曲循环每轮计 1 首。", "trackHint": "当前歌曲自然播放结束后暂停；手动切换到其他歌曲会取消此定时。", "needsTrack": "先播放一首可定位进度的歌曲，再设置此模式。", "abConflict": "按歌曲结束暂停不能与 A/B 循环同时使用。先关闭 A/B 循环，再启动定时。", "disableAb": "关闭 A/B 循环", "failed": "未能更新播放定时，请重试。"
+  },
+  "abLoop": {
+    "title": "A/B 循环", "hint": "标记当前位置为 A、B，反复播放选定片段；时间相对于当前歌曲或 CUE 分轨。", "unset": "未设置", "markA": "标记 A", "markB": "标记 B", "exactA": "A 点时间", "exactB": "B 点时间", "enable": "启用循环", "disable": "暂停循环", "clear": "清除标记", "needsTrack": "歌曲准备好并可定位进度后，即可设置循环。", "invalidRange": "先设置两个标记，B 至少比 A 晚 {seconds} 秒。", "sleepConflict": "按歌曲结束的睡眠定时正在运行。先取消它，再启用 A/B 循环；倒计时可与循环共用。", "cancelSongTimer": "取消按歌曲定时", "lifecycleHint": "修改标记会暂停循环；切歌或停止会清除范围，重启应用不会自动启用。循环期间，进度定位限定在 A–B 范围内，关闭循环后可跳转到其他位置。", "failed": "未能更新循环范围，请重试。", "unavailable": "当前播放服务不支持 A/B 循环。"
+  },
   "collapsePlayer": "收起正在播放，返回上一级",
   "playbackReview": {
     "collapseReplies": "收起回复",
@@ -194,7 +211,7 @@
     "restoreOverlay": "立即恢复",
     "validateLyrics": "Wi-Fi 下自动校验歌词缓存",
     "estimateLyrics": "无原始逐字时估算逐字歌词",
-    "estimateHint": "默认关闭。缺少原始逐字时间时，按句长计算逐字进度，可能不准确；有原始数据时始终优先使用。此项与调色同时应用于软件内和桌面歌词。",
+    "estimateHint": "默认关闭。按句长估算并避开明显长间奏，无法识别音频中的真实停顿，可能不准确；原始逐字时间始终优先。此项与调色同时应用于软件内和桌面歌词。",
     "lyricColors": "歌词调色与背景",
     "lyricColorsHint": "展开后调整颜色与透明度",
     "fontSize": "歌词大小",
@@ -351,12 +368,20 @@
     "unlinked": "待关联"
   },
   "ordering": {
+    "syncOnExit": "离开歌单时将当前顺序同步到服务端；自定义顺序会保留。",
+    "localViewOnly": "此歌单的排序仅保存在本机。",
+    "syncing": "正在同步歌单顺序…",
+    "syncFailed": "顺序未能同步，本地排序已保留。",
+    "pendingTitle": "歌单顺序尚未同步",
+    "pendingMessage": "自动同步未完成。可以重试，或保留本地排序并离开。",
+    "retrySync": "重试同步",
+    "keepLocal": "保留本地并离开",
+    "continueEditing": "继续调整",
     "showSortHints": "显示歌单排序提示",
     "dismissSortHint": "不再显示排序提示",
     "finishSort": "完成排序",
     "editSort": "调整歌单顺序",
     "custom": "自定义",
-    "dragHint": "拖动左侧手柄排序；按返回或取消放弃本次拖动。",
     "clearFilter": "清除搜索后可拖动排序，搜索不会改变歌单顺序。",
     "restore": "恢复原始顺序",
     "restored": "已恢复原始顺序",
@@ -484,6 +509,7 @@
     "cached": "未获取到新内容，显示已保存的内容"
   },
   "player": {
+    "locateCurrent": "定位当前歌曲",
     "queue": "播放队列",
     "closeQueue": "关闭播放队列",
     "inserted": "插队播放 · {count}",

@@ -128,7 +128,7 @@ onUnmounted(() => { cancel(); document.removeEventListener('keydown', escape, tr
     <TransitionGroup name="playlist-reorder" tag="div" class="playlist-grid" :class="{ 'custom-playlists': canDrag }" :css="!reducedMotion">
       <div v-for="item in displayed" :key="item.key" class="playlist-item" :data-playlist-key="item.key" :class="{ 'playlist-moving': drag?.active && drag.key === item.key, 'playlist-anchor': drag?.anchor === item.key }">
         <button class="playlist-card" type="button" @click="open(item.key)" @pointerdown="down($event,item)" @contextmenu.prevent>
-          <span class="cover-wrap"><CoverImage v-if="item.cover || item.remoteCover" :src="item.cover" :remote-src="item.remoteCover" alt="" /><span v-else class="cover-fallback"><OriginalIcon name="library" /></span><span class="cover-play"><OriginalIcon name="play" /></span></span>
+          <span class="cover-wrap"><CoverImage v-if="item.cover || item.remoteCover" :src="item.cover" :remote-src="item.remoteCover" :size="playlistView === 'list' ? 'small' : 'auto'" alt="" /><span v-else class="cover-fallback"><OriginalIcon name="library" /></span><span class="cover-play"><OriginalIcon name="play" /></span></span>
           <span class="playlist-copy"><b>{{ item.name }}</b><small>{{ $t('mobile.common.tracks', { count: item.count }) }}</small></span>
         </button>
         <button v-if="canDrag" class="playlist-drag-handle icon-button" type="button" :aria-label="$t('mobile.ordering.move', { name:item.name })" @pointerdown.stop="down($event,item,true)" @click.stop @keydown="keyboard($event,item)"><OriginalIcon name="drag" /></button>

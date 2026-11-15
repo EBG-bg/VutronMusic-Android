@@ -1,0 +1,21 @@
+<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app"></div><script type="module">
+import { createApp, h, ref, nextTick } from 'vue'
+import { createPinia } from 'pinia'
+import { i18n, setAppLocale } from '/src/platform/i18n'
+import '/src/style.css'
+import '/src/platform/appearance'
+import '/src/platform/motion'
+import PluginLibraryView from '/src/components/PluginLibraryView.vue'
+import ActionDialog from '/src/components/ActionDialog.vue'
+import { pluginBackend } from '/tests/fixtures/music-plugin-native.mock.js'
+const count = Number(new URLSearchParams(location.search).get('count') || 240)
+const sample = structuredClone(pluginBackend.tracks[0])
+pluginBackend.tracks.splice(0, pluginBackend.tracks.length, ...Array.from({ length: count }, (_, index) => ({ ...sample, id: 'track-' + (index + 1), name: 'Fixture song ' + (index + 1), sourceContext: { id: 'track-' + (index + 1) } })))
+pluginBackend.plugins.forEach(row => { row.enabled = true })
+setAppLocale('en')
+const pluginId = ref('fixture'), visible = ref(false), instance = ref(), plays = []
+const app = createApp({ render: () => h('main', { class: 'app-shell' }, [visible.value ? h(PluginLibraryView, { ref: instance, pluginId: pluginId.value, localOnly: false, onPlay: value => plays.push(value), onNext: value => plays.push({ ...value, action: 'next' }), onAppend: value => plays.push({ ...value, action: 'append' }) }) : undefined, h(ActionDialog)]) })
+app.use(createPinia()).use(i18n).mount('#app')
+window.lazyHarness = { pluginBackend, pluginId, visible, instance, plays, app, nextTick, back: () => instance.value.handleBack(), refresh: () => instance.value.refresh() }
+window.lazyReady = true
+</script></body></html>

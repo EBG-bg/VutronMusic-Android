@@ -18,7 +18,7 @@ export function createCommentThread(target: Ref<VutronCommentTarget>, account: R
     const ids = new Set(rows.map(row => row.id))
     const fresh = response.comments.filter(row => !ids.has(row.id) && Boolean(ids.add(row.id)))
     rows.push(...fresh)
-    return fresh.length > 0 && response.hasMore
+    return response.hasMore && (fresh.length > 0 || response.comments.length === 0)
   }
   function reset(preserveBusy = false) {
     generation++; page = 1; cursor = '0'; comments.value = []; total.value = 0

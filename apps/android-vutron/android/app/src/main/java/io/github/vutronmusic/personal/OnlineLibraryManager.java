@@ -44,8 +44,9 @@ final class OnlineLibraryManager {
             case "create": created = api.createPlaylist(options.optString("name"), options.optInt("privacy")).getLong("id"); break;
             case "edit": api.editPlaylist(pid, options.optString("name"), options.optString("description"), options.optJSONArray("tags")); break;
             case "delete": api.deletePlaylist(pid); deleted = pid; break;
-            case "add": api.changePlaylistTrack(pid, tid, true); break;
-            case "remove": api.changePlaylistTrack(pid, tid, false); break;
+            case "add": api.changePlaylistTracks(pid, membershipIds(options, tid), true); break;
+            case "remove": api.changePlaylistTracks(pid, membershipIds(options, tid), false); break;
+            case "reorder": api.reorderPlaylistTracks(pid, options.optJSONArray("trackIds")); break;
             default: throw new IOException("歌单操作无效");
         }
         sameSession(context, cookie);
@@ -64,6 +65,14 @@ final class OnlineLibraryManager {
                     .put("deletedPlaylistId", deleted).put("createdPlaylistId", created)
                     .put("message", "操作已提交，但服务端数据刷新失败，请先重新同步，避免重复操作。" + String.valueOf(refreshError.getMessage()));
         }
+    }
+    private static JSONArray membershipIds(JSONObject options, long trackId) throws IOException {
+        if (options.has("trackIds")) {
+            JSONArray ids = options.optJSONArray("trackIds");
+            if (ids == null) throw new IOException("歌曲列表无效");
+            return ids;
+        }
+        return new JSONArray().put(trackId);
     }
     private static JSONObject snapshot(NeteaseApi api, long uid, long playlistId) throws Exception {
         JSONArray playlists = new JSONArray(api.playlists(uid)), ids = new JSONArray(new ArrayList<>(api.likedTracks(uid)));

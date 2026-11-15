@@ -34,11 +34,20 @@ public class LyricEstimateTest {
         assertEquals(2000, line.words.get(0).start);
     }
 
-    @Test public void lastLineUsesTrackEndAndBadEndUsesThreeSecondFallback() {
+    @Test public void shortLastLineDoesNotStretchAcrossAnOutroAndBadEndUsesThreeSecondFallback() {
         LyricTimeline.Line line = new LyricTimeline.Line(1000, 0, "ABCD", Collections.emptyList());
-        assertEquals(2f, line.displayCharacters(5000, 9000, true), .0001f);
+        assertEquals(4f, line.displayCharacters(5000, 9000, true), .0001f);
         assertEquals(2f, line.displayCharacters(2500, 1000, true), .0001f);
         assertEquals(0f, line.displayCharacters(-100, 9000, true), 0f);
         assertEquals(4f, line.displayCharacters(10000, 9000, true), 0f);
+    }
+
+    @Test public void punctuationAndSpacesDoNotConsumeEstimatedSingingTime() {
+        LyricTimeline.Line line = new LyricTimeline.Line(1000, 4000, "A, B", Collections.emptyList());
+        assertEquals(.5f, line.displayCharacters(2000, 5000, true), .0001f);
+        assertEquals(3f, line.displayCharacters(3000, 5000, true), .0001f);
+        assertEquals(3.5f, line.displayCharacters(4000, 5000, true), .0001f);
+        assertEquals(1800, LyricTimeline.estimatedSingingDuration(25000, 4));
+        assertEquals(4000, LyricTimeline.estimatedSingingDuration(4000, 4));
     }
 }

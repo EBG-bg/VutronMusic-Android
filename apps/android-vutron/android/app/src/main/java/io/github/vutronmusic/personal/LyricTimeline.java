@@ -32,6 +32,7 @@ final class LyricTimeline {
         final String text;
         final List<Word> words;
         private List<Integer> estimatedBoundaries;
+        private int estimatedVocalUnits;
 
         Line(long time, long duration, String text, List<Word> words) {
             this.time = time; this.duration = Math.max(0, duration); this.text = text; this.words = words;
@@ -44,12 +45,26 @@ final class LyricTimeline {
             long end = duration > 0 ? time + duration : fallbackEnd;
             if (end <= time) end = time + 3000;
             if (position <= time || text.isEmpty()) return 0;
+            if (estimatedBoundaries == null) {
+                estimatedBoundaries = graphemeEnds(text);
+                int first = 0;
+                for (int boundary : estimatedBoundaries) {
+                    if (vocalUnit(text, first, boundary)) estimatedVocalUnits++;
+                    first = boundary;
+                }
+            }
+            end = time + estimatedSingingDuration(end - time, estimatedVocalUnits);
             if (position >= end) return text.length();
-            if (estimatedBoundaries == null) estimatedBoundaries = graphemeEnds(text);
-            double unit = (double) (position - time) / (end - time) * estimatedBoundaries.size();
-            int index = Math.min(estimatedBoundaries.size() - 1, (int) unit);
-            int first = index == 0 ? 0 : estimatedBoundaries.get(index - 1);
-            return first + (float) (unit - index) * (estimatedBoundaries.get(index) - first);
+            double reached = (double) (position - time) / (end - time) * estimatedVocalUnits;
+            int first = 0, units = 0;
+            for (int boundary : estimatedBoundaries) {
+                if (vocalUnit(text, first, boundary)) {
+                    if (reached < units + 1) return first + (float) (reached - units) * (boundary - first);
+                    units++;
+                }
+                first = boundary;
+            }
+            return text.length();
         }
 
         /** Fractional UTF-16 character position reached by the current lyric clock. */
@@ -83,6 +98,27 @@ final class LyricTimeline {
     }
 
     static LyricTimeline empty() { return new LyricTimeline(new ArrayList<>()); }
+
+    static long estimatedSingingDuration(long available, int vocalUnits) {
+        long duration = available > 0 ? available : 3000;
+        return duration > Math.max(6000L, vocalUnits * 700L)
+                ? Math.min(duration, Math.min(10000L, Math.max(1800L, vocalUnits * 420L))) : duration;
+    }
+
+    private static boolean vocalUnit(String text, int first, int end) {
+        for (int i = first; i < end;) {
+            int point = text.codePointAt(i), type = Character.getType(point);
+            if (Character.isLetterOrDigit(point) || type == Character.MATH_SYMBOL || type == Character.CURRENCY_SYMBOL
+                    || type == Character.MODIFIER_SYMBOL || type == Character.OTHER_SYMBOL) return true;
+            i += Character.charCount(point);
+        }
+        return false;
+    }
+
+    boolean hasWordTiming() {
+        for (Line line : lines) if (!line.words.isEmpty()) return true;
+        return false;
+    }
 
     /** Original plugin lines use seconds, while their word intervals use milliseconds. */
     static LyricTimeline fromPlugin(org.json.JSONArray source, String field) {

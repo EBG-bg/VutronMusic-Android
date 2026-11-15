@@ -164,8 +164,8 @@ function presetColors(values: Partial<Record<LyricColorKey, number>>) {
 .lyric-color-preview > div { min-height: 72px; padding: 14px 8px; text-align: center; }
 .lyric-color-preview p { margin: 0 0 5px; font-size: calc(18px * var(--ui-font-scale, 1)); font-weight: 600; line-height: 1.4; }
 .lyric-color-preview small { font-size: calc(12px * var(--ui-font-scale, 1)); }
-.lyric-color-targets { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
-.lyric-color-targets button { min-width: 0; min-height: 36px; display: flex; justify-content: center; align-items: center; gap: 5px; padding: 6px 4px; border: 1px solid transparent; border-radius: 8px; background: var(--color-secondary-bg); color: var(--color-text); font: inherit; font-size: calc(12px * var(--ui-font-scale, 1)); }
+.lyric-color-targets { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(110px * var(--ui-font-scale, 1))), 1fr)); gap: 6px; }
+.lyric-color-targets button { min-width: 0; min-height: 44px; display: flex; justify-content: center; align-items: center; gap: 7px; padding: 7px 8px; border: 1px solid transparent; border-radius: 10px; background: var(--color-secondary-bg); color: var(--color-text); font: inherit; font-size: calc(12px * var(--ui-font-scale, 1)); overflow-wrap: anywhere; }
 .lyric-color-targets button.selected { border-color: var(--color-primary); color: var(--color-primary); background: var(--accent-soft); }
 .lyric-color-targets button, .lyric-color-presets button { transition: background-color 125ms ease-out, color 125ms ease-out, border-color 125ms ease-out, transform .2s ease; }
 .lyric-color-feedback-enter-active, .lyric-color-feedback-leave-active { transition: opacity 125ms ease-out, transform 125ms ease-out; }
@@ -179,15 +179,16 @@ function presetColors(values: Partial<Record<LyricColorKey, number>>) {
 .hue-channel { border-radius: 8px; background-image: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00) !important; }
 .alpha-channel { display: block; width: 100%; height: 34px; position: relative; border-radius: 8px; }
 .alpha-channel > i { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; }
-.lyric-hex-field { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.lyric-hex-field input { min-width: 0; width: 132px; height: 36px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--color-text); background: var(--color-secondary-bg); font: inherit; font-family: ui-monospace, monospace; }
+.lyric-hex-field { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.lyric-hex-field > span { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; }
+.lyric-hex-field input { flex: 0 1 132px; min-width: 0; width: 132px; height: 44px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; color: var(--color-text); background: var(--color-secondary-bg); font: inherit; font-family: ui-monospace, monospace; }
 .lyric-hex-field input[aria-invalid='true'] { border-color: #c94953; }
 .lyric-color-error { margin: 0; color: #c94953; font-size: calc(11px * var(--ui-font-scale, 1)); }
 .lyric-color-help { margin: 0; font-size: calc(10px * var(--ui-font-scale, 1)); line-height: 1.6; overflow-wrap: anywhere; }
-.lyric-color-presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-.lyric-color-presets button { min-width: 0; min-height: 34px; padding: 6px 3px; border: 0; border-radius: 8px; background: var(--color-secondary-bg); color: var(--color-text); font: inherit; font-size: calc(12px * var(--ui-font-scale, 1)); }
+.lyric-color-presets { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(80px * var(--ui-font-scale, 1))), 1fr)); gap: 6px; }
+.lyric-color-presets button { min-width: 0; min-height: 44px; padding: 7px 5px; border: 0; border-radius: 10px; background: var(--color-secondary-bg); color: var(--color-text); font: inherit; font-size: calc(12px * var(--ui-font-scale, 1)); overflow-wrap: anywhere; }
 .lyric-color-picker button:focus-visible, .lyric-color-picker input:focus-visible, .lyric-sv-surface:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 .lyric-color-picker button:active { transform: scale(.97); }
 @media (max-width: 340px) { .lyric-color-heading { align-items: start; flex-direction: column; gap: 3px; } .lyric-color-targets button { gap: 3px; font-size: calc(11px * var(--ui-font-scale, 1)); } }
-html[data-motion="reduced"] .lyric-color-targets button, html[data-motion="reduced"] .lyric-color-presets button, html[data-motion="reduced"] .lyric-color-feedback-enter-active, html[data-motion="reduced"] .lyric-color-feedback-leave-active { transition: none; }
+html[data-motion="reduced"] :is(.lyric-color-targets button, .lyric-color-presets button, .lyric-color-feedback-enter-active, .lyric-color-feedback-leave-active) { transition: none; }
 </style>

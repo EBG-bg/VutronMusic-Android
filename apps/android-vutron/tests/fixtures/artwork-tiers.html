@@ -1,0 +1,24 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:16px;font-family:system-ui}main{display:flex;flex-wrap:wrap;gap:16px;align-items:start}main>div{flex:none}img{display:block;width:100%;height:auto} .small{width:48px}.card{width:150px}.player{width:300px}.switch{width:150px}.switch.compact{width:44px}.profile-avatar{width:44px;height:44px}</style></head><body><div id="app"></div><script type="module">
+import {createApp,h,reactive} from 'vue'
+import CoverImage from '/src/components/CoverImage.vue'
+import PluginArtwork from '/src/components/PluginArtwork.vue'
+import ProfileAvatar from '/src/components/ProfileAvatar.vue'
+import {localOnlyMode} from '/src/platform/localOnlyMode'
+import {artworkTierBackend} from './artwork-tiers.mock.js'
+const state=reactive({compact:false,showLocalPlugin:false}),url='https://p1.music.126.net/sample.jpg'
+window.artworkTiers={...artworkTierBackend,state,localOnlyMode}
+createApp({render:()=>h('main',[
+ h('div',{class:'small',id:'small'},[h(CoverImage,{src:url,loading:'eager'})]),
+ h('div',{class:'small',id:'duplicate'},[h(CoverImage,{src:url,loading:'eager'})]),
+ h('div',{class:'card',id:'card'},[h(CoverImage,{src:'https://p1.music.126.net/card.jpg',loading:'eager'})]),
+ h('div',{class:'player',id:'player'},[h(CoverImage,{src:url,loading:'eager',size:'large'})]),
+ h('div',{class:['switch',{compact:state.compact}],id:'switch'},[h(CoverImage,{src:'https://p1.music.126.net/switch.jpg',loading:'eager',size:state.compact?'small':'auto'})]),
+ h('div',{class:'small',id:'plugin'},[h(PluginArtwork,{pluginId:'kugou:test',uri:'https://imge.kugou.com/soft/collection/400/cover.jpg',eager:true})]),
+ h('div',{class:'small',id:'cached'},[h(CoverImage,{src:'file:///app/artwork-cache-v1/'+'a'.repeat(64)+'.img',remoteSrc:'https://p1.music.126.net/cached.jpg',loading:'eager'})]),
+ h('div',{id:'avatar'},[h(ProfileAvatar,{userId:7,nickname:'Demo',src:'https://p1.music.126.net/avatar.jpg'})]),
+ ...(state.showLocalPlugin ? [
+ h('div',{class:'small',id:'plugin-file'},[h(PluginArtwork,{pluginId:'local:test',uri:'file:///app/artwork-cache-v1/'+'b'.repeat(64)+'.img',eager:true})]),
+ h('div',{class:'small',id:'plugin-content'},[h(PluginArtwork,{pluginId:'local:test',uri:'content://media/external/images/media/7',eager:true})])
+ ] : [])
+])}).mount('#app')
+</script></body></html>

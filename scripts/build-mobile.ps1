@@ -33,7 +33,8 @@ try {
     } finally { Pop-Location }
     Push-Location (Join-Path $repository 'packages/plugin-runtime-deps')
     try {
-        if (-not (Test-Path -LiteralPath 'node_modules/@neteasecloudmusicapienhanced/api/package.json')) {
+        & node -e "try{const p=require('./package.json'),l=require('./node_modules/.package-lock.json');process.exit(require('@neteasecloudmusicapienhanced/api/package.json').version===p.dependencies['@neteasecloudmusicapienhanced/api']&&require('kugoumusicapi/package.json').version==='1.6.3'&&l.packages['node_modules/kugoumusicapi'].resolved===p.dependencies.kugoumusicapi?0:1)}catch{process.exit(1)}"
+        if ($LASTEXITCODE -ne 0) {
             & npm.cmd ci --ignore-scripts --omit=dev
             if ($LASTEXITCODE -ne 0) { throw 'Plugin runtime dependency installation failed.' }
         }

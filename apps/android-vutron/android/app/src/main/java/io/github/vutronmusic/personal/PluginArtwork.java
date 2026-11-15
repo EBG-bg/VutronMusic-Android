@@ -22,26 +22,57 @@ final class PluginArtwork {
     private PluginArtwork() { }
 
     static String cacheKey(String pluginId, String uri, long revision) { return "plugin-artwork:" + pluginId + ":" + revision + ":" + uri; }
+    static String thumbnailKey(String pluginId, String uri, long revision, int size) {
+        int requested=ArtworkSource.requestSize(size);
+        return requested==512?"":"plugin-artwork-thumbnail:"+requested+":"+cacheKey(pluginId,uri,revision);
+    }
 
     static void request(Context context, String id, String uri, ArtworkCache.Result result) {
         request(context, id, uri, new JSONObject(), result);
     }
 
     static void request(Context context, String id, String uri, JSONObject sourceContext, ArtworkCache.Result result) {
+        request(context, id, uri, sourceContext, 512, result);
+    }
+
+    static void request(Context context, String id, String uri, JSONObject sourceContext, int size, ArtworkCache.Result result) {
+        final int requested = ArtworkSource.requestSize(size);
         final long revision = AndroidPluginManager.artworkRevision(context, id);
         final String key = cacheKey(id, uri, revision);
+        final String smallKey=thumbnailKey(id,uri,revision,requested);
+        ArtworkCache.Result complete=new ArtworkCache.Result() {
+            @Override public void success(String path) {
+                if (revision != AndroidPluginManager.artworkRevision(context, id)) { result.failure(new IOException("Plugin account or server changed")); return; }
+                if (requested == 512) { result.success(path); return; }
+                ArtworkThumbnail.request(context, path, requested, smallKey, new ArtworkCache.Result() {
+                    @Override public void success(String thumbnail) {
+                        if (revision == AndroidPluginManager.artworkRevision(context, id)) result.success(thumbnail);
+                        else result.failure(new IOException("Plugin account or server changed"));
+                    }
+                    @Override public void failure(Exception error) { result.failure(error); }
+                });
+            }
+            @Override public void failure(Exception error) { result.failure(error); }
+        };
+        if(!smallKey.isEmpty()) {
+            String small=ArtworkCache.resolveOwned(context,smallKey);
+            if(!small.isEmpty()){complete.success(small);return;}
+        }
+        String full=ArtworkCache.resolveOwned(context,key);
+        if(!full.isEmpty()){complete.success(full);return;}
+        if(!AndroidPluginManager.networkAllowed(context)) {
+            // A scoped thumbnail remains a valid offline image after its large source was evicted.
+            for(int bucket:new int[]{320,192,96}) {
+                String small=ArtworkCache.resolveOwned(context,thumbnailKey(id,uri,revision,bucket));
+                if(!small.isEmpty()){complete.success(small);return;}
+            }
+        }
         ArtworkCache.fetchOwned(context, key, () -> {
             AndroidPluginManager.identity(id);
             byte[] bytes = load(context, id, uri, sourceContext);
             if (revision != AndroidPluginManager.artworkRevision(context, id)) throw new IOException("Plugin account or server changed");
             return bytes;
-        }, new ArtworkCache.Result() {
-            @Override public void success(String path) {
-                if (revision == AndroidPluginManager.artworkRevision(context, id)) result.success(path);
-                else result.failure(new IOException("Plugin account or server changed"));
-            }
-            @Override public void failure(Exception error) { result.failure(error); }
-        });
+        }, complete);
     }
 
     static String resolve(Context context, String id, String uri) throws Exception { return resolve(context, id, uri, new JSONObject()); }
@@ -60,6 +91,7 @@ final class PluginArtwork {
 
     private static byte[] load(Context context, String id, String original, JSONObject sourceContext) throws Exception {
         if (original == null || original.isEmpty()) throw new IOException("Plugin artwork is empty");
+        original = imageUri(original);
         java.net.URI address = new java.net.URI(original);
         JSONObject params = sourceContext == null ? new JSONObject() : new JSONObject(sourceContext.toString());
         if (address.getRawQuery() != null) for (String pair : address.getRawQuery().split("&")) {
@@ -73,21 +105,64 @@ final class PluginArtwork {
         String uri = original; JSONObject headers = new JSONObject();
         if ("vutron".equalsIgnoreCase(address.getScheme())) {
             Object result = AndroidPluginManager.invoke(context, id, "getPic", params);
-            if (result instanceof String) uri = (String) result;
-            else if (result instanceof JSONObject) { uri = ((JSONObject) result).optString("url"); headers = ((JSONObject) result).optJSONObject("headers"); }
+            uri = PluginMedia.resolvedUrl(result);
+            if (result instanceof JSONObject) {
+                JSONObject value = (JSONObject) result;
+                headers = value.optJSONObject("headers");
+                if (headers == null && value.optJSONObject("data") != null) headers = value.getJSONObject("data").optJSONObject("headers");
+            }
             if (uri == null || uri.isEmpty()) throw new IOException("Plugin has no artwork for this item");
         }
+        uri = imageUri(uri);
         if (!AndroidPluginManager.networkAllowed(context)) throw new IOException("Local-only mode has no cached plugin artwork");
         if (!(uri.startsWith("https://") || uri.startsWith("http://"))) throw new IOException("Unsupported plugin artwork URI");
-        JSONObject location = AndroidPluginManager.resolveMedia(context, id, uri, headers);
+        // Public Kugou thumbnails have no account credentials. Fetch their exact
+        // HTTPS CDN directly, like native NetEase covers; a Node media proxy is
+        // unnecessary and its public-IP lookup rejects VPN fake-IP DNS routes.
+        JSONObject location;
+        if (directPublicImage(uri)) {
+            AndroidPluginManager.requireEnabled(context, id);
+            location = new JSONObject().put("url", uri);
+        } else location = AndroidPluginManager.resolveMedia(context, id, uri, headers);
         HttpURLConnection connection = (HttpURLConnection) new URL(location.getString("url")).openConnection();
         connection.setConnectTimeout(10000); connection.setReadTimeout(15000); connection.setInstanceFollowRedirects(false);
+        if (directPublicImage(uri)) {
+            connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/131 Mobile Safari/537.36");
+            connection.setRequestProperty("Referer", "https://www.kugou.com/");
+        }
         try {
             if (!AndroidPluginManager.networkAllowed(context)) throw new IOException("Plugin networking is paused");
             int status = connection.getResponseCode(); if (status < 200 || status >= 300) throw new IOException("Plugin artwork HTTP " + status);
             if (connection.getContentLength() > MAX_BYTES) throw new IOException("Plugin artwork exceeds 4 MiB");
             try (InputStream input = connection.getInputStream()) { return read(input, context, true); }
         } finally { connection.disconnect(); }
+    }
+
+    /** Only normalize public Kugou image templates; signed/custom URLs retain their bytes. */
+    static String imageUri(String original) {
+        if (original == null) return "";
+        String template = original.replace("{size}", "512").replace("%7Bsize%7D", "512").replace("%7bsize%7d", "512");
+        try {
+            java.net.URI uri = new java.net.URI(template);
+            String host = uri.getHost();
+            if (host == null || uri.getRawQuery() != null || uri.getRawFragment() != null || uri.getRawUserInfo() != null) return original;
+            host = host.toLowerCase(java.util.Locale.ROOT);
+            if (!(host.equals("imge.kugou.com") || host.equals("singerimg.kugou.com") || host.equals("kgimg.com") || host.endsWith(".kgimg.com"))) return original;
+            if ("http".equalsIgnoreCase(uri.getScheme())) return "https" + template.substring(template.indexOf(':'));
+            return "https".equalsIgnoreCase(uri.getScheme()) ? template : original;
+        } catch (java.net.URISyntaxException invalid) { return original; }
+    }
+
+    static boolean directPublicImage(String value) {
+        try {
+            java.net.URI uri = new java.net.URI(value);
+            String host = uri.getHost();
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || host == null || uri.getPort() != -1
+                    || uri.getRawQuery() != null || uri.getRawFragment() != null || uri.getRawUserInfo() != null) return false;
+            host = host.toLowerCase(java.util.Locale.ROOT);
+            return host.equals("imge.kugou.com") || host.equals("singerimg.kugou.com")
+                    || host.equals("kgimg.com") || host.endsWith(".kgimg.com");
+        } catch (java.net.URISyntaxException invalid) { return false; }
     }
 
     static boolean isLocalAsset(java.net.URI value) {

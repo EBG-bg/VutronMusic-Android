@@ -38,6 +38,19 @@ public class CommentProtocolTest {
         NeteaseApi expired=new NeteaseApi("",()->true,(p,b,w)->response("{\"code\":301}"));
         assertEquals(301,assertThrows(NeteaseApi.CommentFailure.class,()->expired.likeComment("track","1","2",true)).code);
     }
+    @Test public void foreignActivityCommentsAreExcludedWithoutMatchingUserText() throws Exception {
+        NeteaseApi api=new NeteaseApi("",()->true,(p,b,w)->response("{\"code\":200,\"data\":{\"hasMore\":true,\"cursor\":\"next\",\"comments\":["
+                +"{\"commentId\":9691851703,\"threadId\":\"R_SO_4_1391891631\",\"content\":\"activity\"},"
+                +"{\"commentId\":1129476750,\"threadId\":\"R_SO_4_553135737\",\"content\":\"activity\"},"
+                +"{\"commentId\":3,\"content\":\"legacy\"}]}}"));
+        JSONObject result=api.comments("track","553135737",99,1,"0");
+        JSONArray rows=result.getJSONArray("comments");
+        assertEquals(2,rows.length());assertEquals("1129476750",rows.getJSONObject(0).getString("id"));
+        assertEquals("activity",rows.getJSONObject(0).getString("content"));assertTrue(result.getBoolean("hasMore"));
+        JSONObject onlyForeign=new JSONObject("{\"hasMore\":true,\"comments\":[{\"commentId\":1,\"threadId\":\"R_SO_4_2\"}]}");
+        result=CommentData.page(onlyForeign,2,99,false,"R_SO_4_1");
+        assertEquals(0,result.getJSONArray("comments").length());assertTrue(result.getBoolean("hasMore"));
+    }
     private static JSONObject response(String text) throws IOException {
         try { return new JSONObject(text); } catch (JSONException invalid) { throw new IOException(invalid); }
     }

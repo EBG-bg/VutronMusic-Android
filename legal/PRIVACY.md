@@ -1,6 +1,6 @@
 # Vutron Music - Mobile privacy information
 
-Applies to **Vutron Music - Mobile**; implementation reviewed **2026-11-07**. Maintainer and source: **EBG-bg and contributors**, `https://github.com/EBG-bg/VutronMusic-Android`. Report privacy issues through the repository. Remove account credentials, signed media URLs and personal files before posting an issue or attachment.
+Applies to **Vutron Music - Mobile**; implementation reviewed **2026-11-15**. Maintainer and source: **EBG-bg and contributors**, `https://github.com/EBG-bg/VutronMusic-Android`. Report privacy issues through the repository. Remove account credentials, signed media URLs and personal files before posting an issue or attachment.
 
 ## What the app handles
 
@@ -23,9 +23,11 @@ The separate manual JSON backup contains allowlisted settings and local playlist
 
 The native NetEase entry sends login, library, search, lyric and playback requests to NetEase. Plugin instances send requests to their configured service or server. Artwork and audio are requested from the selected service/CDN URLs. Required cookies, tokens or media authentication headers accompany the relevant service requests. Those services receive ordinary network information such as your IP address, requested resource, headers and request time.
 
+When an online NetEase track has no complete official word timing, the app can request its exact numeric song ID from the community AMLL TTML DataBase on `raw.githubusercontent.com`. This request sends the song ID, ordinary network metadata and the app-version User-Agent, without music-account cookies or authentication headers. Successful word timing is retained in the existing private lyric cache; a missing, invalid or unavailable community record keeps the official lyrics. Existing real word timing does not trigger this extra request. Local-only mode prevents this lookup, and cache revalidation follows the existing Wi-Fi setting and 24-hour interval.
+
 Listing sources or switching an instance on does not execute its plugin or probe its server. Opening a source, signing in or explicitly reading its data runs it as needed. Imported JavaScript is executed for validation and plugin operations using the host's exposed networking, storage and authorized local-music capabilities. Only import scripts you trust; compatibility with the plugin protocol is not a security guarantee.
 
-Emby, Jellyfin and Navidrome use the server you configure; the Kugou connection requires a compatible API service. A configured self-hosted server can be on your private network and can use HTTP. Its authenticated media route is restricted to that configured server origin. HTTP does not provide the transport protection of HTTPS.
+Emby, Jellyfin and Navidrome use the server you configure. Kugou uses a bundled compatibility module by default and sends requests directly to the platform; it does not require a separate API server. Each Kugou instance stores randomly generated device identifiers for that connection. They are not read from the phone's hardware identifiers and are not included in manual JSON backups. The advanced connection setting can instead use a compatible API server you choose; that server receives the account authentication required for the requests. Existing custom addresses remain in use until you explicitly change them. A configured self-hosted server can be on your private network and can use HTTP. Its authenticated media route is restricted to that configured server origin. HTTP does not provide the transport protection of HTTPS.
 
 When alternative-source matching is enabled, the embedded JavaScript matcher may contact **bodian, kuwo, kugou, qq, bilibili, pyncmd and migu**, including their metadata services. Queries can disclose song identifiers, title, artist, album, duration and ordinary network information to those providers. The matcher wrapper does **not** accept the native NetEase account cookie. Matching runs locally in the app, rather than on a maintainer-operated matching server. The shipped playback source policy identifies the active candidates. The embedded bridge binds only to `127.0.0.1` with a per-process token.
 

@@ -1,0 +1,77 @@
+<!doctype html><html lang="zh-CN"><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app"></div><script type="module">
+import { createApp, defineComponent, h, ref, Teleport } from 'vue'
+import { createPinia } from 'pinia'
+import { i18n, setAppLocale } from '/src/platform/i18n'
+import { useAndroidShellStore } from '/src/stores/androidShell'
+import { useLibraryManagement } from '/src/composables/libraryManagement'
+import { useModalIsolation } from '/src/composables/modalIsolation'
+import { useModalFocus } from '/src/composables/modalFocus'
+import { offerUndo, dismissUndo } from '/src/platform/undo'
+import { vutronPlugin } from '/src/platform/vutronPlugin'
+import UndoToast from '/src/components/UndoToast.vue'
+import LocalDirectoryManagement from '/src/components/LocalDirectoryManagement.vue'
+import ActionDialog from '/src/components/ActionDialog.vue'
+import '/src/style.css'
+// Capacitor serializes requests/responses; normalize Vue proxies at the same boundary.
+const structuredClone = value => JSON.parse(JSON.stringify(value))
+const original = [
+  { id: 1, name: 'First CUE movement', artists: ['Composer'], localKey: 'cue-1', localFolderId: 'folder:fixture', localUri: 'content://audio/album', cueTrackNo: 1, cueOffsetMs: 0 },
+  { id: 2, name: 'Second CUE movement', artists: ['Composer'], localKey: 'cue-2', localFolderId: 'folder:fixture', localUri: 'content://audio/album', cueTrackNo: 2, cueOffsetMs: 30000 },
+  { id: 3, name: 'Unrelated recording', artists: ['Artist'], localKey: 'other', localFolderId: 'folder:fixture', localUri: 'content://audio/other' }
+]
+let tracks = structuredClone(original), records = [], revision = 0, undoEntry, queue = { tracks: structuredClone(original), upNext: [], index: 1, mode: 0 }
+const calls = [], folders = () => [{ id: 'folder:fixture', name: 'Audio folder', trackCount: tracks.length }]
+function editQueue(values, next) { revision++; queue = { ...queue, tracks: next ? queue.tracks : [...queue.tracks, ...values], upNext: next ? [...queue.upNext, ...values] : queue.upNext }; return structuredClone(queue) }
+Object.assign(vutronPlugin, {
+  async getLocalMusicIndex() { return { tracks: structuredClone(tracks), indexed: true, updatedAt: Date.now() } },
+  async getLocalLibrary() { return { folders: folders(), playlists: [], excludedTrackCount: records.length } },
+  async getLocalFolderTracks() { return { tracks: structuredClone(tracks) } },
+  async getRemovedLocalTracks({ offset = 0, limit = 80 } = {}) { return { records: records.slice(offset, offset + limit).map(row => ({ ...row.track, id: row.recordId, removedAt: Date.now() })), total: records.length } },
+  async manageLocalLibrary(options) {
+    calls.push(structuredClone(options))
+    if (options.action === 'removeTrack' || options.action === 'removeTracks') {
+      const selected = options.action === 'removeTrack' ? [options.track] : options.tracks, token = 'group-' + calls.length
+      for (const track of selected) records.push({ recordId: 'record-' + track.localKey, group: token, track: structuredClone(track) })
+      const keys = new Set(selected.map(row => row.localKey)); tracks = tracks.filter(row => !keys.has(row.localKey))
+      return { changed: true, undoToken: token, removedCount: selected.length }
+    }
+    const restored = records.filter(row => options.action === 'restoreRemoval' ? row.group === options.recordId : options.action === 'restoreTrack' ? row.recordId === options.recordId : true)
+    for (const row of restored) if (!tracks.some(track => track.localKey === row.track.localKey)) tracks.push(row.track)
+    tracks.sort((a,b) => original.findIndex(row => row.localKey === a.localKey) - original.findIndex(row => row.localKey === b.localKey))
+    records = records.filter(row => !restored.includes(row)); return { changed: restored.length > 0 }
+  },
+  async getPlaybackQueue() { return structuredClone(queue) },
+  async getPlaybackState() { const current = queue.tracks[queue.index]; return { trackId: current?.id || 0, track: current, playing: false, position: 3200, duration: 180000, error: '' } },
+  async removeQueueTrack({ index, upNext = false }) {
+    calls.push({ action: 'removeQueueTrack', index, upNext }); const source = upNext ? queue.upNext : queue.tracks, removed = source[index], updated = source.filter((_, i) => i !== index)
+    queue = { ...queue, [upNext ? 'upNext' : 'tracks']: updated, index: upNext ? queue.index : index < queue.index ? queue.index - 1 : Math.min(queue.index, updated.length - 1) }; revision++
+    const undoToken = 'queue-' + revision; undoEntry = { undoToken, revision, removed, index, upNext }; return { ...structuredClone(queue), undoToken }
+  },
+  async undoPlaybackQueue({ undoToken }) {
+    calls.push({ action: 'undoPlaybackQueue' })
+    if (!undoEntry || undoEntry.undoToken !== undoToken || undoEntry.revision !== revision) throw new Error('播放队列已改变，未覆盖之后的操作')
+    const { index, upNext, removed } = undoEntry, key = upNext ? 'upNext' : 'tracks', values = queue[key].slice(); values.splice(index, 0, removed)
+    queue = { ...queue, [key]: values, index: !upNext && index <= queue.index ? queue.index + 1 : queue.index }; revision++; undoEntry = undefined; return structuredClone(queue)
+  },
+  async addToPlayNext(options) { return editQueue(options.tracks || [options.track], true) },
+  async appendToPlaybackQueue(options) { return editQueue(options.tracks || [options.track], false) }
+})
+const Modal = defineComponent({ props: ['open'], emits: ['close'], setup(props,{emit}) {
+  const panel = ref(); useModalIsolation(panel, () => props.open); useModalFocus(panel, { open: () => props.open, close: () => emit('close') })
+  return () => props.open ? h(Teleport, { to: 'body' }, h('div', { class: 'fixture-layer' }, h('section', { ref: panel, role: 'dialog', class: 'fixture-dialog', tabindex: '-1' }, [h('button', { id: 'modal-first' }, 'First modal action'), h('button', { id: 'modal-last', onClick: () => emit('close') }, 'Close panel')]))) : null
+} })
+const app = createApp({ components: { UndoToast, LocalDirectoryManagement, ActionDialog, Modal }, setup() {
+  const store = useAndroidShellStore(), management = useLibraryManagement(), open = ref(false), inverseCount = ref(0), clicked = ref(0)
+  window.undoHarness = { store, management, original, calls, open, inverseCount, clicked, setAppLocale, get rows(){return structuredClone(tracks)}, get records(){return structuredClone(records)}, get queue(){return structuredClone(queue)},
+    offer(seconds = 8){ offerUndo({ message: 'Removed an entry', seconds, undo(){ inverseCount.value++ } }) }, dismiss: dismissUndo }
+  void store.loadLocalMusic(false, false)
+  return () => h('main', { class: 'fixture-main' }, [h('h1', 'Undo management'), h('button', { id: 'stable-control', onClick: () => clicked.value++ }, 'Underlying action ' + clicked.value),
+    h('button', { id: 'remove-local', onClick: () => management.removeLocalTracks(original.slice(0, 2)) }, 'Remove two local tracks'),
+    h('button', { id: 'open-modal', onClick: () => { open.value = true } }, 'Open panel'), h('p', { class: 'local-count' }, store.localTracks.length + ' tracks'), h(LocalDirectoryManagement),
+    h('p', { class: 'app-error' }, store.error), h(Modal, { open: open.value, onClose: () => { open.value = false } }), h(ActionDialog), h(UndoToast)])
+} })
+app.use(createPinia()); app.use(i18n); app.mount('#app'); window.undoReady = true
+</script><style>
+:root{--color-primary:#4b5cec;--color-text:#202234;--color-secondary:#737687;--color-body-bg:#fbfbfd;--color-secondary-bg:#f0f1f7}.fixture-main{padding:20px;max-width:600px;margin:auto}.fixture-main>button{display:block;min-height:44px;margin:8px 0}.fixture-layer{position:fixed;inset:0;z-index:120;background:#0006;display:grid;place-items:center}.fixture-dialog{padding:20px;border-radius:20px;background:var(--color-body-bg);display:flex;gap:10px}.fixture-dialog button{min-height:44px}
+html[data-theme='dark']{--color-text:#edf0ff;--color-secondary:#b0b4cb;--color-body-bg:#1b1e2a;--color-secondary-bg:#282c3c}
+</style></body></html>

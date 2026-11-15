@@ -56,6 +56,15 @@ final class ArtworkCache {
 
     /** Plugin images use the same capacity, file accounting and priority lanes. */
     static void fetchOwned(Context context, String key, OwnedLoader loader, Result result) {
+        fetchOwned(context, key, loader, result, "");
+    }
+
+    /** A null derived image keeps the original (animated, unsupported or already small) cache URI. */
+    static void fetchDerived(Context context, String key, String originalUri, OwnedLoader loader, Result result) {
+        fetchOwned(context, key, loader, result, originalUri);
+    }
+
+    private static void fetchOwned(Context context, String key, OwnedLoader loader, Result result, String originalUri) {
         String cached = resolveOwned(context, key);
         if (!cached.isEmpty()) { result.success(cached); return; }
         final long revision = CACHE_REVISION.get();
@@ -68,18 +77,23 @@ final class ArtworkCache {
                 try {
                     if (revision != CACHE_REVISION.get()) throw new IOException("Artwork cache was cleared");
                     byte[] bytes = loader.load();
-                    if (bytes == null || bytes.length == 0 || bytes.length > MAX_BYTES) throw new IOException("Artwork exceeds its size limit or is empty");
-                    BitmapFactory.Options bounds = new BitmapFactory.Options(); bounds.inJustDecodeBounds = true;
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
-                    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw new IOException("Artwork is not a decodable image");
-                    File directory = root(context); if (!directory.isDirectory() && !directory.mkdirs() && !directory.isDirectory()) throw new IOException("Artwork directory unavailable");
-                    File file = fileFor(context, key), partial = new File(file.getAbsolutePath() + ".part");
-                    try {
-                        try (FileOutputStream output = new FileOutputStream(partial)) { output.write(bytes); }
+                    if (bytes == null && !originalUri.isEmpty()) {
                         if (revision != CACHE_REVISION.get()) throw new IOException("Artwork cache was cleared");
-                        if (!partial.renameTo(file)) throw new IOException("Artwork commit failed");
-                        trim(directory, capacityMiB(context) * 1024L * 1024L); uri = "file://" + file.getAbsolutePath();
-                    } finally { if (partial.isFile()) partial.delete(); }
+                        uri = originalUri;
+                    } else {
+                        if (bytes == null || bytes.length == 0 || bytes.length > MAX_BYTES) throw new IOException("Artwork exceeds its size limit or is empty");
+                        BitmapFactory.Options bounds = new BitmapFactory.Options(); bounds.inJustDecodeBounds = true;
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
+                        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw new IOException("Artwork is not a decodable image");
+                        File directory = root(context); if (!directory.isDirectory() && !directory.mkdirs() && !directory.isDirectory()) throw new IOException("Artwork directory unavailable");
+                        File file = fileFor(context, key), partial = new File(file.getAbsolutePath() + ".part");
+                        try {
+                            try (FileOutputStream output = new FileOutputStream(partial)) { output.write(bytes); }
+                            if (revision != CACHE_REVISION.get()) throw new IOException("Artwork cache was cleared");
+                            if (!partial.renameTo(file)) throw new IOException("Artwork commit failed");
+                            trim(directory, capacityMiB(context) * 1024L * 1024L); uri = "file://" + file.getAbsolutePath();
+                        } finally { if (partial.isFile()) partial.delete(); }
+                    }
                 } catch (Exception error) { failure = error; }
                 List<Result> completed;
                 synchronized (PENDING_LOCK) { completed = PENDING.remove(key); TASKS.remove(key); PENDING_LOCK.notifyAll(); }
@@ -97,8 +111,31 @@ final class ArtworkCache {
         request(context, remoteUrl, result);
     }
 
+    /** Small views reuse old full covers offline and never overwrite the full-size cache. */
+    static void fetch(Context context, String remoteUrl, int size, Result result) {
+        final int requested = ArtworkSource.requestSize(size);
+        if (requested == 512) { fetch(context, remoteUrl, result); return; }
+        String sizedUrl = ArtworkSource.requestUrl(remoteUrl, requested);
+        if (sizedUrl.isEmpty()) { result.failure(new IOException("Artwork URL must use HTTP or HTTPS")); return; }
+        File thumbnail = cachedThumbnail(root(context), remoteUrl, requested);
+        if (thumbnail != null) { result.success("file://" + thumbnail.getAbsolutePath()); return; }
+        File cached = cachedFile(context, sizedUrl, sizedUrl);
+        if (cached == null) cached = cachedFile(context, remoteUrl, normalized(remoteUrl));
+        if (cached == null && LocalOnlyMode.enabled(context)) cached = offlineVariant(root(context), remoteUrl);
+        final String alias = thumbnailKey(remoteUrl, requested);
+        if (cached != null) { ArtworkThumbnail.request(context, "file://" + cached.getAbsolutePath(), requested, alias, result); return; }
+        request(context, sizedUrl, new Result() {
+            @Override public void success(String uri) { ArtworkThumbnail.request(context, uri, requested, alias, result); }
+            @Override public void failure(Exception error) { result.failure(error); }
+        }, requested);
+    }
+
     private static void request(Context context, String remoteUrl, Result result) {
-        String url = normalized(remoteUrl);
+        request(context, remoteUrl, result, 512);
+    }
+
+    private static void request(Context context, String remoteUrl, Result result, int size) {
+        String url = ArtworkSource.requestUrl(remoteUrl, size);
         if (url.isEmpty()) {
             if (result != null) result.failure(new IOException("Artwork URL must use HTTP or HTTPS"));
             return;
@@ -106,6 +143,7 @@ final class ArtworkCache {
         // Earlier snapshots used the original URL as their cache key. Reuse
         // those images when the HTTPS/512px normalization changes that key.
         File cached = cachedFile(context, remoteUrl, url);
+        if (cached == null && LocalOnlyMode.enabled(context)) cached = offlineVariant(root(context), remoteUrl);
         if (cached != null) {
             if (result != null) result.success("file://" + cached.getAbsolutePath());
             return;
@@ -165,11 +203,13 @@ final class ArtworkCache {
         String url = normalized(remoteUrl);
         if (url.isEmpty()) return "";
         File file = cachedFile(context, remoteUrl, url);
+        boolean localOnly = LocalOnlyMode.enabled(context);
+        if (file == null && localOnly) file = offlineVariant(root(context), remoteUrl);
         // Return the same HTTPS/512px URL used by the native downloader when
         // the first request has not finished yet.  The old raw HTTP CDN URL
         // frequently redirects to a URL that WebView cannot display, which
         // left every first-render playlist card with a broken-image icon.
-        return resolvedUri(file, url, LocalOnlyMode.enabled(context));
+        return resolvedUri(file, url, localOnly);
     }
 
     static String resolvedUri(File cached, String remoteUrl, boolean localOnly) {
@@ -287,6 +327,33 @@ final class ArtworkCache {
 
     private static String normalized(String value) {
         return ArtworkSource.requestUrl(value);
+    }
+
+    static String thumbnailKey(String source, int size) {
+        int requested = ArtworkSource.requestSize(size);
+        String full = ArtworkSource.requestUrl(source, 512);
+        return requested == 512 || full.isEmpty() || full.equals(ArtworkSource.requestUrl(source, 96)) ? ""
+                : "netease-thumbnail:v1:" + ArtworkSource.requestUrl(source, requested);
+    }
+
+    static File cachedThumbnail(File directory, String source, int size) {
+        String key = thumbnailKey(source, size);
+        if (key.isEmpty()) return null;
+        File file = new File(directory, sha256(key) + ".img");
+        return file.isFile() && file.length() > 0 ? file : null;
+    }
+
+    /** Offline views may use an already-cached smaller CDN variant; online large views still upgrade. */
+    static File offlineVariant(File directory, String source) {
+        String full = ArtworkSource.requestUrl(source, 512);
+        if (full.isEmpty() || full.equals(ArtworkSource.requestUrl(source, 96))) return null;
+        for (int size : new int[]{512,320,192,96}) {
+            File thumbnail = cachedThumbnail(directory, source, size);
+            if (thumbnail != null) return thumbnail;
+            File candidate = new File(directory, sha256(ArtworkSource.requestUrl(source, size)) + ".img");
+            if (candidate.isFile() && candidate.length() > 0) return candidate;
+        }
+        return null;
     }
 
     private static String sha256(String value) {

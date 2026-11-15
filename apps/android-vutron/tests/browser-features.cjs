@@ -6,8 +6,8 @@ async function main(){
   fs.mkdirSync(root,{recursive:true});
  const profile=fs.mkdtempSync(path.join(root,'ui-features-'));
  const {createServer}=await import('vite');
-  const bridgeFixture=['personal-ui','polish','timer-wheel','sheet-gestures'].includes(process.env.VUTRON_TEST_SCENARIO)?'personal-ui-native.mock.js':['sliders','playback-ui','refinements','landscape'].includes(process.env.VUTRON_TEST_SCENARIO)?'sliders-native.mock.js':'features-native.mock.js';
- const server=await createServer({root:app,optimizeDeps:{entries:['tests/fixtures/features.html']},plugins:[{name:'feature-fixture',enforce:'pre',transform(code,id){if(process.env.VUTRON_TEST_SCENARIO==='priority-leave'&&id.replaceAll('\\','/').endsWith('/src/plugins/bridge.ts'))return "export { musicPluginBridge } from '/tests/fixtures/music-plugin-native.mock.js'";if(id.replaceAll('\\','/').endsWith('/src/platform/vutronPlugin.ts'))return "export { vutronPlugin } from '/tests/fixtures/"+bridgeFixture+"'"}}],server:{host:'127.0.0.1',port:0},logLevel:'error'});
+  const bridgeFixture=process.env.VUTRON_TEST_SCENARIO==='sleep-ab'?'sleep-ab-native.mock.js':process.env.VUTRON_TEST_SCENARIO==='playback-polling'?'playback-poll-native.mock.js':['personal-ui','polish','timer-wheel','sheet-gestures'].includes(process.env.VUTRON_TEST_SCENARIO)?'personal-ui-native.mock.js':['sliders','playback-ui','refinements','landscape'].includes(process.env.VUTRON_TEST_SCENARIO)?'sliders-native.mock.js':'features-native.mock.js';
+ const server=await createServer({root:app,optimizeDeps:{entries:['tests/fixtures/features.html']},plugins:[{name:'feature-fixture',enforce:'pre',transform(code,id){if(process.env.VUTRON_TEST_SCENARIO==='playback-polling'&&id.replaceAll('\\','/').endsWith('/src/plugins/bridge.ts'))return "export { musicPluginBridge } from '/tests/fixtures/playback-poll-native.mock.js'";if(process.env.VUTRON_TEST_SCENARIO==='priority-leave'&&id.replaceAll('\\','/').endsWith('/src/plugins/bridge.ts'))return "export { musicPluginBridge } from '/tests/fixtures/music-plugin-native.mock.js'";if(id.replaceAll('\\','/').endsWith('/src/platform/vutronPlugin.ts'))return "export { vutronPlugin } from '/tests/fixtures/"+bridgeFixture+"'"}}],server:{host:'127.0.0.1',port:0},logLevel:'error'});
  await server.listen();
  const child=spawn(process.env.EDGE_PATH||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',['--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'],{windowsHide:true,stdio:'ignore'});
  let page,browser;
@@ -44,8 +44,14 @@ async function main(){
   if(process.env.VUTRON_TEST_SCENARIO==='playback-review'){
     await require('./browser-playback-review.cjs')({page,evaluate,wait,delay,root});return;
   }
+  if(process.env.VUTRON_TEST_SCENARIO==='playback-polling'){
+    await require('./browser-playback-polling.cjs')({page,evaluate,wait,delay,root});return;
+  }
   if(process.env.VUTRON_TEST_SCENARIO==='sorting-review'){
     await require('./browser-sorting-review.cjs')({page,evaluate,wait,delay,root});return;
+  }
+  if(process.env.VUTRON_TEST_SCENARIO==='playlist-track-sorting'){
+    await require('./browser-playlist-track-sorting.cjs')({page,evaluate,wait,delay,root});return;
   }
   if(process.env.VUTRON_TEST_SCENARIO==='priority-leave'){
     await require('./browser-priority-leave.cjs')({page,evaluate,wait,delay,root});return;
@@ -70,6 +76,12 @@ async function main(){
   }
   if(process.env.VUTRON_TEST_SCENARIO==='sliders'){
     await require('./browser-sliders.cjs')({page,evaluate,wait,delay,root});return;
+  }
+  if(process.env.VUTRON_TEST_SCENARIO==='sleep-ab'){
+    await require('./browser-sleep-ab.cjs')({page,evaluate,wait,delay,root});return;
+  }
+  if(process.env.VUTRON_TEST_SCENARIO==='navigation-review'){
+    await require('./browser-navigation-review.cjs')({page,evaluate,wait,delay,root});return;
   }
   await evaluate("window.featureHarness.store.navigateTo('player')");await delay(500);
   const click=(selector,label)=>evaluate("(()=>{const e=Array.from(document.querySelectorAll("+JSON.stringify(selector)+")).find(e=>e.textContent.includes("+JSON.stringify(label)+"));if(!e)throw new Error('Missing button '+ "+JSON.stringify(label)+");e.click()})()");
@@ -101,7 +113,9 @@ async function main(){
   assert.equal(await evaluate("document.querySelector('.action-dialog').contains(document.activeElement)"),true);
   await key('Escape');await wait("!document.querySelector('.action-dialog')");
   assert.equal(await evaluate("Boolean(document.querySelector('.comments-sheet'))"),true);
-  assert.equal(await evaluate("document.querySelector('.comments-sheet').contains(document.activeElement)"),true);
+  for(let i=0;i<10&&!await evaluate("document.querySelector('.comments-sheet').contains(document.activeElement)");i++)await delay(100);
+  assert.equal(await evaluate("document.querySelector('.comments-sheet').contains(document.activeElement)"),true,
+    JSON.stringify(await evaluate("({active:document.activeElement?.outerHTML?.slice(0,300),inert:Array.from(document.querySelectorAll('[inert]')).map(node=>node.className),layers:Array.from(document.querySelectorAll('[aria-modal=true]')).map(node=>({class:node.className,inert:node.closest('[inert]')?.className}))})")));
   await click('.comment-row .comment-actions button','删除');await wait("document.querySelector('.action-dialog')");
   await evaluate("document.querySelector('.action-dialog [data-default-action]').click()");await wait("window.featureHarness.backend.counts.delete===1");
   await click('.comments-sheet header button','');await delay(300);
@@ -156,11 +170,17 @@ async function main(){
   await click('.comments-sheet header button','');await wait("!document.querySelector('.comments-sheet')");
   await evaluate("(async()=>{window.reviewPlugin=(await import('/src/platform/vutronPlugin.ts')).vutronPlugin;window.originalCacheRead=window.reviewPlugin.getCachedTracks;window.cacheRows=Array.from({length:160},(_,i)=>({id:1000+i,name:'Cached '+i,cached:true,localUri:'file:///cache/'+i+'.audio',artists:['Cache']}));window.reviewPlugin.getCachedTracks=async()=>({tracks:structuredClone(window.cacheRows)});await window.featureHarness.store.loadCacheStatus(false);window.featureHarness.store.navigateTo('library')})()");
   await delay(350);await click('.segmented-control button','缓存与离线');
-  await wait("document.querySelectorAll('.offline-content .track-row').length===80");
-  await evaluate("document.querySelector('.offline-content .track-list-pager button, .offline-content .track-list .load-more-button, .offline-content .track-list .track-pager button')?.click()");
-  await wait("document.querySelectorAll('.offline-content .track-row').length===160");
+  await wait("document.querySelectorAll('.offline-content .track-row').length>0&&document.querySelectorAll('.offline-content .track-row').length<80");
+  assert.equal(await evaluate('window.featureHarness.store.cachedTracks.length'),160);
+  await evaluate("window.scrollTo({top:document.scrollingElement.scrollHeight,behavior:'instant'})");
+  await wait("Array.from(document.querySelectorAll('.offline-content .track-copy b')).some(row=>row.textContent==='Cached 159')");
+  const stableCacheAnchor=()=>evaluate("(async()=>{let previous='',stable=0,current;for(let frame=0;frame<20;frame++){await new Promise(requestAnimationFrame);const row=Array.from(document.querySelectorAll('.offline-content .track-row')).find(row=>row.getBoundingClientRect().bottom>0);current={name:row.querySelector('b').textContent,top:row.getBoundingClientRect().top};const key=JSON.stringify(current);stable=key===previous?stable+1:0;previous=key;if(stable>=3)return current}throw new Error('Cached row measurements did not settle')})()");
+  const cacheAnchor=await stableCacheAnchor();
   await evaluate('window.featureHarness.store.loadCacheStatus(false)');await delay(150);
-  assert.equal(await evaluate("document.querySelectorAll('.offline-content .track-row').length"),160);
+  assert.ok(await evaluate("document.querySelectorAll('.offline-content .track-row').length")<80);
+  const refreshedAnchor=await stableCacheAnchor();
+  assert.equal(refreshedAnchor.name,cacheAnchor.name);assert.ok(Math.abs(refreshedAnchor.top-cacheAnchor.top)<1);
+  assert.equal(await evaluate('window.featureHarness.store.cachedTracks.length'),160);
   await evaluate("window.reviewPlugin.getCachedTracks=window.originalCacheRead;window.searchRequests=[];window.reviewPlugin.search=async query=>{window.searchRequests.push({...query});return {items:[{id:query.page,name:query.keywords+' page '+query.page}],count:4,page:query.page,nextPage:query.page+1}};window.featureHarness.store.navigateTo('search')");
   await evaluate("window.featureHarness.store.runSearch('tracks','Alpha',true)");
   await evaluate("window.featureHarness.store.searchKeywords='Beta';window.featureHarness.store.loadMoreSearch()");

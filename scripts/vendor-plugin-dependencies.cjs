@@ -7,6 +7,9 @@ const runtimeModules = path.join(assets, 'node_modules')
 const apiName = '@neteasecloudmusicapienhanced/api'
 const sourceApi = path.join(source, apiName)
 const targetApi = path.join(runtimeModules, apiName)
+const kugouName = 'kugoumusicapi'
+const sourceKugou = path.join(source, kugouName)
+const kugouSource = 'https://codeload.github.com/MakcRe/KuGouMusicApi/tar.gz/443d4a416dd344ccf7b022b9fb932e324afc77b4'
 const check = process.argv.includes('--check')
 const compatibility = require('./runtime-regex-compat.cjs')
 const compatibleFiles = []
@@ -29,7 +32,7 @@ function copyTree(from, to, relative = '') {
     if (entry.isSymbolicLink()) throw new Error('Unexpected package symlink: ' + item)
     if (entry.isDirectory()) {
       // The HTTP server UI is not used; plugin requests call API exports directly.
-      if (from === sourceApi && entry.name === 'public') continue
+      if ((from === sourceApi || from === sourceKugou) && entry.name === 'public') continue
       copyTree(src, dest, item)
     } else if (entry.isFile()) {
       const original = fs.readFileSync(src)
@@ -64,6 +67,15 @@ function copyTree(from, to, relative = '') {
 }
 const packageManifest = JSON.parse(fs.readFileSync(path.join(sourceApi, 'package.json'), 'utf8'))
 if (packageManifest.version !== '4.36.1') throw new Error('Install the locked plugin runtime dependencies first')
+const kugouManifest = JSON.parse(fs.readFileSync(path.join(sourceKugou, 'package.json'), 'utf8'))
+const dependencyManifest = JSON.parse(fs.readFileSync(path.join(root, 'packages/plugin-runtime-deps/package.json'), 'utf8'))
+const inputLock = JSON.parse(fs.readFileSync(path.join(root, 'packages/plugin-runtime-deps/package-lock.json'), 'utf8'))
+const installedLock = JSON.parse(fs.readFileSync(path.join(source, '.package-lock.json'), 'utf8'))
+if (kugouManifest.name !== kugouName || kugouManifest.version !== '1.6.3'
+    || dependencyManifest.dependencies[kugouName] !== kugouSource
+    || inputLock.packages['node_modules/' + kugouName]?.resolved !== kugouSource
+    || installedLock.packages['node_modules/' + kugouName]?.resolved !== kugouSource)
+  throw new Error('Install the commit-locked Kugou runtime dependency first')
 copyTree(sourceApi, targetApi)
 const dependencies = []
 for (const entry of fs.readdirSync(source, { withFileTypes: true })) {
@@ -78,7 +90,6 @@ for (const name of dependencies) if (!omitted.has(name)) copyTree(path.join(sour
 
 const lockPath = path.join(assets, 'dependency-lock.json')
 const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'))
-const inputLock = JSON.parse(fs.readFileSync(path.join(root, 'packages/plugin-runtime-deps/package-lock.json'), 'utf8'))
 lock.packages[''].dependencies[apiName] = '4.36.1'
 for (const [key, value] of Object.entries(inputLock.packages)) {
   if (!key) continue
@@ -88,4 +99,4 @@ for (const [key, value] of Object.entries(inputLock.packages)) {
 for (const name of ['@tokenizer/token', 'gzip', 'https']) delete lock.packages['node_modules/' + apiName + '/node_modules/' + name]
 if (!check) fs.writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n')
 compatibility.manifest(assets, 'dependencies', compatibleFiles, check)
-console.log(JSON.stringify({ api: apiName, version: packageManifest.version, runtimeFiles: files, runtimeBytes: bytes, isolatedDependencyPackages: dependencies.length - omitted.size, keptExistingMatcher: true }))
+console.log(JSON.stringify({ api: apiName, version: packageManifest.version, kugouApi: kugouName, kugouVersion: kugouManifest.version, kugouCommit: '443d4a416dd344ccf7b022b9fb932e324afc77b4', runtimeFiles: files, runtimeBytes: bytes, isolatedDependencyPackages: dependencies.length - omitted.size, keptExistingMatcher: true }))

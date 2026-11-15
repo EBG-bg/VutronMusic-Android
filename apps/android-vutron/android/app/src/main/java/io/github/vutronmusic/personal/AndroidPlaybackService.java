@@ -61,7 +61,7 @@ public final class AndroidPlaybackService extends Service {
     private static final String LAST_ARTIST = "lastArtist";
     private static final String LAST_PLAYING = "lastPlaying";
     private static final String SLEEP_TIMER_DEADLINE = "sleepTimerDeadlineEpochMs";
-    private static final long MAX_SLEEP_TIMER_MS = 24L * 60 * 60 * 1000;
+    private static final String SLEEP_TIMER_PLAN = "sleepTimerPlanV2";
     private static final int NOTIFICATION_ID = 1201;
     private static volatile AndroidPlaybackService activeInstance;
     private static final PlaybackRouteGuard routeGuard = new PlaybackRouteGuard();
@@ -93,6 +93,7 @@ public final class AndroidPlaybackService extends Service {
     private boolean seeking;
     private int pendingSeekRelative, appliedSeekRelative;
     private int completedGeneration = -1;
+    private boolean sleepStoppedAtTrackEnd;
     private Runnable segmentWatchdog;
     private int generation;
     private boolean playing;
@@ -113,6 +114,16 @@ public final class AndroidPlaybackService extends Service {
     private int pluginEndedGeneration = -1;
     private long lastPluginReportTime;
     private boolean lastPluginPlaying;
+    private PlaybackSleepPlan sleepPlan = PlaybackSleepPlan.none();
+    private volatile PlaybackAbLoop abLoop = PlaybackAbLoop.empty();
+    private long trackFadeWindowMs;
+    private float sleepGain = 1f;
+    private Runnable abLoopWatchdog;
+    private boolean sleepFadeScheduled;
+    private final Runnable sleepFadeTick = () -> {
+        sleepFadeScheduled=false;
+        if(!destroyed)checkSleepTimer();
+    };
     private PlaybackQueue.Snapshot queue;
     private Future<?> urlTask;
     private final NextTrackPrefetch nextPrefetch = new NextTrackPrefetch();
@@ -215,16 +226,21 @@ public final class AndroidPlaybackService extends Service {
             try {
                 if ("select".equals(operation) && !routeGuard.accepts(requestRoute)) throw new java.io.IOException("播放请求已在耳机断开后取消");
                 PlaybackQueue.Snapshot current = PlaybackQueue.load(context);
+                boolean wasEmpty = current == null || current.count() == 0;
                 AndroidPlaybackService service = activeInstance;
                 boolean active = service != null && !service.destroyed;
                 if (current == null) {
-                    if (!"add".equals(operation) && !"append".equals(operation)) throw new IllegalArgumentException("播放队列为空");
+                    if (!"add".equals(operation) && !"append".equals(operation) && !"addMany".equals(operation) && !"appendMany".equals(operation) && !"undo".equals(operation)) throw new IllegalArgumentException("播放队列为空");
+                    if ("undo".equals(operation)) current = null;
+                    else
                     current = new PlaybackQueue.Snapshot(java.util.UUID.randomUUID().toString(), new org.json.JSONArray(), -1);
                 }
                 PlaybackQueue.Snapshot updated;
                 boolean select = false;
                 if ("add".equals(operation)) updated = current.appendNext(track);
                 else if ("append".equals(operation)) updated = current.appendTail(track);
+                else if ("addMany".equals(operation) || "appendMany".equals(operation)) updated = current.appendMany(track.getJSONArray("tracks"), "addMany".equals(operation));
+                else if ("undo".equals(operation)) updated = PlaybackQueueUndo.restore(track.getString("undoToken"), current, System.currentTimeMillis());
                 else if ("clearNext".equals(operation)) updated = current.clearNext();
                 else if ("select".equals(operation)) {
                     if (upNext) updated = current.consumeNext(index);
@@ -237,9 +253,11 @@ public final class AndroidPlaybackService extends Service {
                     select = !upNext && index == current.index;
                     updated = current.remove(index, upNext);
                 } else throw new IllegalArgumentException("队列操作无效");
+                if ("clearNext".equals(operation) && current.upNext.length() == 0) { result.success(current); return; }
                 PlaybackQueue.persist(context, updated);
+                if ("undo".equals(operation)) PlaybackQueueUndo.discard(track.getString("undoToken"));
                 if (active) { service.queue = updated; service.invalidatePrefetch(); }
-                if (select) {
+                if (select || "undo".equals(operation) && wasEmpty) {
                     if (updated.count() == 0) {
                         if (active) service.stopPlayback(true);
                         else {
@@ -252,7 +270,7 @@ public final class AndroidPlaybackService extends Service {
                                     .putBoolean("loading", false).putBoolean(LAST_PLAYING, false).apply();
                         }
                     } else if (active) {
-                        boolean autoPlay = !"remove".equals(operation) || service.desiredPlayback;
+                        boolean autoPlay = !"undo".equals(operation) && (!"remove".equals(operation) || service.desiredPlayback);
                         service.selectQueueTrack(false, autoPlay);
                     } else if ("select".equals(operation)) {
                         ContextCompat.startForegroundService(context, new Intent(context, AndroidPlaybackService.class)
@@ -272,6 +290,10 @@ public final class AndroidPlaybackService extends Service {
                                 .putInt(LAST_POSITION, 0).putInt("position", 0).putBoolean("playing", false)
                                 .putBoolean(LAST_PLAYING, false).apply();
                     }
+                }
+                if ("remove".equals(operation) || "clearNext".equals(operation)) {
+                    String undoToken = PlaybackQueueUndo.offer(current, updated, operation, index, upNext, System.currentTimeMillis());
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> PlaybackQueueUndo.discard(undoToken), 12000);
                 }
                 result.success(updated);
             } catch (Exception failure) { result.failure(failure); }
@@ -344,7 +366,7 @@ public final class AndroidPlaybackService extends Service {
             if (!service.destroyed) {
                 service.invalidatePrefetch();
                 service.persistPosition();
-                if (service.playing) service.applyTuning();
+                if (service.playing) {service.applyTuning();service.applyEffectiveVolume();service.refreshSleepFade();}
                 service.publish();
             }
             completed.run();
@@ -371,6 +393,7 @@ public final class AndroidPlaybackService extends Service {
     }
 
     private void maybePrefetch() {
+        if(abLoop.enabled)return;
         int mode = getMode(this);
         if (!playing || !remotePlayback || buffering || seeking || queue == null || !PlaybackTuning.prefetch(this)
                 || LocalOnlyMode.enabled(this) || !MusicConnectivity.wifi(this)
@@ -420,55 +443,100 @@ public final class AndroidPlaybackService extends Service {
                 actualSpeed = 1f; actualPitch = 1f; tuningWarning = "当前设备或音频不支持倍速，已回退 1.0×";
             }
         }
+        resetSleepFade();
     }
 
-    /** Starts or replaces a sleep timer. Durations from one second through 24 hours are accepted. */
+    /** Starts or replaces the original wall-clock timer. */
     static long setSleepTimer(Context context, long durationMs) {
-        if (durationMs < 1_000L || durationMs > MAX_SLEEP_TIMER_MS)
-            throw new IllegalArgumentException("Sleep timer must be between one second and 24 hours");
-        long deadline = System.currentTimeMillis() + durationMs;
-        context.getSharedPreferences(PLAYBACK_PREFS, Context.MODE_PRIVATE).edit()
-                .putLong(SLEEP_TIMER_DEADLINE, deadline).apply();
-        ContextCompat.startForegroundService(context,
-                new Intent(context, AndroidPlaybackService.class).setAction(ACTION_TIMER_WAKE));
-        return deadline;
+        setSleepTimer(context,"duration",durationMs,0,0);
+        return readSleepPlan(context).deadline;
     }
 
-    /** Removes the persisted deadline. It does not affect playback. */
+    static void setSleepTimer(Context context,String mode,long durationMs,int tracks,int fadeSeconds) {
+        AndroidPlaybackService service=activeInstance;
+        String key=service!=null&&!service.destroyed&&service.playerPrepared&&service.duration>0?PlaybackVolume.trackKey(service.trackMetadata):"";
+        PlaybackSleepPlan next=PlaybackSleepPlan.create(mode,durationMs,tracks,fadeSeconds,System.currentTimeMillis(),key,
+                service!=null&&!service.destroyed&&service.abLoop.enabled);
+        saveSleepPlan(context,next);
+        ContextCompat.startForegroundService(context,new Intent(context,AndroidPlaybackService.class).setAction(ACTION_TIMER_WAKE));
+    }
+
+    private static PlaybackSleepPlan readSleepPlan(Context context) {
+        android.content.SharedPreferences prefs=context.getSharedPreferences(PLAYBACK_PREFS,Context.MODE_PRIVATE);
+        JSONObject value=null;String raw=prefs.getString(SLEEP_TIMER_PLAN,"");
+        if(!raw.isEmpty())try{value=new JSONObject(raw);}catch(Exception invalid){Log.w("VutronPlayback","Invalid sleep timer state");}
+        return PlaybackSleepPlan.read(value,prefs.getLong(SLEEP_TIMER_DEADLINE,0));
+    }
+
+    private static void saveSleepPlan(Context context,PlaybackSleepPlan plan) {
+        android.content.SharedPreferences.Editor editor=context.getSharedPreferences(PLAYBACK_PREFS,Context.MODE_PRIVATE).edit();
+        if(plan.active())editor.putString(SLEEP_TIMER_PLAN,plan.json(System.currentTimeMillis()).toString());else editor.remove(SLEEP_TIMER_PLAN);
+        if(plan.deadline>0)editor.putLong(SLEEP_TIMER_DEADLINE,plan.deadline);else editor.remove(SLEEP_TIMER_DEADLINE);
+        editor.apply();
+        AndroidPlaybackService service=activeInstance;
+        if(service!=null&&!service.destroyed&&service.progressHandler!=null) {
+            if(Looper.myLooper()==Looper.getMainLooper())service.onSleepPlanChanged(plan);
+            else service.progressHandler.post(()->{if(!service.destroyed)service.onSleepPlanChanged(plan);});
+        }
+    }
+
     static void clearSleepTimer(Context context) {
-        context.getSharedPreferences(PLAYBACK_PREFS, Context.MODE_PRIVATE).edit()
-                .remove(SLEEP_TIMER_DEADLINE).apply();
-        AndroidPlaybackService service = activeInstance;
-        if (service != null && !service.destroyed) service.progressHandler.post(service::onSleepTimerCleared);
+        saveSleepPlan(context,PlaybackSleepPlan.none());
+        AndroidPlaybackService service=activeInstance;
+        if(service!=null&&!service.destroyed&&service.progressHandler!=null)service.progressHandler.post(service::onSleepTimerCleared);
+    }
+
+    private void onSleepPlanChanged(PlaybackSleepPlan plan) {
+        sleepPlan=plan;resetSleepFade();applyEffectiveVolume();
     }
 
     private void onSleepTimerCleared() {
-        if (player == null && !urlLookupPending) {
-            stopForeground(true);
-            stopSelf();
-        }
+        if (player == null && !urlLookupPending && !sleepPlan.active()) { stopForeground(true);stopSelf(); }
     }
 
-    /** Returns remaining milliseconds and triggers expiry if the saved deadline has passed. */
-    static long sleepTimerRemainingMs(Context context) {
-        long deadline = context.getSharedPreferences(PLAYBACK_PREFS, Context.MODE_PRIVATE)
-                .getLong(SLEEP_TIMER_DEADLINE, 0L);
-        if (deadline <= 0) return 0L;
-        long remaining = deadline - System.currentTimeMillis();
-        if (remaining <= 0) {
-            AndroidPlaybackService service = activeInstance;
-            if (service != null && !service.destroyed) service.progressHandler.post(service::expireSleepTimer);
-            else ContextCompat.startForegroundService(context,
-                    new Intent(context, AndroidPlaybackService.class).setAction(ACTION_TIMER_WAKE));
-            return 0L;
+    static JSONObject sleepTimerSnapshot(Context context) {
+        PlaybackSleepPlan plan=readSleepPlan(context);long now=System.currentTimeMillis();
+        if(plan.expires(now)) {
+            AndroidPlaybackService service=activeInstance;
+            if(service!=null&&!service.destroyed)service.progressHandler.post(service::expireSleepTimer);
+            else ContextCompat.startForegroundService(context,new Intent(context,AndroidPlaybackService.class).setAction(ACTION_TIMER_WAKE));
+        } else if(plan.deadline>now&&!isActive()) {
+            try{ContextCompat.startForegroundService(context,new Intent(context,AndroidPlaybackService.class).setAction(ACTION_TIMER_WAKE));}
+            catch(RuntimeException ignored){ }
         }
-        if (!isActive()) {
-            try {
-                ContextCompat.startForegroundService(context,
-                        new Intent(context, AndroidPlaybackService.class).setAction(ACTION_TIMER_WAKE));
-            } catch (RuntimeException ignored) { }
+        return plan.json(now);
+    }
+
+    static long sleepTimerRemainingMs(Context context) { return sleepTimerSnapshot(context).optLong("remainingMs"); }
+
+    /** Current-session points only; no media URI, queue or user gain is persisted. */
+    static JSONObject abLoopSnapshot() {
+        AndroidPlaybackService service=activeInstance;
+        if(service==null||service.destroyed||!service.playerPrepared)return PlaybackAbLoop.empty().json();
+        try{return service.abLoop.json().put("positionMs",service.relativePosition());}
+        catch(Exception invalid){throw new IllegalStateException("读取当前歌曲位置失败",invalid);}
+    }
+
+    /** The playback sampler can read immutable loop metadata without touching MediaPlayer. */
+    static JSONObject abPlaybackSnapshot(){
+        AndroidPlaybackService service=activeInstance;
+        return service==null||service.destroyed||!service.playerPrepared?PlaybackAbLoop.empty().json():service.abLoop.json();
+    }
+
+    static JSONObject setAbLoop(String expected,String action,Long start,Long end,Boolean enabled) {
+        if(!"set".equals(action)&&!"clear".equals(action))throw new IllegalArgumentException("A/B 循环操作无效");
+        AndroidPlaybackService service=activeInstance;
+        if(service==null||service.destroyed||!service.playerPrepared)throw new IllegalArgumentException("歌曲尚未准备好，暂时无法设置 A/B 循环");
+        service.abLoop=service.abLoop.forTrack(PlaybackVolume.trackKey(service.trackMetadata),service.trackId,service.duration)
+                .update(expected,"clear".equals(action),start,end,enabled,service.sleepPlan.byTrack());
+        service.cancelAbLoopWatchdog();
+        service.invalidatePrefetch();
+        if(service.abLoop.enabled) {
+            int position=service.relativePosition();
+            if(position<service.abLoop.startMs||position>=service.abLoop.endMs)service.requestSeek((int)service.abLoop.startMs);
+            else service.armAbLoopWatchdog(service.generation);
         }
-        return remaining;
+        return abLoopSnapshot();
     }
 
     static void seek(Context context, int positionMs) {
@@ -480,7 +548,7 @@ public final class AndroidPlaybackService extends Service {
                 if (service.player != null && service.playerPrepared) {
                     try {
                         int bounded = service.duration > 0 ? Math.min(target, (int) service.duration) : target;
-                        service.requestSeek(bounded);
+                        service.requestSeek((int)service.abLoop.boundedSeek(bounded));
                     } catch (IllegalStateException ignored) { }
                 }
             });
@@ -494,6 +562,7 @@ public final class AndroidPlaybackService extends Service {
         super.onCreate();
         activeInstance = this;
         progressHandler = new Handler(Looper.getMainLooper());
+        sleepPlan = readSleepPlan(this);
         try {
             connectivity = new MusicConnectivity(this, () -> {
                 if (destroyed) return;
@@ -666,7 +735,11 @@ public final class AndroidPlaybackService extends Service {
         resumeOnFocusGain = false;
         urlLookupPending = true;
         trackId = id;
+        sleepStoppedAtTrackEnd=false;
         trackMetadata = selected;
+        abLoop=PlaybackAbLoop.empty();
+        PlaybackSleepPlan retained=sleepPlan.onTrack(PlaybackVolume.trackKey(selected));
+        if(retained!=sleepPlan)saveSleepPlan(this,retained);
         title = selected.optString("name", BuildConfig.APP_DISPLAY_NAME);
         artist = PlaybackRequest.artistText(selected);
         duration = selected.optLong("duration", selected.optLong("dt", 0));
@@ -705,25 +778,30 @@ public final class AndroidPlaybackService extends Service {
     }
 
     private void checkSleepTimer() {
-        long deadline = getSharedPreferences(PLAYBACK_PREFS, MODE_PRIVATE)
-                .getLong(SLEEP_TIMER_DEADLINE, 0L);
-        if (deadline <= 0) {
+        if (!sleepPlan.active()) {
             if (player == null && !urlLookupPending) onSleepTimerCleared();
             return;
         }
-        if (deadline <= System.currentTimeMillis()) expireSleepTimer();
+        if (sleepPlan.expires(System.currentTimeMillis())) expireSleepTimer();
+        else refreshSleepFade();
     }
 
     private void expireSleepTimer() {
-        android.content.SharedPreferences preferences = getSharedPreferences(PLAYBACK_PREFS, MODE_PRIVATE);
-        long deadline = preferences.getLong(SLEEP_TIMER_DEADLINE, 0L);
-        if (deadline <= 0 || deadline > System.currentTimeMillis()) return;
-        preferences.edit().remove(SLEEP_TIMER_DEADLINE).apply();
+        if(!sleepPlan.expires(System.currentTimeMillis()))return;
+        expireSleepPlan();
+    }
+
+    private void expireSleepPlan() {
         if (player != null || urlLookupPending) {
+            // Stop sound/late preparation first. Clearing the plan restores the
+            // normal gain and must never briefly amplify the still-playing tail.
             pause();
+            saveSleepPlan(this,PlaybackSleepPlan.none());
         } else {
+            android.content.SharedPreferences preferences = getSharedPreferences(PLAYBACK_PREFS, MODE_PRIVATE);
             preferences.edit().putBoolean(LAST_PLAYING, false).putBoolean("playing", false).apply();
-            playing = false;
+            playing = false;desiredPlayback=false;
+            saveSleepPlan(this,PlaybackSleepPlan.none());
             stopForeground(true);
             stopSelf();
         }
@@ -761,7 +839,12 @@ public final class AndroidPlaybackService extends Service {
         title = intent.getStringExtra("title"); if (title == null) title = BuildConfig.APP_DISPLAY_NAME;
         artist = intent.getStringExtra("artist"); if (artist == null) artist = "";
         trackId = requestedTrackId;
+        sleepStoppedAtTrackEnd=false;
         trackMetadata = readTrackMetadata(intent, requestedTrackId);
+        String currentKey=PlaybackVolume.trackKey(trackMetadata);
+        abLoop=abLoop.forTrack(currentKey,trackId,0);
+        PlaybackSleepPlan retained=sleepPlan.onTrack(currentKey);
+        if(retained!=sleepPlan)saveSleepPlan(this,retained);
         cacheLocation = readCacheLocation(intent);
         String requestedArtwork = intent.getStringExtra("coverUrl");
         if (requestedArtwork == null || requestedArtwork.isBlank()) requestedArtwork = rememberedArtwork();
@@ -786,6 +869,8 @@ public final class AndroidPlaybackService extends Service {
                 try {
                     segment = PlaybackSegment.of(trackMetadata, Math.max(0, prepared.getDuration()));
                     duration = segment.length;
+                    abLoop=abLoop.forTrack(PlaybackVolume.trackKey(trackMetadata),trackId,duration);
+                    resetSleepFade();
                     if (segment.needsInitialSeek(resumePosition)) requestSeek(resumePosition);
                     else finishPreparedPlayback(token);
                 } catch (RuntimeException invalid) {
@@ -814,6 +899,9 @@ public final class AndroidPlaybackService extends Service {
                 if (destroyed || player != reporting || token != generation) return false;
                 if (what == MediaPlayer.MEDIA_INFO_BUFFERING_START || what == MediaPlayer.MEDIA_INFO_BUFFERING_END) {
                     buffering = what == MediaPlayer.MEDIA_INFO_BUFFERING_START;
+                    resetSleepFade();applyEffectiveVolume();
+                    if(buffering)cancelAbLoopWatchdog();
+                    else {armAbLoopWatchdog(token);refreshSleepFade();}
                     persistPosition();
                     publish();
                 }
@@ -887,12 +975,14 @@ public final class AndroidPlaybackService extends Service {
 
     private void requestSeek(int relative) {
         if (player == null || !playerPrepared) return;
+        sleepStoppedAtTrackEnd=false;
         pendingSeekRelative = (int)Math.max(0, Math.min(Math.max(0, duration-1), relative));
         if (seeking) return;
         try {
             if (playing) player.pause();
             playing = false;
             cancelSegmentWatchdog();
+            cancelAbLoopWatchdog();cancelSleepFade();
             seeking = true;
             appliedSeekRelative = pendingSeekRelative;
             player.seekTo(segment.absolute(appliedSeekRelative));
@@ -909,18 +999,28 @@ public final class AndroidPlaybackService extends Service {
         if (!desiredPlayback) { playing = false; persistPosition(); publish(); return; }
         if (!requestFocus()) { publishError(PlaybackFailure.of("audio_focus")); return; }
         applyTuning();
+        if(!applyEffectiveVolume())return;
+        if(completedGeneration==token)completedGeneration=-1;
         player.start(); playing = true; enqueueStartedAudio(token);
         if (pluginStartedGeneration!=generation && PluginMedia.isPlugin(trackMetadata)) {
             pluginStartedGeneration=generation;lastPluginReportTime=SystemClock.elapsedRealtime();lastPluginPlaying=true;
             PluginPlaybackReporter.report(this,trackMetadata,"start",relativePosition(),duration,true);
         }
-        armSegmentWatchdog(token); persistPosition(); publish();
+        armSegmentWatchdog(token);armAbLoopWatchdog(token);refreshSleepFade(); persistPosition(); publish();
     }
 
     private void completeTrack(int token) {
-        if (token != generation || completedGeneration == token) return;
+        if(token!=generation||seeking)return;
+        if(abLoop.enabled){if(desiredPlayback&&playerPrepared)requestSeek((int)abLoop.startMs);return;}
+        if (completedGeneration == token) return;
         completedGeneration = token;
         cancelSegmentWatchdog();
+        cancelAbLoopWatchdog();cancelSleepFade();
+        if(desiredPlayback&&sleepPlan.byTrack()) {
+            PlaybackSleepPlan next=sleepPlan.completed();
+            if(!next.active()){sleepStoppedAtTrackEnd=true;expireSleepPlan();return;}
+            saveSleepPlan(this,next);
+        }
         if (player != null && playerPrepared) try { if (player.isPlaying()) player.pause(); } catch (IllegalStateException ignored) { }
         playing = false; clearResumePosition();
         if (desiredPlayback && queue != null && queue.count() > 0) advanceQueue(true);
@@ -945,6 +1045,55 @@ public final class AndroidPlaybackService extends Service {
     private void cancelSegmentWatchdog() {
         if (progressHandler != null && segmentWatchdog != null) progressHandler.removeCallbacks(segmentWatchdog);
         segmentWatchdog = null;
+    }
+
+    private void armAbLoopWatchdog(int token) {
+        cancelAbLoopWatchdog();
+        if(!abLoop.enabled||!playing||!playerPrepared||seeking)return;
+        abLoopWatchdog=new Runnable(){@Override public void run(){
+            if(abLoopWatchdog!=this||destroyed||token!=generation||!playing||seeking||!abLoop.enabled||player==null)return;
+            try {
+                int position=relativePosition();
+                if(abLoop.atEnd(position)){requestSeek((int)abLoop.startMs);return;}
+                long remaining=(long)Math.ceil((abLoop.endMs-position)/Math.max(.01f,actualSpeed));
+                progressHandler.postDelayed(this,Math.max(16,Math.min(100,remaining)));
+            }catch(IllegalStateException invalid){publishError(PlaybackFailure.of("seek"));}
+        }};
+        progressHandler.postDelayed(abLoopWatchdog,16);
+    }
+
+    private void cancelAbLoopWatchdog(){
+        if(progressHandler!=null&&abLoopWatchdog!=null)progressHandler.removeCallbacks(abLoopWatchdog);
+        abLoopWatchdog=null;
+    }
+
+    private long remainingTrackWallMs(){
+        if(!playerPrepared||player==null)return 0;
+        try{return (long)Math.ceil(Math.max(0,duration-relativePosition())/Math.max(.01f,actualSpeed));}
+        catch(IllegalStateException invalid){return 0;}
+    }
+
+    private void cancelSleepFade(){
+        if(progressHandler!=null&&sleepFadeScheduled)progressHandler.removeCallbacks(sleepFadeTick);
+        sleepFadeScheduled=false;sleepGain=1f;
+    }
+
+    private void resetSleepFade(){
+        cancelSleepFade();
+        trackFadeWindowMs=Math.min(sleepPlan.fadeSeconds*1000L,remainingTrackWallMs());
+    }
+
+    private float currentSleepGain(){
+        if(!desiredPlayback||!playerPrepared||seeking||buffering)return 1f;
+        return sleepPlan.gain(System.currentTimeMillis(),remainingTrackWallMs(),trackFadeWindowMs);
+    }
+
+    private void refreshSleepFade(){
+        float next=currentSleepGain();
+        if(Math.abs(next-sleepGain)>.00001f){sleepGain=next;applyEffectiveVolume();}
+        if(next<1f&&sleepPlan.active()&&playing&&!buffering&&!seeking&&!sleepFadeScheduled){
+            sleepFadeScheduled=true;progressHandler.postDelayed(sleepFadeTick,50);
+        }
     }
 
     private int relativePosition() {
@@ -1014,7 +1163,7 @@ public final class AndroidPlaybackService extends Service {
     private boolean applyEffectiveVolume() {
         if (player == null || !playerPrepared) return true;
         float gain = PlaybackVolume.trackPercent(this, trackMetadata)
-                * PlaybackVolume.playlistPercent(this, trackMetadata) / 10000f * focusVolume;
+                * PlaybackVolume.playlistPercent(this, trackMetadata) / 10000f * focusVolume * currentSleepGain();
         try {
             player.setVolume(gain, gain);
             return true;
@@ -1041,6 +1190,7 @@ public final class AndroidPlaybackService extends Service {
     private void pause() {
         invalidatePrefetch();
         cancelSegmentWatchdog();
+        cancelAbLoopWatchdog();cancelSleepFade();
         resumeOnFocusGain = false;
         if (player == null) {
             cancelUrlTask();
@@ -1062,6 +1212,7 @@ public final class AndroidPlaybackService extends Service {
         }
         playing = false;
         desiredPlayback = false;
+        applyEffectiveVolume();
         persistPosition(); publish();
     }
 
@@ -1107,6 +1258,18 @@ public final class AndroidPlaybackService extends Service {
         desiredPlayback = true;
         if (player == null) { resumeOrRestore(); return; }
         if (!playerPrepared || seeking) { persistPosition(); return; }
+        if(abLoop.enabled) {
+            try {
+                int position=relativePosition();
+                if(position<abLoop.startMs||position>=abLoop.endMs){requestSeek((int)abLoop.startMs);return;}
+            }catch(IllegalStateException invalid){publishError(PlaybackFailure.of("seek"));return;}
+        }
+        if(sleepStoppedAtTrackEnd) {
+            sleepStoppedAtTrackEnd=false;
+            // A whole-file MediaPlayer restarts after completion; a CUE player
+            // is merely paused at its segment boundary and must seek back.
+            if(segment.cue){requestSeek(0);return;}
+        }
         if (!requestFocus()) return;
         if (!applyEffectiveVolume()) return;
         try { finishPreparedPlayback(generation); }
@@ -1121,8 +1284,10 @@ public final class AndroidPlaybackService extends Service {
         invalidatePrefetch();
         generation++;
         cancelUrlTask();
+        cancelAbLoopWatchdog();cancelSleepFade();abLoop=PlaybackAbLoop.empty();
+        sleepStoppedAtTrackEnd=false;
         artworkGeneration++;
-        if (clearRemembered) clearSleepTimer(this);
+        if (clearRemembered || !destroyed && sleepPlan.byTrack()) clearSleepTimer(this);
         persistPosition();
         releasePlayer(); playing = false; desiredPlayback = false; trackId = 0; duration = 0;
         resumeOnFocusGain = false;
@@ -1144,7 +1309,7 @@ public final class AndroidPlaybackService extends Service {
             try {position=relativePosition();} catch(Exception expired){position=0;}
             PluginPlaybackReporter.report(this,trackMetadata,"end",position,duration,false);
         }
-        cancelSegmentWatchdog(); seeking = false;
+        cancelSegmentWatchdog();cancelAbLoopWatchdog();cancelSleepFade(); seeking = false;
         MediaPlayer old = player; player = null;
         playerPrepared = false;
         remotePlayback = false;

@@ -73,10 +73,51 @@ test('the real runtime route revokes successful account/server changes and prese
     assert.equal(reset.plugins.find(row=>row.id===provided).enabled,false);
     assert.equal((await request({action:'enable',id:provided})).code,200);
     assert.equal((await fetch(previousUrl)).status,404,'Reset revokes the old private stream even after the provided source is enabled again');
+    assert.equal(fs.readFileSync(path.join(directory,'runtime.log'),'utf8').includes('matcher-loaded'),false,
+      'Plugin libraries and media registration do not initialize the fallback matcher');
   } finally {
     const exited=new Promise(resolve=>child.once('exit',resolve));
     if(child.exitCode===null){child.kill();await exited;}
     await new Promise(resolve=>upstream.close(resolve));
+    fs.rmSync(directory,{recursive:true,force:true,maxRetries:5,retryDelay:50});
+  }
+});
+
+test('concurrent first fallback requests initialize the real matcher once while plugin-only startup stays lazy',{timeout:15000},async()=>{
+  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'vutron-lazy-matcher-'));
+  const runtime=path.resolve(__dirname,'../src/main/assets/sources-runtime');
+  const entry=require.resolve('@unblockneteasemusic/server',{paths:[runtime]});
+  const metadata=path.resolve(path.dirname(entry),'../request.js');
+  const trace=path.join(directory,'matcher-loads.txt'),preload=path.join(directory,'preload.cjs');
+  // Keep the actual provider graph and wrapper installation, but stop metadata
+  // before any external request. This tests runtime lifecycle, not music APIs.
+  fs.writeFileSync(preload,`const fs=require('node:fs'),Module=require('node:module');const original=Module._load;
+Module._load=function(name,parent,main){const file=Module._resolveFilename(name,parent,main);
+if(file===${JSON.stringify(metadata)})return async()=>{throw new Error('Synthetic metadata stop')};
+if(file===${JSON.stringify(entry)})fs.appendFileSync(${JSON.stringify(trace)},'loaded\\n');
+return original.apply(this,arguments)};`);
+  const port=await runtimePort(),origin='http://127.0.0.1:'+port,token='b'.repeat(64);
+  const child=spawn(process.execPath,['--require',preload,path.join(runtime,'server.js'),String(port),token,path.join(directory,'runtime.log')],{stdio:['ignore','ignore','pipe']});
+  let diagnostic='';child.stderr.on('data',chunk=>diagnostic=(diagnostic+String(chunk)).slice(-3000));
+  const get=route=>fetch(origin+route,{headers:{Authorization:'Bearer '+token}});
+  try{
+    let ready=false;
+    for(let attempt=0;attempt<100;attempt++){
+      try{ready=(await get('/health')).ok}catch{}
+      if(ready)break;
+      if(child.exitCode!==null)throw new Error('Runtime exited: '+diagnostic);
+      await new Promise(resolve=>setTimeout(resolve,25));
+    }
+    assert.equal(ready,true,diagnostic);assert.equal(fs.existsSync(trace),false);
+    const results=await Promise.all([get('/song?id=1'),get('/song?id=2')]);
+    assert.deepEqual(results.map(result=>result.status),[404,404]);
+    assert.equal((await get('/song?id=3')).status,404);
+    assert.equal(fs.readFileSync(trace,'utf8'),'loaded\n');
+    const events=fs.readFileSync(path.join(directory,'runtime.log'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
+    assert.equal(events.filter(row=>row.event==='matcher-loaded').length,1);
+  }finally{
+    const exited=new Promise(resolve=>child.once('exit',resolve));
+    if(child.exitCode===null){child.kill();await exited}
     fs.rmSync(directory,{recursive:true,force:true,maxRetries:5,retryDelay:50});
   }
 });

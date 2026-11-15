@@ -16,14 +16,14 @@ const emit = defineEmits<{
 }>()
 
 const handleClick = (e: MouseEvent) => {
+  const button = e.currentTarget
   emit('click', e)
 
-  if (!props.preventBlur) {
+  // Pointer taps need no persistent focus fill. Keyboard activation must keep
+  // its focus, and opening a dialog must not blur its newly focused control.
+  if (!props.preventBlur && e.detail > 0) {
     setTimeout(() => {
-      if (document.activeElement instanceof HTMLElement) {
-        document.activeElement.blur()
-      }
-      document.body.focus()
+      if (button instanceof HTMLElement && document.activeElement === button) button.blur()
     }, 0)
   }
 }
@@ -47,6 +47,8 @@ button :deep(.svg-icon) {
   transition: color 0.3s;
 }
 button:first-child { margin-left: 0; }
-button:hover { background: var(--color-secondary-bg-for-transparent); }
+@media (hover: hover) and (pointer: fine) {
+  button:hover { background: var(--color-secondary-bg-for-transparent); }
+}
 button:active { transform: scale(0.92); }
 </style>

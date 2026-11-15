@@ -8,10 +8,11 @@ const props = withDefaults(defineProps<{
   title: string
   subtitle?: string
   remember?: boolean
-}>(), { subtitle: '', remember: true })
+  initiallyOpen?: boolean
+}>(), { subtitle: '', remember: true, initiallyOpen: false })
 const storageKey = 'vutron:settings-expanded:' + props.sectionId
 const sectionIcon = computed(() => props.sectionId === 'appearance' ? 'palette' : props.sectionId === 'language' ? 'explore' : props.sectionId === 'directory-management' ? 'folder' : props.sectionId === 'user-backup' ? 'storage' : 'settings')
-const expanded = ref(props.remember && localStorage.getItem(storageKey) === 'true')
+const expanded = ref(props.initiallyOpen || props.remember && localStorage.getItem(storageKey) === 'true')
 const renderedOpen = ref(expanded.value)
 const mountedContent = ref(expanded.value)
 const closing = ref(false)

@@ -10,6 +10,8 @@ const store = useAndroidShellStore()
 const emit = defineEmits<{ openOffline: [] }>()
 const cacheUsedPercent = computed(() => store.cacheStatus.capacityMb > 0
   ? Math.min(100, store.cacheStatus.usedBytes / (store.cacheStatus.capacityMb * 1024 * 1024) * 100) : 0)
+const artworkUsedPercent = computed(() => store.cacheStatus.artworkCapacityMb
+  ? Math.min(100, (store.cacheStatus.artworkBytes ?? 0) / (store.cacheStatus.artworkCapacityMb * 1024 * 1024) * 100) : 0)
 function updateCacheCapacity(event: Event) { store.cacheCapacityMb = Number((event.target as HTMLInputElement).value) }
 function updateArtworkCacheCapacity(event: Event) { store.artworkCacheCapacityMb = Number((event.target as HTMLInputElement).value) }
 </script>
@@ -23,11 +25,12 @@ function updateArtworkCacheCapacity(event: Event) { store.artworkCacheCapacityMb
           <p v-if="store.cacheStatus.error" class="inline-error">{{ store.cacheStatus.error }}</p>
           <div class="storage-meter"><span :style="{ width: `${cacheUsedPercent}%` }"></span></div>
           <label class="setting-range"><span>{{ $t('mobile.settingsUi.capacity') }}</span><b>{{ store.cacheCapacityMb }} MB</b></label>
-          <div class="cache-input-row"><input v-model.number="store.cacheCapacityMb" type="number" min="256" max="10240" inputmode="numeric" :aria-label="$t('mobile.settingsUi.audioCapacityMiB')" /><button class="secondary-button" type="button" @click="store.setCacheCapacity()">{{ $t('mobile.settingsUi.saveCapacity') }}</button></div>
           <ThumbRange class="settings-slider" min="256" max="10240" step="256" :value="store.cacheCapacityMb" :aria-label="$t('mobile.settingsUi.audioCapacity')" @input="updateCacheCapacity" @change="store.setCacheCapacity" />
           <div class="settings-detail"><span>{{ $t('mobile.settingsUi.cacheHint') }}</span><button class="text-button danger-text" type="button" @click="store.clearCache">{{ $t('mobile.settingsUi.clear') }}</button></div>
           <button class="wide-outline-button" type="button" @click="emit('openOffline')">{{ $t('mobile.settingsUi.viewOffline') }}</button>
           <label class="setting-range"><span>{{ $t('mobile.settingsUi.artworkCapacity') }}</span><b>{{ store.artworkCacheCapacityMb }} MB</b></label>
+          <div class="storage-meter" role="meter" :aria-label="$t('mobile.settingsUi.artworkCapacity')" :aria-valuenow="Math.round(artworkUsedPercent)" aria-valuemin="0" aria-valuemax="100"><span :style="{ width: `${artworkUsedPercent}%` }"></span></div>
+          <p class="setting-note">{{ formatBytes(store.cacheStatus.artworkBytes ?? 0) }} / {{ store.cacheStatus.artworkCapacityMb ?? store.artworkCacheCapacityMb }} MB</p>
           <ThumbRange class="settings-slider" min="32" max="1024" step="32" :value="store.artworkCacheCapacityMb" :aria-label="$t('mobile.settingsUi.artworkCapacity')" @input="updateArtworkCacheCapacity" @change="store.setArtworkCacheCapacity" />
         </CollapsibleSettingsCard>
 </template>

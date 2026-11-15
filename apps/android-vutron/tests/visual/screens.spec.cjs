@@ -2,7 +2,9 @@ const { test, expect } = require('@playwright/test')
 const path = require('node:path')
 
 test.beforeEach(async ({ page }, testInfo) => {
-  await page.clock.setFixedTime(new Date('2026-01-02T12:00:00Z'))
+  // Keep Date deterministic while allowing Vue's event timestamp guard to see
+  // real-time progression for synthesized touch clicks.
+  await page.clock.install({ time: new Date('2026-01-02T12:00:00Z') })
   await page.addInitScript(scene => {
     localStorage.setItem('vutron:language', scene.language)
     localStorage.setItem('vutron:appearance', scene.theme)

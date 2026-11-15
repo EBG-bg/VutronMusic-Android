@@ -41,11 +41,15 @@ const emit = defineEmits<{ click: [event: MouseEvent] }>()
 .side-nav-item-desktop :deep(.icon) { width: 26px; height: 26px; }
 .side-nav-item-desktop:hover { background: var(--color-primary); }
 .side-nav-item-desktop:hover :deep(.icon) { color: white; }
-.side-nav-item-mobile { margin: 0; touch-action: manipulation; }
+.side-nav-item-mobile { margin: 0; touch-action: manipulation; background: transparent; border-radius: var(--radius-control, 12px); color: var(--muted); transition: background-color var(--motion-feedback, 180ms) ease, color var(--motion-feedback, 180ms) ease, transform var(--motion-feedback, 180ms) ease; }
+.side-nav-item-mobile.active, .side-nav-item-mobile[data-original-feedback], .side-nav-item-mobile:focus-visible { background: var(--accent-soft); color: var(--accent-ink, var(--ink)); transition: background-color var(--motion-feedback, 180ms) ease, color var(--motion-feedback, 180ms) ease, transform var(--motion-feedback, 180ms) ease; }
+.side-nav-item-mobile.active :deep(.icon), .side-nav-item-mobile.active :deep(.original-icon),
+.side-nav-item-mobile[data-original-feedback] :deep(.icon), .side-nav-item-mobile[data-original-feedback] :deep(.original-icon),
+.side-nav-item-mobile:focus-visible :deep(.icon), .side-nav-item-mobile:focus-visible :deep(.original-icon) { color: inherit; }
 @media (hover: hover) and (pointer: fine) {
-  .side-nav-item-mobile:hover { background: var(--color-primary); color: white; }
+  .side-nav-item-mobile:hover { background: var(--accent-soft); color: var(--accent-ink, var(--ink)); }
 }
 @media (hover: none) and (pointer: coarse) {
-  .side-nav-item-mobile:active:not([data-original-pressed]) { transform: none; transition: all .3s ease-in; }
+  .side-nav-item-mobile:active:not([data-original-pressed]) { transform: none; }
 }
 </style>

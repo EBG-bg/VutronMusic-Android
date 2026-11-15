@@ -22,6 +22,7 @@ const upper = computed(() => Math.min(limit, center.value + 1000))
 const percent = computed(() => (value.value - lower.value) / (upper.value - lower.value) * 100)
 const signedSeconds = (milliseconds: number) => `${milliseconds > 0 ? '+' : ''}${(milliseconds / 1000).toFixed(2)}`
 let drag: { pointer: number; coordinate: number; vertical: boolean; value: number; scale: number } | undefined
+let tap: { pointer: number; x: number; y: number; moved: boolean } | undefined
 
 function update(next: number) {
   value.value = normalize(next)
@@ -36,12 +37,16 @@ function commit() {
 function releaseCapture() {
   const pointer = drag?.pointer
   drag = undefined
+  tap = undefined
   dragging.value = false
   if (pointer !== undefined && slider.value?.hasPointerCapture(pointer)) slider.value.releasePointerCapture(pointer)
 }
 function beginDrag(event: PointerEvent) {
   if (props.disabled || drag || (event.pointerType === 'mouse' && event.button !== 0)) return
-  if (!(event.target as Element).closest('.offset-thumb')) return
+  if (!(event.target as Element).closest('.offset-thumb')) {
+    tap = { pointer: event.pointerId, x: event.clientX, y: event.clientY, moved: false }
+    return
+  }
   event.preventDefault()
   slider.value?.focus({ preventScroll: true })
   const vertical = props.orientation === 'vertical'
@@ -54,12 +59,26 @@ function beginDrag(event: PointerEvent) {
   slider.value?.setPointerCapture(event.pointerId)
 }
 function moveDrag(event: PointerEvent) {
+  if (tap?.pointer === event.pointerId && Math.hypot(event.clientX - tap.x, event.clientY - tap.y) > 8) tap.moved = true
   if (!drag || event.pointerId !== drag.pointer) return
   const coordinate = drag.vertical ? event.clientY : event.clientX
   const next = Math.max(lower.value, Math.min(upper.value, drag.value + (coordinate - drag.coordinate) * drag.scale))
   update(next)
 }
 function endDrag(event: PointerEvent) {
+  const candidate = tap
+  tap = undefined
+  if (candidate && candidate.pointer === event.pointerId && event.type === 'pointerup' && !candidate.moved && !props.disabled
+    && Math.hypot(event.clientX - candidate.x, event.clientY - candidate.y) <= 8) {
+    const rect = rail.value?.getBoundingClientRect()
+    if (rect) {
+      const ratio = props.orientation === 'vertical' ? (event.clientY - rect.top) / rect.height : (event.clientX - rect.left) / rect.width
+      slider.value?.focus({ preventScroll: true })
+      update(lower.value + Math.max(0, Math.min(1, ratio)) * (upper.value - lower.value))
+      commit()
+    }
+    return
+  }
   if (!drag || event.pointerId !== drag.pointer) return
   if (event.type !== 'pointercancel' && event.type !== 'lostpointercapture') moveDrag(event)
   releaseCapture()
@@ -107,7 +126,7 @@ onBeforeUnmount(releaseCapture)
 <template>
   <div class="lyric-offset-control" :class="{ disabled, 'offset-vertical': orientation === 'vertical', 'offset-compact': compact }">
     <div class="offset-heading"><span>{{ $t('mobile.offsetUi.title') }}</span><output>{{ $t('mobile.offsetUi.seconds', { value: signedSeconds(value) }) }}</output></div>
-    <div ref="slider" class="offset-slider" :data-dragging="dragging ? '' : undefined" role="slider" :aria-orientation="orientation" :tabindex="disabled ? -1 : 0" :aria-label="$t('mobile.offsetUi.slider')" :aria-disabled="disabled" :aria-valuemin="-limit" :aria-valuemax="limit" :aria-valuenow="value" :aria-valuetext="$t('mobile.offsetUi.sliderValue', { value: signedSeconds(value) })" :style="{ '--offset-position': `${percent}%` }" @pointerdown="beginDrag" @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="endDrag" @lostpointercapture="endDrag" @keydown="keyboard">
+    <div ref="slider" class="offset-slider" :data-dragging="dragging ? '' : undefined" role="slider" :aria-orientation="orientation" :tabindex="disabled ? -1 : 0" :aria-label="$t('mobile.offsetUi.slider')" :aria-disabled="disabled" :aria-valuemin="-limit" :aria-valuemax="limit" :aria-valuenow="value" :aria-valuetext="$t('mobile.offsetUi.sliderValue', { value: signedSeconds(value) })" :style="{ '--offset-position': `${percent}%` }" @pointerdown="beginDrag" @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="endDrag" @lostpointercapture="endDrag" @pointerleave="tap = undefined" @keydown="keyboard">
       <span ref="rail" class="offset-rail"><span class="offset-fill"></span><span class="offset-thumb"></span></span>
     </div>
     <div v-if="!compact" class="offset-scale"><span>{{ $t('mobile.offsetUi.seconds', { value: signedSeconds(lower) }) }}</span><span>{{ $t('mobile.offsetUi.fine') }}</span><span>{{ $t('mobile.offsetUi.seconds', { value: signedSeconds(upper) }) }}</span></div>
@@ -124,23 +143,26 @@ onBeforeUnmount(releaseCapture)
 .lyric-offset-control { display: grid; gap: 3px; min-width: 0; }
 .offset-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: calc(13px * var(--ui-font-scale, 1)); }
 .offset-heading output { color: var(--color-primary, var(--accent)); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.offset-slider { position: relative; height: 32px; margin: 0; touch-action: pan-y; user-select: none; outline: none; }
-.offset-rail { position: absolute; inset: 14px 13px auto; height: 4px; border-radius: 2px; background: var(--color-secondary-bg, var(--line)); }
+.offset-slider { position: relative; height: 44px; margin: 0; touch-action: pan-y; user-select: none; outline: none; }
+.offset-rail { position: absolute; inset: 20px 20px auto; height: 4px; border-radius: 2px; background: var(--color-secondary-bg, var(--line)); }
 .offset-fill { position: absolute; inset: 0 auto 0 0; width: var(--offset-position); border-radius: inherit; background: var(--color-primary, var(--accent)); }
-.offset-thumb { position: absolute; top: 50%; left: var(--offset-position); width: 18px; height: 18px; border: 2px solid var(--color-body-bg); border-radius: 50%; background: var(--color-primary, var(--accent)); box-shadow: 0 1px 4px rgb(0 0 0 / 18%); transform: translate(-50%, -50%); touch-action: none; cursor: ew-resize; }
-.offset-slider:focus-visible .offset-thumb { outline: 2px solid var(--color-primary, var(--accent)); outline-offset: 3px; }
+.offset-thumb { position: absolute; top: 50%; left: var(--offset-position); width: 36px; height: 36px; display: grid; place-items: center; transform: translate(-50%, -50%); touch-action: none; cursor: ew-resize; }
+.offset-thumb::after { content: ''; width: 18px; height: 18px; border: 2px solid var(--color-body-bg); border-radius: 50%; background: var(--color-primary, var(--accent)); box-shadow: 0 1px 4px rgb(0 0 0 / 18%); }
+.offset-slider:focus-visible .offset-thumb::after { outline: 2px solid var(--color-primary, var(--accent)); outline-offset: 3px; }
 .offset-fill { transition: width var(--motion-slider, 180ms) ease-out; }
 .offset-thumb { transition: left var(--motion-slider, 180ms) ease-out, transform var(--motion-feedback, 180ms) ease, box-shadow var(--motion-state, 220ms) ease; }
 .offset-vertical { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.offset-vertical .offset-slider { width: 32px; height: clamp(110px, 28dvh, 220px); flex: none; }
-.offset-vertical .offset-rail { inset: 13px auto 13px calc(50% - 2px); height: auto; width: 4px; background: var(--line); }
+.offset-vertical .offset-slider { width: 44px; height: clamp(110px, 28dvh, 220px); flex: none; }
+.offset-vertical .offset-rail { inset: 20px auto 20px calc(50% - 2px); height: auto; width: 4px; background: var(--line); }
 .offset-vertical .offset-fill { inset: 0 0 auto; width: 100%; height: var(--offset-position); transition: height var(--motion-slider, 180ms) ease-out; }
 .offset-vertical .offset-thumb { left: 50%; top: var(--offset-position); cursor: ns-resize; transition: top var(--motion-slider, 180ms) ease-out, transform var(--motion-feedback, 180ms) ease, box-shadow var(--motion-state, 220ms) ease; }
 .offset-compact .offset-heading { justify-content: center; font-size: calc(11px * var(--ui-font-scale, 1)); }
 .offset-compact .offset-heading > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .offset-compact .offset-heading output { white-space: normal; text-align: center; }
 .offset-slider[data-dragging] .offset-fill { transition: none; }
-.offset-slider[data-dragging] .offset-thumb { transform: translate(-50%, -50%) scale(1.1); box-shadow: 0 0 0 3px var(--accent-soft); transition: transform var(--motion-feedback, 180ms) ease, box-shadow var(--motion-state, 220ms) ease; }
+.offset-slider[data-dragging] .offset-thumb { transition: none; }
+.offset-thumb::after { transition: transform var(--motion-feedback), box-shadow var(--motion-state); }
+.offset-slider[data-dragging] .offset-thumb::after { transform: scale(1.1); box-shadow: 0 0 0 3px var(--accent-soft); }
 .offset-scale { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 6px; margin-top: -3px; color: var(--muted); font-size: calc(10px * var(--ui-font-scale, 1)); font-variant-numeric: tabular-nums; }
 .offset-scale > span:nth-child(2) { grid-row: 2; grid-column: 1 / -1; text-align: center; }
 .offset-scale > span:last-child { text-align: right; }

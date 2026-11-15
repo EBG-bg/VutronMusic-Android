@@ -104,6 +104,7 @@ test('the actual language settings component renders English and Traditional Chi
   vm.runInNewContext(pickerCode, { module: pickerModule, exports: pickerModule.exports, require(name) {
     if (name === 'vue') return vue
     if (name === '../platform/appSelect') return { activeAppSelect: vue.shallowRef(), closeAppSelect: () => false }
+    if (name === '../composables/modalIsolation') return { useModalIsolation: () => {} } // Closed SSR picker has no browser layer to isolate.
     if (name === './OriginalIcon.vue') return { __esModule: true, default: vue.defineComponent({ render: () => vue.h('span') }) }
     throw new Error('Unexpected picker dependency: ' + name)
   } })

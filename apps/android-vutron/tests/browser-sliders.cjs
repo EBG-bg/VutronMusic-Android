@@ -18,7 +18,7 @@ module.exports=async({page,evaluate,wait,delay,root})=>{
     await delay(80);
   };
   const geometry=async selector=>evaluate(`(()=>{
-    const input=document.querySelector(${JSON.stringify(selector)}),root=input.closest('.thumb-range');root.scrollIntoView({block:'center'});
+    const input=document.querySelector(${JSON.stringify(selector)});if(!input)throw new Error('Missing slider '+${JSON.stringify(selector)}+'; present '+Array.from(document.querySelectorAll('input[type=range]'),e=>e.getAttribute('aria-label')).join(', '));const root=input.closest('.thumb-range');root.scrollIntoView({block:'center'});
     const r=root.getBoundingClientRect(),p=root.querySelector('.thumb-range-path').getBoundingClientRect(),t=root.querySelector('.thumb-range-thumb').getBoundingClientRect();
     return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,x:t.left+t.width/2,y:t.top+t.height/2,start:p.left,end:p.right,value:input.value,min:input.min,max:input.max,thumbWidth:t.width,hit:document.elementFromPoint(t.left+t.width/2,t.top+t.height/2)?.className};
   })()`);
@@ -37,8 +37,10 @@ module.exports=async({page,evaluate,wait,delay,root})=>{
       let g=await geometry(selector);await delay(60);g=await geometry(selector);
       const blankX=g.x<(g.start+g.end)/2?g.end:g.start;
       await gesture(kind,{x:blankX,y:g.y},{x:blankX,y:g.y});
-      assert.equal(await value(selector),g.value,selector+': blank track tap changed value');
-      await gesture(kind,{x:blankX,y:g.y},{x:(g.start+g.end)/2,y:g.y});
+      assert.notEqual(await value(selector),g.value,selector+': track tap must change value');
+      g=await geometry(selector);await delay(200);g=await geometry(selector);
+      const swipeX=g.x<(g.start+g.end)/2?g.end:g.start;
+      await gesture(kind,{x:swipeX,y:g.y},{x:(g.start+g.end)/2,y:g.y});
       assert.equal(await value(selector),g.value,selector+': blank track drag changed value');
       for(const edge of ['min','max']){
         g=await geometry(selector);
@@ -51,7 +53,7 @@ module.exports=async({page,evaluate,wait,delay,root})=>{
   };
   await evaluate("window.featureHarness.store.navigateTo('settings')");await wait("document.querySelector('[data-settings-section=cache] > summary')");await delay(200);
   await evaluate("document.querySelector('[data-settings-section=cache] > summary').click()");await delay(200);
-  for(const label of ['音频缓存容量','封面缓存容量'])await checkRange(selectorFor(label));
+  for(const label of ['音频缓存容量','封面缓存上限'])await checkRange(selectorFor(label));
   assert.equal(await evaluate("JSON.parse(localStorage.getItem('vutron-slider-ui')).artworkCapacityMb"),1024);
   assert.equal(await evaluate("window.featureHarness.store.artworkCacheCapacityMb"),1024);
   // Once grabbed, leaving the visible thumb must not interrupt live input.
@@ -114,7 +116,7 @@ module.exports=async({page,evaluate,wait,delay,root})=>{
   await evaluate("document.querySelector('[data-settings-section=lyric-colors] > summary').click()");await delay(350);
   for(const width of [320,360,390]){
     await page.send('Emulation.setDeviceMetricsOverride',{width,height:844,deviceScaleFactor:1,mobile:true});
-    for(const selector of [selectorFor('音频缓存容量'),selectorFor('封面缓存容量'),selectorFor('歌词大小'),selectorFor('阴影模糊'),selectorFor('歌词色相'),selectorFor('歌词颜色不透明度')]){
+    for(const selector of [selectorFor('音频缓存容量'),selectorFor('封面缓存上限'),selectorFor('歌词大小'),selectorFor('阴影模糊'),selectorFor('歌词色相'),selectorFor('歌词颜色不透明度')]){
       await geometry(selector);await assertEndpoints(selector);
     }
     assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true,'Horizontal overflow at '+width);
@@ -125,12 +127,12 @@ module.exports=async({page,evaluate,wait,delay,root})=>{
       assert.equal(await evaluate("(()=>{const r=document.querySelector('.offset-slider').getBoundingClientRect(),t=document.querySelector('.offset-thumb').getBoundingClientRect();return t.left>=r.left+2&&t.right<=r.right-2})()"),true,'Offset endpoint extends past the rail');
     }
   }
-  await geometry(selectorFor('封面缓存容量'));
+  await geometry(selectorFor('封面缓存上限'));
   const picture=await page.send('Page.captureScreenshot',{format:'png',captureBeyondViewport:false});
   fs.writeFileSync(path.join(root,'mobile-slider-endpoints.png'),Buffer.from(picture.data,'base64'));
   await evaluate('window.featureReady=false');await page.send('Page.reload');await wait('window.featureReady===true');
-  await evaluate("window.featureHarness.store.navigateTo('settings')");await wait("document.querySelector('[aria-label=\"封面缓存容量\"]')");await delay(350);
-  assert.equal(await value(selectorFor('封面缓存容量')),'1024','Saved cache size should be restored');
+  await evaluate("window.featureHarness.store.navigateTo('settings')");await wait("document.querySelector('[aria-label=\"封面缓存上限\"]')");await delay(350);
+  assert.equal(await value(selectorFor('封面缓存上限')),'1024','Saved cache size should be restored');
   assert.equal(await value(selectorFor('歌词大小')),'34','Saved lyric font size should be restored');
-  console.log('PASS: '+checked.length+' real sliders; mouse/touch thumb-only starts, endpoints, track scrolling, live offset, keyboard, disabled, persistence and 320/360/390px layout');
+  console.log('PASS: '+checked.length+' real sliders; mouse/touch track taps, scroll-vs-drag intent, enlarged thumbs, endpoints, live offset, keyboard, disabled, persistence and 320/360/390px layout');
 };

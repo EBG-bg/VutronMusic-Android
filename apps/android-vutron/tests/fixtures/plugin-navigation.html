@@ -1,0 +1,16 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app"></div><script type="module">
+import {createApp,h,ref} from 'vue'
+import {createPinia} from 'pinia'
+import {i18n} from '/src/platform/i18n'
+import '/src/style.css'
+import '/src/adaptive.css'
+import '/src/platform/appearance'
+import PluginLibraryView from '/src/components/PluginLibraryView.vue'
+import ActionDialog from '/src/components/ActionDialog.vue'
+import {pluginBackend} from '/tests/fixtures/music-plugin-native.mock.js'
+pluginBackend.plugins.forEach(plugin=>plugin.enabled=true)
+const section=ref('library'),instance=ref(),plays=[]
+const app=createApp({render:()=>h('main',{class:'app-shell'},[h(PluginLibraryView,{ref:instance,pluginId:'fixture',integrated:true,section:section.value,localOnly:false,onPlay:value=>plays.push(value)}),h(ActionDialog)])})
+app.use(createPinia()).use(i18n).mount('#app')
+window.pluginNavigation={app,section,instance,backend:pluginBackend,plays}
+</script></body></html>

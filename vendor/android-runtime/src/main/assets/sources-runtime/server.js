@@ -21,7 +21,7 @@ let plugins;
 let pluginMedia;
 const diagnosticPath = process.argv[4];
 let diagnosticError = '';
-let stage = 'loading-matcher';
+let stage = 'loading-runtime';
 let lastError = '';
 
 // Only fixed event names, source names and error types enter this private log.
@@ -77,10 +77,8 @@ for (const protocol of [http, https]) {
 // Upstream providers discard their selected song metadata and return only an
 // audio URL. Wrap its shared find/select modules before loading the matcher so
 // every source candidate is checked against the authoritative Netease record.
-const matcherDirectory = path.dirname(require.resolve('@unblockneteasemusic/server'));
-const findModulePath = path.join(matcherDirectory, 'find.js');
-require(findModulePath);
-const upstreamRequest = require(path.join(matcherDirectory, '../request.js'));
+let upstreamRequest, match;
+const validatedTracks = new WeakMap();
 function targetMetadata(song) {
   if (!song || !song.name || !Array.isArray(song.artists) || !song.artists.length) {
     const error = new Error('Incomplete target metadata');
@@ -98,39 +96,49 @@ function targetMetadata(song) {
     keyword: `${song.name} - ${song.artists.map((artist) => artist.name).filter(Boolean).join(' / ')}`,
   };
 }
-require.cache[findModulePath].exports = async (id, data) => {
-  const scope = tasks.getStore();
-  let info;
-  if (data) info = targetMetadata(data);
-  else {
-    const operation = scope && scope.operation;
-    if (!operation || !operation.reference) throw Object.assign(new Error('Missing authoritative target metadata'), { code: 'TARGET_SCOPE_MISSING' });
-    info = operation.reference;
-  }
-  if (scope) scope.track = info;
-  return info;
-};
-const selectModulePath = path.join(matcherDirectory, 'select.js');
-const upstreamSelect = require(selectModulePath);
-const validatedTracks = new WeakMap();
-require.cache[selectModulePath].exports = (list, info) => {
-  const scope = tasks.getStore();
-  const selection = selectCandidate(list, info);
-  if (!selection) {
-    const error = new Error('No identity-validated candidate');
-    error.code = 'IDENTITY_MISMATCH';
-    throw error;
-  }
-  if (scope) {
-    let sources = validatedTracks.get(info);
-    if (!sources) { sources = new Map(); validatedTracks.set(info, sources); }
-    sources.set(scope.source, selection.rank);
-  }
-  if (scope) scope.identityRank = selection.rank;
-  return selection.candidate;
-};
-require.cache[selectModulePath].exports.ENABLE_FLAC = upstreamSelect.ENABLE_FLAC;
-const match = require('@unblockneteasemusic/server');
+// Plugin libraries, QR login and media registration do not use the fallback
+// matcher. Initialize its provider graph only on the first actual match.
+// This function is synchronous: concurrent first requests cannot wrap twice.
+function ensureMatcher() {
+  if (match) return;
+  const matcherDirectory = path.dirname(require.resolve('@unblockneteasemusic/server'));
+  const findModulePath = path.join(matcherDirectory, 'find.js');
+  require(findModulePath);
+  upstreamRequest = require(path.join(matcherDirectory, '../request.js'));
+  require.cache[findModulePath].exports = async (id, data) => {
+    const scope = tasks.getStore();
+    let info;
+    if (data) info = targetMetadata(data);
+    else {
+      const operation = scope && scope.operation;
+      if (!operation || !operation.reference) throw Object.assign(new Error('Missing authoritative target metadata'), { code: 'TARGET_SCOPE_MISSING' });
+      info = operation.reference;
+    }
+    if (scope) scope.track = info;
+    return info;
+  };
+  const selectModulePath = path.join(matcherDirectory, 'select.js');
+  const upstreamSelect = require(selectModulePath);
+  require.cache[selectModulePath].exports = (list, info) => {
+    const scope = tasks.getStore();
+    const selection = selectCandidate(list, info);
+    if (!selection) {
+      const error = new Error('No identity-validated candidate');
+      error.code = 'IDENTITY_MISMATCH';
+      throw error;
+    }
+    if (scope) {
+      let sources = validatedTracks.get(info);
+      if (!sources) { sources = new Map(); validatedTracks.set(info, sources); }
+      sources.set(scope.source, selection.rank);
+    }
+    if (scope) scope.identityRank = selection.rank;
+    return selection.candidate;
+  };
+  require.cache[selectModulePath].exports.ENABLE_FLAC = upstreamSelect.ENABLE_FLAC;
+  match = require('@unblockneteasemusic/server');
+  diagnostic('matcher-loaded');
+}
 const SOURCES = require('./source-policy.json').fallbackSources;
 const SOURCE_CONCURRENCY = 3;
 const SOURCE_TIMEOUT_MS = 4500;
@@ -140,8 +148,6 @@ const token = process.argv[3];
 if (!(port >= 49152 && port <= 49251) || !/^[a-f0-9]{64}$/.test(token || '')) {
   throw new Error('Invalid embedded runtime configuration');
 }
-diagnostic('matcher-loaded');
-
 function cancel(scope) {
   scope.cancelled = true;
   for (const outgoing of scope.requests) outgoing.destroy(new Error('Matcher request cancelled'));
@@ -151,6 +157,7 @@ function cancel(scope) {
 // Let the upstream matcher preserve its metadata and full 8192-byte Range check,
 // while comparing validated results with bounded concurrency and deadlines.
 async function highestQualityMatch(id, operation) {
+  ensureMatcher();
   const deadline = Date.now() + QUALITY_SELECTION_TIMEOUT_MS;
   const metadataDeadline = Math.min(Date.now() + SOURCE_TIMEOUT_MS, deadline);
   const metadataScope = { source: 'metadata', requests: new Set(), cancelled: false, deadline: metadataDeadline };

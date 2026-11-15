@@ -37,7 +37,7 @@ export const vTrackMenu: ObjectDirective<TrackElement, MenuTrigger> = {
     const open = () => { cancel(); suppressUntil = performance.now() + 1200; element.__trackMenuOpen?.() }
     const down = (event: PointerEvent) => {
       if (ignore(event) || event.button !== 0 || !event.isPrimary) return
-      pointer = event.pointerId; x = event.clientX; y = event.clientY; cancel()
+      pointer = event.pointerId; x = event.clientX; y = event.clientY; suppressUntil = 0; cancel()
       timer = setTimeout(open, 450)
     }
     const move = (event: PointerEvent) => {
@@ -54,11 +54,13 @@ export const vTrackMenu: ObjectDirective<TrackElement, MenuTrigger> = {
       event.preventDefault(); event.stopPropagation(); open()
     }
     const scroll = () => { if (pointer !== undefined) { cancel(); suppressUntil = performance.now() + 700 } }
+    const navigationSwipe = () => { cancel(); pointer = undefined }
     const preventSelection = (event: Event) => { if (!(event.target as Element)?.closest('input,textarea,[contenteditable=true]')) event.preventDefault() }
     element.addEventListener('pointerdown', down)
     element.addEventListener('pointermove', move)
     element.addEventListener('pointerup', end)
     element.addEventListener('pointercancel', end)
+    element.addEventListener('vutron-navigation-swipe', navigationSwipe)
     element.addEventListener('click', click, true)
     element.addEventListener('contextmenu', context)
     element.addEventListener('keydown', key)
@@ -68,6 +70,7 @@ export const vTrackMenu: ObjectDirective<TrackElement, MenuTrigger> = {
     element.__trackMenuCleanup = () => {
       cancel(); element.removeEventListener('pointerdown', down); element.removeEventListener('pointermove', move)
       element.removeEventListener('pointerup', end); element.removeEventListener('pointercancel', end)
+      element.removeEventListener('vutron-navigation-swipe', navigationSwipe)
       element.removeEventListener('click', click, true); element.removeEventListener('contextmenu', context)
       element.removeEventListener('keydown', key); window.removeEventListener('scroll', scroll, true)
       element.removeEventListener('selectstart', preventSelection); element.removeEventListener('dragstart', preventSelection)

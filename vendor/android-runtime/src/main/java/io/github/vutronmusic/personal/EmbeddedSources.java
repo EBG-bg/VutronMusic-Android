@@ -210,7 +210,7 @@ public final class EmbeddedSources {
             digest.update(BUNDLE.getBytes(StandardCharsets.UTF_8));
             for (String source : new String[]{"server.js", "quality-selection.cjs", "strict-identity.cjs", "dependency-lock.json",
                     "runtime-compat-contracts.json", "runtime-compat-dependencies.json",
-                    "plugin-host.cjs", "plugin-worker.cjs", "plugin-media-gateway.cjs", "plugin-contract.cjs", "plugin-schemas.cjs", "plugin-defaults.cjs", "plugin-lyrics.cjs", "plugin-core-lyrics.cjs",
+                    "plugin-host.cjs", "plugin-worker.cjs", "plugin-kugou-api.cjs", "plugin-media-gateway.cjs", "plugin-contract.cjs", "plugin-schemas.cjs", "plugin-defaults.cjs", "plugin-lyrics.cjs", "plugin-core-lyrics.cjs",
                     "plugins/builtin-index.json", "plugins/local.js", "plugins/netease.js", "plugins/kugou.js", "plugins/emby.js", "plugins/jellyfin.js", "plugins/navidrome.js", "plugins/demo.js"}) {
                 try (InputStream input = assets.open(ASSETS + "/" + source)) {
                     byte[] buffer = new byte[8192];

@@ -53,6 +53,68 @@ module.exports = async ({page, evaluate, wait, delay, root}) => {
   assert.equal(await evaluate('window.reviewSeeks.length'),1,'Expired preview needs confirmation again');
   await evaluate("document.querySelector('.lyric-seek-confirmation button').click()");
   assert.deepEqual(await evaluate('window.reviewSeeks'),[30000,60000]);
+  // Keep the lyric pane itself unchanged while moving the outer page around it.
+  // Extra fixture space makes both partially exposed positions reachable without
+  // overriding production pane sizing or scroll/follow code.
+  await evaluate(`(()=>{
+    const store=window.featureHarness.store;
+    store.stopPlaybackPolling();
+    store.playback={...store.playback,position:32500,playing:false,buffering:false,duration:180000};
+    window.reviewState={...store.playback};
+    store.overlaySettings={...store.overlaySettings,currentLyricOffsetMs:0};
+    store.lyrics={original:Array.from({length:24},(_,index)=>({start:1000+index*3000,end:4000+index*3000,text:'Lyric row '+index,words:[]})),translation:[],pairedTranslations:Array.from({length:24},(_,index)=>index===10?'The current translation remains part of the centered row':''),source:'plain'};
+    const before=document.createElement('div'),after=document.createElement('div');
+    before.dataset.lyricFollowSpacer='';after.dataset.lyricFollowSpacer='';before.style.height='800px';after.style.height='800px';
+    document.querySelector('.player-visual').before(before);document.querySelector('.player-page').append(after);
+  })()`);
+  await wait("document.querySelectorAll('.original-lyric-row').length===24&&document.querySelector('.original-lyric-row.active')?.textContent.includes('Lyric row 10')");
+  await delay(600);
+  const lyricGeometry=()=>evaluate(`(()=>{
+    const list=document.querySelector('.original-lyrics-scroll');
+    if(!list)throw new Error('Lyric pane absent: '+JSON.stringify({tab:window.featureHarness.store.activeTab,lyrics:window.featureHarness.store.lyrics.original.length,loading:window.featureHarness.store.lyricsLoading,body:document.body.innerText.slice(-800)}));
+    const row=list.querySelector('.original-lyric-row.active');
+    if(!row)throw new Error('Active lyric absent: '+JSON.stringify({position:window.featureHarness.store.playback.position,rows:list.querySelectorAll('.original-lyric-row').length}));
+    const r=list.getBoundingClientRect(),a=row.getBoundingClientRect();
+    const nav=document.querySelector('.bottom-nav').getBoundingClientRect();
+    return {outer:scrollY,inner:list.scrollTop,docTop:r.top+scrollY,top:r.top,bottom:r.bottom,height:r.height,visible:Math.max(0,Math.min(r.bottom,nav.top)-Math.max(r.top,0)),usableBottom:nav.top,rowHeight:a.height,centerError:(a.top+a.bottom-r.top-r.bottom)/2,active:row.textContent};
+  })()`);
+  let pane=await lyricGeometry();
+  await evaluate(`scrollTo({top:${pane.docTop}-140,behavior:'instant'})`);await delay(450);
+  const fullPane=await lyricGeometry();
+  assert.ok(fullPane.visible>=fullPane.height-2,'The initial lyric pane is fully visible: '+JSON.stringify(fullPane));
+  assert.ok(Math.abs(fullPane.centerError)<2,'The complete active/translation row is centered in its own pane: '+JSON.stringify(fullPane));
+  const partialPanes=[];
+  for(const top of [fullPane.docTop-(fullPane.usableBottom-fullPane.height/2),fullPane.docTop+fullPane.height/2]){
+    await evaluate(`scrollTo({top:${top},behavior:'instant'})`);await delay(450);
+    const partial=await lyricGeometry();partialPanes.push(partial);
+    assert.ok(Math.abs(partial.visible/partial.height-.5)<.03,'Only half the pane is exposed: '+JSON.stringify(partial));
+    assert.ok(Math.abs(partial.inner-fullPane.inner)<2,'Outer scrolling does not move the lyric list: '+JSON.stringify({fullPane,partial}));
+    assert.ok(Math.abs(partial.centerError-fullPane.centerError)<2,'The active row does not chase the visible intersection: '+JSON.stringify({fullPane,partial}));
+  }
+  await evaluate(`(()=>{const list=document.querySelector('.original-lyrics-scroll');list.dispatchEvent(new WheelEvent('wheel',{deltaY:1,bubbles:true}));list.scrollTop+=100;scrollTo({top:${fullPane.docTop}-( ${fullPane.usableBottom}-24),behavior:'instant'})})()`);
+  await wait("document.querySelector('.return-current-lyric')");await delay(100);
+  const beforeReturn=await lyricGeometry();
+  assert.ok(beforeReturn.visible<beforeReturn.rowHeight+24,'The explicit-return scenario starts with insufficient lyric space');
+  await evaluate("document.querySelector('.return-current-lyric').click()");await delay(600);
+  const afterReturn=await lyricGeometry();
+  assert.ok(Math.abs(afterReturn.outer-beforeReturn.outer)>30,'Return to current explicitly reveals the pane');
+  assert.ok(afterReturn.visible>=Math.min(afterReturn.height,afterReturn.rowHeight+24)-2,'The current row has visible space after return');
+  assert.ok(Math.abs(afterReturn.centerError)<2,'Return centers the full row in its pane');
+  assert.equal(await evaluate('window.reviewSeeks.length'),2,'Following and returning never seek');
+  // A real downward touch at the nested list's top chains to the outer page.
+  await evaluate(`(()=>{const list=document.querySelector('.original-lyrics-scroll');list.dispatchEvent(new WheelEvent('wheel',{deltaY:-1,bubbles:true}));list.scrollTop=0;scrollTo({top:${fullPane.docTop}-140,behavior:'instant'})})()`);await delay(100);
+  const beforeChain=await lyricGeometry();
+  const finger=await evaluate("(()=>{const r=document.querySelector('.original-lyrics-scroll').getBoundingClientRect();return {x:r.left+r.width/2,y:r.top+30}})()");
+  await page.send('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:1});
+  await page.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[finger]});
+  for(let step=1;step<=6;step++){await page.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:finger.x,y:finger.y+step*15}]});await delay(18)}
+  await page.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await delay(300);
+  const afterChain=await lyricGeometry();
+  assert.ok(afterChain.outer<beforeChain.outer-20,'At the lyric top a downward touch scrolls the outer page: '+JSON.stringify({beforeChain,afterChain}));
+  assert.equal(afterChain.inner,0,'Scroll chaining leaves the exhausted lyric list at its top');
+  assert.equal(await evaluate('window.reviewSeeks.length'),2,'Scroll chaining cannot accidentally seek');
+  fs.writeFileSync(path.join(root,'playback-review-lyric-follow.json'),JSON.stringify({fullPane,partialPanes,beforeReturn,afterReturn,beforeChain,afterChain},null,2));
+  await evaluate("document.querySelectorAll('[data-lyric-follow-spacer]').forEach(element=>element.remove());scrollTo({top:0,behavior:'instant'})");
   for (const [width,height,wide] of [[1280,800,true],[1024,768,true],[390,844,false],[320,720,false],[740,420,false]]) {
     await page.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:true});
     await delay(400);
@@ -91,5 +153,5 @@ module.exports = async ({page, evaluate, wait, delay, root}) => {
     assert.match(await evaluate("document.querySelector('.collapse-player').getAttribute('aria-label')"),/Collapse player/);
   }
   assert.deepEqual(await evaluate('window.reviewErrors'),[],'No uncaught errors in the changed interactions');
-  console.log('PASS: playlist resume position/order; collapse returns without stopping; two-step lyric seeking; phone/tablet layouts; floor collapse/reopen without refetch');
+  console.log('PASS: playlist resume position/order; collapse returns without stopping; two-step lyric seeking; stable pane-centered lyrics under outer scrolling, explicit reveal and touch scroll chaining; phone/tablet layouts; floor collapse/reopen without refetch');
 };

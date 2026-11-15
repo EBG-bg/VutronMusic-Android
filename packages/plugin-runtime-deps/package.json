@@ -3,10 +3,14 @@
   "private": true,
   "version": "1.0.0",
   "dependencies": {
-    "@neteasecloudmusicapienhanced/api": "4.36.1"
+    "@neteasecloudmusicapienhanced/api": "4.36.1",
+    "kugoumusicapi": "https://codeload.github.com/MakcRe/KuGouMusicApi/tar.gz/443d4a416dd344ccf7b022b9fb932e324afc77b4"
   },
   "overrides": {
     "@unblockneteasemusic/server": "0.28.0",
-    "basic-ftp": "6.2.6"
+    "basic-ftp": "6.2.6",
+    "kugoumusicapi": {
+      "node-forge": "1.4.3"
+    }
   }
 }

@@ -1,0 +1,10 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app"></div><script type="module">
+import { createApp } from 'vue'
+import { createPinia } from 'pinia'
+import Fixture from './WindowedTracksFixture.vue'
+import '/src/style.css'
+import '/src/adaptive.css'
+import '/src/platform/appearance'
+import { i18n } from '/src/platform/i18n'
+createApp(Fixture).use(createPinia()).use(i18n).mount('#app')
+</script></body></html>

@@ -89,6 +89,17 @@ final class PlaybackQueue {
             return result;
         }
         Snapshot clearNext() { return new Snapshot(token, songs, index, new JSONArray(), insertedPlaying); }
+        Snapshot appendMany(JSONArray tracks, boolean next) throws Exception {
+            JSONArray destination = new JSONArray((next ? upNext : songs).toString());
+            for (int i = 0; i < tracks.length(); i++) destination.put(copyTrack(tracks.getJSONObject(i)));
+            return next ? new Snapshot(token, songs, index, destination, insertedPlaying) : new Snapshot(token, destination, index, upNext, insertedPlaying);
+        }
+        Snapshot insert(int position, boolean pending, JSONObject track) throws Exception {
+            JSONArray source = pending ? upNext : songs, result = new JSONArray(); int target = Math.max(0, Math.min(position, source.length()));
+            for (int i = 0; i <= source.length(); i++) { if (i == target) result.put(copyTrack(track)); if (i < source.length()) result.put(source.getJSONObject(i)); }
+            return pending ? new Snapshot(token, songs, index, result, insertedPlaying)
+                    : new Snapshot(token, result, count() == 0 ? 0 : target <= index ? index + 1 : index, upNext, insertedPlaying);
+        }
         Snapshot withoutMatching(java.util.function.Predicate<JSONObject> removed) {
             JSONArray kept = new JSONArray(), pending = new JSONArray(); int cursor = index;
             for (int i = 0; i < songs.length(); i++) {
@@ -180,6 +191,7 @@ final class PlaybackQueue {
     }
 
     static synchronized void clear(Context context) {
+        PlaybackQueueUndo.clear();
         cached = null;
         preferences(context).edit().remove("queueToken").remove("queueIndex").remove("queueCount")
                 .remove("upNextCount").apply();

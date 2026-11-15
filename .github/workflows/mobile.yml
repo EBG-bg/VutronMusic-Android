@@ -70,6 +70,10 @@ jobs:
         run: |
           $env:EDGE_PATH = node -p "require('playwright').chromium.executablePath()"
           node tests/browser-plugin-likes.cjs
+      - name: Check navigation touch and feedback
+        working-directory: apps/android-vutron
+        timeout-minutes: 10
+        run: node tests/browser-navigation-regressions.cjs
       - name: Preserve synthetic UI differences
         if: failure()
         uses: actions/upload-artifact@v4

@@ -36,6 +36,16 @@ test('two thousand tracks render in batches while the complete source remains av
   } finally { scope.stop() }
 })
 
+test('returning to a scoped list restores its loaded row count without sharing it with another account or filter', async () => {
+  const cleanup=[],api=libraryHelpers(cleanup),scope=vue.effectScope(),source=vue.computed(()=>Array.from({length:500},(_,id)=>({id})))
+  const key=vue.ref('account:7/playlist:42/query:/sort:custom')
+  const page=scope.run(()=>api.useProgressiveTracks(source,key,key));page.showMore();page.showMore();assert.equal(page.visible.value.length,240)
+  key.value='account:8/playlist:42/query:/sort:custom';assert.equal(page.visible.value.length,80)
+  key.value='account:7/playlist:42/query:search/sort:custom';assert.equal(page.visible.value.length,80)
+  key.value='account:7/playlist:42/query:/sort:custom';assert.equal(page.visible.value.length,240)
+  cleanup.forEach(fn=>fn());const restored=scope.run(()=>api.useProgressiveTracks(source,key,key));assert.equal(restored.visible.value.length,240);scope.stop()
+})
+
 test('local sorting supports title, artists and albums without mutating the original playlist', () => {
   const { useSortedTracks } = libraryHelpers()
   const source = vue.ref([{ id: 1, name: 'Track 10', artists: ['Beta'], album: 'Z' }, { id: 2, name: 'Track 2', artists: ['Alpha'], album: 'A' }, { id: 3, name: 'Track 1' }])
@@ -64,10 +74,29 @@ test('local sort preference restores and persists without requiring an account',
   } finally { scope.stop() }
 })
 
-test('the actual queue component renders at most eighty playlist and eighty inserted rows initially', async () => {
+test('artist sorting computes each artist roster once and invalidates when a roster changes', () => {
+  const { useSortedTracks } = libraryHelpers()
+  let reads = 0
+  const tracks = vue.ref(Array.from({ length: 180 }, (_, id) => {
+    const artists = ['Artist ' + (179 - id)]
+    return { id, name: 'Track ' + id, get artists() { reads++; return artists } }
+  }))
+  const order = vue.ref('artist')
+  const sorted = useSortedTracks(vue.computed(() => tracks.value), order)
+  assert.equal(sorted.value[0].id, 179)
+  assert.ok(reads > 0 && reads <= tracks.value.length, 'Repeated comparisons reuse the same artist roster')
+  tracks.value[0].artists[0] = 'AAA'
+  reads = 0
+  assert.equal(sorted.value[0].id, 0)
+  assert.ok(reads > 0 && reads <= tracks.value.length, 'Reactive edits invalidate the sort without retaining old keys')
+  order.value = 'original'
+  assert.equal(sorted.value, tracks.value)
+})
+
+test('the actual queue component windows around a deep current track without mounting preceding rows', async () => {
   const store = vue.reactive({
-    queueOpen: true, playback: { trackId: 151, title: 'Currently playing' },
-    playbackQueue: { tracks: Array.from({ length: 2000 }, (_, id) => ({ id, name: 'Track ' + id })), upNext: Array.from({ length: 200 }, (_, id) => ({ id, name: 'Inserted ' + id })), index: 151, mode: 0 }
+    queueOpen: true, playback: { trackId: 1511, title: 'Currently playing' },
+    playbackQueue: { tracks: Array.from({ length: 2000 }, (_, id) => ({ id, name: 'Track ' + id })), upNext: Array.from({ length: 200 }, (_, id) => ({ id, name: 'Inserted ' + id })), index: 1511, mode: 0 }
   })
   function component(filename) {
     const { descriptor } = parse(fs.readFileSync(filename, 'utf8'), { filename })
@@ -78,6 +107,12 @@ test('the actual queue component renders at most eighty playlist and eighty inse
       if (name === 'vue') return vue
       if (name === '../stores/androidShell') return { useAndroidShellStore: () => store }
       if (name === '../composables/libraryPresentation') return libraryHelpers()
+      if (name === '../composables/windowedTracks') {
+        const helper = { exports: {} }
+        const source = ts.transpileModule(fs.readFileSync(path.resolve(__dirname, '../src/composables/windowedTracks.ts'), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
+        vm.runInNewContext(source, { module: helper, exports: helper.exports })
+        return helper.exports
+      }
       if (name === '../platform/actionDialog') return { actionDialog: vue.shallowRef() }
       if (name === '../platform/motion') return { reducedMotion: vue.ref(false) }
       if (name === '../composables/sheetDrag') {
@@ -100,11 +135,15 @@ test('the actual queue component renders at most eighty playlist and eighty inse
     return module.exports.default
   }
   const html = await renderToString(vue.createSSRApp(component(path.resolve(__dirname, '../src/components/PlaybackQueuePanel.vue'))).use(mobileI18n.i18n))
-  assert.equal((html.match(/class="queue-row(?: current)?"/g) ?? []).length, 160)
+  const renderedRows = (html.match(/class="queue-row(?: current)?"/g) ?? []).length
+  assert.ok(renderedRows > 10 && renderedRows < 80)
+  assert.match(html, /class="queue-row current"/)
+  assert.match(html, /Track 1511/)
+  assert.doesNotMatch(html, />Track 0</)
   assert.equal(store.playbackQueue.tracks.length, 2000)
   assert.match(html, /2000 首 ·/)
   assert.equal(store.playbackQueue.upNext.length, 200)
-  assert.equal((html.match(/显示更多歌曲/g) ?? []).length, 2)
+  assert.equal((html.match(/显示更多歌曲/g) ?? []).length, 0)
 })
 
 test('search indexes names, all artists and albums and reacts to a library replacement', () => {

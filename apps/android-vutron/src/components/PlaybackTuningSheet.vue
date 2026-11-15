@@ -6,8 +6,9 @@ import OriginalIcon from './OriginalIcon.vue'
 import { useSheetDrag } from '../composables/sheetDrag'
 import SheetDragHandle from './SheetDragHandle.vue'
 const emit = defineEmits<{ close: [] }>()
+const props = defineProps<{ returnFocus?: HTMLElement }>()
 const sheet = ref<HTMLElement>()
-useModalFocus(sheet, { close: () => emit('close') })
+useModalFocus(sheet, { close: () => emit('close'), returnFocus: () => props.returnFocus })
 useSheetDrag(sheet, { close: () => emit('close') })
 </script>
 <template>

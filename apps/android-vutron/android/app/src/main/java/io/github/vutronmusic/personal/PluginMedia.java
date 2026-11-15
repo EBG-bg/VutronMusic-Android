@@ -134,6 +134,7 @@ final class PluginMedia {
         boolean mayLoad = installed && AndroidPluginManager.networkAllowed(context);
         try { if(installed) mayLoad |= AndroidPluginManager.local(context, song.optString("pluginId")); }
         catch (Exception unavailable) { android.util.Log.w("VutronPluginLyrics", "Cannot inspect the plugin lyric capability"); }
+        JSONArray selectedRows=null;
         if (mayLoad) try {
             String scope=song.optString("pluginAccountScope");
             if (!scope.isEmpty() && !scope.equals(AndroidPluginManager.accountScope(context,song.getString("pluginId")))) throw new IOException("插件账号已变化");
@@ -152,16 +153,26 @@ final class PluginMedia {
                     if (!scope.equals(AndroidPluginManager.accountScope(context,owner))) throw new IOException("插件账号已变化");
                     if (!account.equals(AndroidPluginManager.accountScope(context,id))) continue;
                     if (result.optInt("code")!=200 || result.optJSONArray("data")==null || result.getJSONArray("data").length()==0) continue;
-                    rows=result.getJSONArray("data");
-                    if (!file.getParentFile().isDirectory()) file.getParentFile().mkdirs();
-                    if (rows.toString().getBytes(StandardCharsets.UTF_8).length<=1024*1024) LibraryFiles.writeJson(file,new JSONObject().put("lines",rows));
-                    break;
+                    selectedRows=preferredLyrics(selectedRows,result.getJSONArray("data"));
+                    if (LyricTimeline.fromPlugin(selectedRows,"lyric").hasWordTiming()) break;
                 } catch (Exception failure) {
                     android.util.Log.w("VutronPluginLyrics", "Lyric candidate "+id+" failed: "+failure.getClass().getSimpleName());
                 }
             }
         } catch (Exception failure) { android.util.Log.w("VutronPluginLyrics", "Plugin lyric retrieval failed: " + failure.getClass().getSimpleName()); }
+        rows=preferredLyrics(selectedRows,rows);
         if (rows == null) rows = new JSONArray();
+        if (mayLoad && rows.length()>0) try {
+            if (!file.getParentFile().isDirectory()) file.getParentFile().mkdirs();
+            if (rows.toString().getBytes(StandardCharsets.UTF_8).length<=1024*1024) LibraryFiles.writeJson(file,new JSONObject().put("lines",rows));
+        } catch (Exception unavailable) { android.util.Log.w("VutronPluginLyrics", "Lyrics usable but could not be cached"); }
         return new LyricRepository.Lyrics(LyricTimeline.fromPlugin(rows, "lyric"), LyricTimeline.fromPlugin(rows, "tlyric"), true);
+    }
+
+    /** Retain the complete fallback while looking for a provider's real word intervals. */
+    static JSONArray preferredLyrics(JSONArray current, JSONArray candidate) {
+        if (current == null || current.length()==0) return candidate;
+        LyricTimeline saved=LyricTimeline.fromPlugin(current,"lyric"), next=LyricTimeline.fromPlugin(candidate,"lyric");
+        return !saved.hasWordTiming() && next.hasWordTiming() && next.hasComparableCoverage(saved) ? candidate : current;
     }
 }
