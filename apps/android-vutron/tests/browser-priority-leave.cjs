@@ -11,7 +11,7 @@ module.exports=async({page,evaluate,wait,delay,root})=>{
   await wait('document.querySelectorAll(".plugin-priority-group:first-child .plugin-priority-row").length===8');await delay(350)
  }
  const edit=async()=>{await openPriorities();await click('.plugin-priority-group:first-child .plugin-priority-buttons button:last-child');await wait('!document.querySelector(".plugin-priority-actions button").disabled')}
- const manage='[data-settings-section=plugin-source-priorities] .wide-outline-button'
+ const manage='.settings-source-link'
  const libraryTab='.bottom-nav > button:nth-of-type(2)'
  await evaluate(`(async()=>{const {musicPluginBridge:b}=await import('/src/plugins/bridge.ts');await b.manageMusicPlugin({action:'enable',id:'fixture'});
   const original=b.manageMusicPlugin.bind(b);window.priorityWrites=0;window.prioritySaveMode='normal';
