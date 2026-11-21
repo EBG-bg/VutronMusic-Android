@@ -227,12 +227,13 @@ test('KuGou audio DNS recovery preserves the original host and pins only eligibl
     async resolveKugouDns(hostname, options) { calls.push([hostname, options.family]); return recovered; },
     request(url, options, callback) {
       return http.request({ hostname: url.hostname, port: origin.address().port, path: url.pathname, agent: false,
-        lookup(hostname, _options, connect) {
+        lookup(hostname, lookupOptions, connect) {
           options.lookup(hostname, { all: true, family }, (error, allowed) => {
             if (error) return connect(error);
             pinned.push([hostname, allowed]);
             // Preserve the Host header while mapping verified public IPs to the local fixture.
-            connect(null, '127.0.0.1', 4);
+            if (lookupOptions.all) connect(null, [{ address: '127.0.0.1', family: 4 }]);
+            else connect(null, '127.0.0.1', 4);
           });
         },
       }, callback);
