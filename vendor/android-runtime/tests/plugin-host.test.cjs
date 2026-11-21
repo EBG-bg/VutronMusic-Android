@@ -238,3 +238,25 @@ test('the original NetEase fallback retains provider headers through the signed 
   await assert.rejects(instance.call('netease','songUrl',{id:'7'},true,false));assert.equal(fallbacks,1,'The disabled fallback policy must not invoke the matcher');
  }finally{await finish(instance)}
 });
+
+test('private native restore fences the live host, then reloads registry and worker account from disk', async()=>{
+  const instance=host();
+  try {
+    const id='emby', marker='.account-restore-test.lock', file=path.join(instance.root,marker);
+    await instance.handle({action:'enable',id});
+    const state=path.join(instance.root,id+'.state.json');
+    fs.writeFileSync(state,JSON.stringify({store:{baseUrl:'https://library.example'},db:{PluginData:{userId:'old',userName:'Before',token:'fixture'}}}));
+    const account=()=>instance.handle({action:'call',id,method:'getAccount',allowNetwork:false});
+    assert.equal((await account()).result.userName,'Before');
+    await assert.rejects(instance.handle({action:'beginAccountRestore',ids:[id],marker}),{code:'PLUGIN_BUSY'});
+    fs.writeFileSync(file,'');
+    const inflight=account(), begin=instance.handle({action:'beginAccountRestore',ids:[id],marker});
+    assert.equal((await inflight).result.userName,'Before'); await begin;
+    await assert.rejects(account(),{code:'PLUGIN_BUSY'});
+    fs.writeFileSync(state,JSON.stringify({store:{baseUrl:'https://library.example'},db:{PluginData:{userId:'new',userName:'After',token:'fixture-new'}}}));
+    const registry=path.join(instance.root,'registry.json'), data=JSON.parse(fs.readFileSync(registry));
+    data.plugins[id].status='login';fs.writeFileSync(registry,JSON.stringify(data));fs.unlinkSync(file);
+    assert.equal(instance.list().plugins.find(row=>row.id===id).status,'login');
+    assert.equal((await account()).result.userName,'After');
+  } finally {await finish(instance);}
+});

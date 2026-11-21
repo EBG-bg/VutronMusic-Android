@@ -139,7 +139,7 @@ export function createNeteaseLibrary(options: Options) {
     return mutate({ action: 'like', trackId: id, liked: !liked.value.has(id) })
   }
   function openCreateOnlinePlaylist() { if (options.onlineAvailable.value && !onlineMutationBusy.value) onlinePlaylistDialog.value = { kind: 'create' } }
-  function openOnlinePlaylistMore(playlist: VutronPlaylist) { if (canManageOnlinePlaylist(playlist) && !onlineMutationBusy.value) onlinePlaylistDialog.value = { kind: 'more', playlist: { ...playlist, tags: playlist.tags?.slice() } } }
+  function openOnlinePlaylistMore(playlist: VutronPlaylist) { if (options.onlineAvailable.value && !playlist.offlineSnapshot && playlist.id > 0) onlinePlaylistDialog.value = { kind: 'more', playlist: { ...playlist, tags: playlist.tags?.slice() } } }
   function openEditOnlinePlaylist(playlist: VutronPlaylist) { if (canManageOnlinePlaylist(playlist) && !onlineMutationBusy.value) onlinePlaylistDialog.value = { kind: 'edit', playlist: { ...playlist, tags: playlist.tags?.slice() } } }
   function openAddToOnlinePlaylist(trackOrTracks: VutronTrack | VutronTrack[]) {
     const tracks = uniqueOnlineTracks(Array.isArray(trackOrTracks) ? trackOrTracks : [trackOrTracks])

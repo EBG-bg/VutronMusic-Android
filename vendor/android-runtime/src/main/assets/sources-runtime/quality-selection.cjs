@@ -20,12 +20,68 @@ function qualityRank(result) {
   return result.bitrateKind === 'known' && Number.isFinite(br) && br > 0 ? br : -1;
 }
 
+// Read duration metadata from the matcher's existing 8 KiB prefix. A leading
+// MPEG bitrate alone is not evidence for a VBR stream's duration.
+function probedAudioDuration(bytes, resourceSize) {
+  if (!Buffer.isBuffer(bytes) || bytes.length !== 8192) return 0;
+  let start = 0;
+  if (bytes.toString('latin1', 0, 3) === 'ID3') {
+    const size = bytes.subarray(6, 10);
+    if (size.some(byte => byte & 0x80)) return 0;
+    start = 10 + size.reduce((total, byte) => total * 128 + byte, 0);
+    if (bytes[3] === 4 && bytes[5] & 0x10) start += 10;
+  }
+  if (start + 42 > bytes.length) return 0;
+  if (bytes.toString('latin1', start, start + 4) === 'fLaC') {
+    if ((bytes[start + 4] & 0x7f) !== 0 || bytes.readUIntBE(start + 5, 3) !== 34) return 0;
+    const rate = bytes.readUIntBE(start + 18, 3) >>> 4;
+    const samples = (bytes[start + 21] & 0x0f) * 0x100000000 + bytes.readUInt32BE(start + 22);
+    return rate ? samples * 1000 / rate : 0;
+  }
+  const version = (bytes[start + 1] >> 3) & 3;
+  const layer = (bytes[start + 1] >> 1) & 3;
+  const rateIndex = (bytes[start + 2] >> 2) & 3;
+  const bitrateIndex = bytes[start + 2] >> 4;
+  if (bytes[start] !== 0xff || (bytes[start + 1] & 0xe0) !== 0xe0 || version === 1
+      || layer !== 1 || rateIndex === 3 || bitrateIndex === 0 || bitrateIndex === 15) return 0;
+  const mpeg1 = version === 3;
+  const sampleRate = [44100, 48000, 32000][rateIndex] / (mpeg1 ? 1 : version === 2 ? 2 : 4);
+  const mono = (bytes[start + 3] >> 6) === 3;
+  const xing = start + 4 + (mpeg1 ? mono ? 17 : 32 : mono ? 9 : 17);
+  const vbri = start + 36;
+  let frames = 0, encodedSize = 0;
+  for (const offset of bytes[start + 1] & 1 ? [xing] : [xing, xing + 2]) {
+    const tag = bytes.toString('latin1', offset, offset + 4);
+    if (offset + 16 > bytes.length || (tag !== 'Info' && tag !== 'Xing')) continue;
+    const flags = bytes.readUInt32BE(offset + 4);
+    const count = Boolean(flags & 1);
+    if (count) frames = bytes.readUInt32BE(offset + 8);
+    if (flags & 2) encodedSize = bytes.readUInt32BE(offset + (count ? 12 : 8));
+    break;
+  }
+  if (!frames && vbri + 18 <= bytes.length && bytes.toString('latin1', vbri, vbri + 4) === 'VBRI' && bytes.readUInt16BE(vbri + 4) === 1) {
+    encodedSize = bytes.readUInt32BE(vbri + 10);
+    frames = bytes.readUInt32BE(vbri + 14);
+  }
+  // A concatenated stream may carry an Info tag that covers only its first
+  // part. Keep that duration unknown instead of treating it as a preview.
+  if (encodedSize && resourceSize - start - encodedSize > Math.max(8192, encodedSize * 0.1)) return 0;
+  return frames * (mpeg1 ? 1152 : 576) * 1000 / sampleRate;
+}
+
+function knownPreview(duration, referenceDuration) {
+  const expected = Number(referenceDuration);
+  return Number.isFinite(expected) && Number.isFinite(duration) && duration > 0
+    && expected - duration > Math.max(5000, expected * 0.07);
+}
+
 async function compareValidatedSources(options) {
   const {
-    sources, concurrency, sourceTimeoutMs, totalTimeoutMs,
+    sources: configuredSources, excludedSource, referenceDurationMs, concurrency, sourceTimeoutMs, totalTimeoutMs,
     isCancelled, createScope, cancelScope, find,
     onSuccess, onFailure, onTimeout,
   } = options;
+  const sources = excludedSource ? configuredSources.filter(source => source !== excludedSource) : configuredSources;
   const startedAt = Date.now();
   const deadline = startedAt + totalTimeoutMs;
   const results = [];
@@ -54,6 +110,11 @@ async function compareValidatedSources(options) {
           }),
         ]);
         if (finished || isCancelled()) return;
+        if (knownPreview(result.probedDurationMs, referenceDurationMs)) {
+          const error = new Error('Matched audio is shorter than the recording');
+          error.code = 'INCOMPLETE_MATCH_AUDIO';
+          throw error;
+        }
         results.push({ source, result });
         onSuccess(source, result);
       } catch (error) {
@@ -92,4 +153,4 @@ async function compareValidatedSources(options) {
   return { ...results[0], candidateCount: results.length, elapsedMs: Date.now() - startedAt };
 }
 
-module.exports = { compareValidatedSources, describeQuality, qualityRank };
+module.exports = { compareValidatedSources, describeQuality, probedAudioDuration, qualityRank };

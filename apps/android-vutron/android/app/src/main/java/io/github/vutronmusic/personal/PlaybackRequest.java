@@ -26,10 +26,23 @@ final class PlaybackRequest {
             song.put("trackVolumeKey", PlaybackVolume.trackKey(song));
         }
         long id = song.optLong("id");
+        if ("plugin-snapshot".equals(song.optString("source"))) {
+            String pluginId = song.optString("pluginId"), scope = song.optString("pluginAccountScope");
+            AndroidPluginManager.requireEnabled(context, pluginId);
+            if (!scope.equals(AndroidPluginManager.accountScope(context, pluginId))) throw new IOException("插件账号已变化，请重新打开离线歌单");
+            AudioCache.Entry entry = AudioCache.find(context, id);
+            if (entry == null || !PluginPlaylistCache.matchesAudio(song, entry.song))
+                throw new PlaybackFailure.Reported("offline_audio_missing", "这首歌还没有完整的离线音频");
+            cachedPlayback(song, entry);
+            return toIntent(context, song, Uri.fromFile(entry.file).toString(), autoPlay, null);
+        }
         boolean selectedCache = song.optBoolean("cached") || "cache".equals(song.optString("source"));
+        String preferredSource = PluginMedia.sourceOverride(context, song);
+        boolean preferLiveSource = !preferredSource.isEmpty() && !LocalOnlyMode.enabled(context) && MusicConnectivity.available(context);
         // Cache rows contain display paths, not an integrity guarantee. Verify only
         // the chosen recording, including notification/process-restored selections.
         AudioCache.Entry cached = selectedCache ? selectedCache(context, song) : null;
+        if (cached != null && preferLiveSource && !preferredSource.equalsIgnoreCase(cached.source)) cached = null;
         String source = cached == null ? localSource(song) : Uri.fromFile(cached.file).toString();
         if (source.isEmpty() && !PluginMedia.isPlugin(song)) {
             JSONObject local = LocalPlaybackResolver.match(context, song);
@@ -49,6 +62,7 @@ final class PlaybackRequest {
         boolean usedPrefetchedSource = false;
         if (source.isEmpty()) {
             if (!selectedCache) cached = AudioCache.find(context, id);
+            if (cached != null && preferLiveSource && !preferredSource.equalsIgnoreCase(cached.source)) cached = null;
             if (cached != null) {
                 source = Uri.fromFile(cached.file).toString();
                 cachedPlayback(song, cached);
@@ -74,15 +88,68 @@ final class PlaybackRequest {
                     .put("playbackFormat", "").put("playbackLossless", false).put("playbackCached", false);
         }
         if (location != null && location.optBoolean("local")) location = null;
+        return toIntent(context, song, source, autoPlay, location).putExtra("usedPrefetchedSource", usedPrefetchedSource);
+    }
+
+    static Intent prepareRecovery(Context context, JSONObject selected, boolean autoPlay, String cookie, String rejectedMatch) throws Exception {
+        JSONObject song = new JSONObject(selected.toString());
+        NeteasePlaybackPolicy.Gate account = () -> {
+            LocalOnlyMode.requireOnline(context);
+            if (!cookie.equals(SessionStore.load(context))) throw new IOException("登录状态已变化，请重新播放");
+        };
+        long neteaseId = song.optLong("id");
+        JSONObject location = PluginMedia.isPlugin(song) ? PluginMedia.retryNetease(context, song, rejectedMatch)
+                : rejectedMatch.isEmpty() ? PlaybackSourceResolver.resolveCompatible(context, neteaseId, cookie, account)
+                : PlaybackSourceResolver.resolveOtherMatch(context, neteaseId, rejectedMatch, account);
+        song.put("playbackSource", location.optString("source", "netease"))
+                .put("playbackBitrate", location.optLong("br", location.optLong("bitrate", 0)))
+                .put("playbackFormat", location.optString("type", ""))
+                .put("playbackLossless", location.optBoolean("lossless") || "flac".equalsIgnoreCase(location.optString("type", "")))
+                .put("playbackCached", false);
+        if (selected.optBoolean("playbackCached")) {
+            song.remove("cached"); song.remove("offlineOnly"); song.remove("localUri"); song.remove("localPath");
+            if ("cache".equals(song.optString("source"))) song.remove("source");
+        }
+        return toIntent(context, song, location.getString("url"), autoPlay, location).putExtra("sourceRecovery", true);
+    }
+
+    static Intent preparePluginBackup(Context context, JSONObject selected, boolean autoPlay, Intent failed) throws Exception {
+        JSONObject song = new JSONObject(selected.toString());
+        JSONObject location = PluginMedia.retryMedia(context, song, failed.getStringExtra("pluginMediaOwner"),
+                failed.getStringArrayExtra("pluginMediaCandidates"), failed.getIntExtra("pluginMediaAttempt", 0));
+        return toIntent(context, song, location.getString("url"), autoPlay, location);
+    }
+
+    private static Intent toIntent(Context context, JSONObject song, String source, boolean autoPlay, JSONObject location) {
         String cover = first(song, "picLocalUri", "coverLocalUri", "picUrl", "coverImgUrl");
         if (cover.isEmpty()) cover = ArtworkSource.coverUrl(song);
         JSONObject headers = location == null ? null : location.optJSONObject("headers");
+        String owner = location == null ? "" : location.optString("pluginMediaOwner");
+        int attempt = 0, total = 0;
+        boolean watchStartFailure = false;
+        String[] candidates = new String[0];
+        // Provider-signed URLs stay only in the current request, never in track/queue or cache metadata.
+        if (location != null && !owner.isEmpty()) {
+            if (location.remove("pluginMediaCandidates") instanceof JSONArray rows) {
+                candidates = new String[rows.length()];
+                for (int i = 0; i < rows.length(); i++) candidates[i] = rows.optString(i);
+            }
+            attempt = location.optInt("pluginMediaAttempt");
+            total = location.optInt("pluginMediaTotal");
+            watchStartFailure = Boolean.TRUE.equals(location.remove("watchStartFailure"));
+            location.remove("pluginMediaAttempt");
+            location.remove("pluginMediaTotal");
+            location.remove("pluginMediaOwner");
+        }
         return new Intent(context, AndroidPlaybackService.class).setAction(AndroidPlaybackService.ACTION_PLAY)
-                .putExtra("url", source).putExtra("trackId", id)
+                .putExtra("url", source).putExtra("trackId", song.optLong("id"))
                 .putExtra("title", song.optString("name", BuildConfig.APP_DISPLAY_NAME))
                 .putExtra("artist", artistText(song)).putExtra("coverUrl", cover)
                 .putExtra("track", song.toString()).putExtra("autoPlay", autoPlay)
-                .putExtra("usedPrefetchedSource", usedPrefetchedSource)
+                .putExtra("matcherSource", location == null ? "" : location.optString("matcherSource"))
+                .putExtra("pluginMediaCandidates", candidates).putExtra("pluginMediaOwner", owner)
+                .putExtra("pluginMediaAttempt", attempt).putExtra("pluginMediaTotal", total)
+                .putExtra("watchStartFailure", watchStartFailure)
                 .putExtra("cacheLocation", location == null ? "" : location.toString())
                 .putExtra("sourceHeaders", headers == null ? "{}" : headers.toString());
     }

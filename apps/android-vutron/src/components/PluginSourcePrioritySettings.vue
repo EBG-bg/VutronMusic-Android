@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { musicPluginBridge as bridge } from '../plugins/bridge'
 import { allowsPluginComments, hasPluginMethod, type MusicPlugin, type PluginSourcePriorities } from '../plugins/protocol'
 import { moveTrackKey } from '../composables/localTrackOrdering'
 import { reducedMotion } from '../platform/motion'
+import { navigationPreviewKey } from '../composables/navigationPreview'
 import { useNavigationDraft } from '../composables/navigationGuard'
 import CollapsibleSettingsCard from './CollapsibleSettingsCard.vue'
 import OriginalIcon from './OriginalIcon.vue'
@@ -13,6 +14,7 @@ type Kind = keyof PluginSourcePriorities
 type Source = {id:string;name:string;enabled:boolean}
 type Drag = {kind:Kind;id:string;pointer:number;x:number;y:number;width:number;grabX:number;grabY:number;anchor:string;after:boolean;base:string[];source:Source}
 type Preview = {source:Source;kind:Kind;x:number;y:number;width:number}
+const navigationPreview = inject(navigationPreviewKey, false)
 const props=defineProps<{plugins?:MusicPlugin[]}>(),{t}=useI18n()
 const kinds:Kind[]=['lyric','comment'],saved=ref<PluginSourcePriorities>({lyric:[],comment:[]}),draft=ref<PluginSourcePriorities>({lyric:[],comment:[]})
 const installed=ref<MusicPlugin[]>([]),sources=computed(()=>props.plugins||installed.value)
@@ -117,7 +119,7 @@ async function resumeEditing(){
   const target=section?.querySelector<HTMLElement>(error.value?'.inline-error':'.plugin-priority-handle')
   target?.focus({preventScroll:true});target?.scrollIntoView({block:'nearest',behavior:'instant'})
 }
-useNavigationDraft({
+if (!navigationPreview) useNavigationDraft({
   dirty:()=>dirty.value,
   question:()=>({title:t('mobile.plugins.pendingPrioritiesTitle'),message:t('mobile.plugins.pendingPrioritiesMessage'),confirmLabel:t('mobile.plugins.pendingPrioritiesSave'),secondaryLabel:t('mobile.plugins.pendingPrioritiesDiscard'),cancelLabel:t('mobile.plugins.pendingPrioritiesContinue')}),
   save,discard:cancel,resume:resumeEditing,
@@ -128,8 +130,8 @@ function visibility(){if(document.visibilityState==='hidden'){void stop(true,fal
 function cardToggle(event:Event){if(!(event.target as HTMLDetailsElement).open){void stop(true,false);clearSettle()}}
 watch(reducedMotion,value=>{if(value)clearSettle()})
 watch(()=>props.plugins,()=>{void stop(true,false);clearSettle()})
-onMounted(()=>{void load();document.addEventListener('visibilitychange',visibility);document.addEventListener('keydown',escape,true)})
-onUnmounted(()=>{++generation;void stop(true,false);clearSettle();document.removeEventListener('visibilitychange',visibility);document.removeEventListener('keydown',escape,true)})
+onMounted(()=>{if(navigationPreview)return;void load();document.addEventListener('visibilitychange',visibility);document.addEventListener('keydown',escape,true)})
+onUnmounted(()=>{if(navigationPreview)return;++generation;void stop(true,false);clearSettle();document.removeEventListener('visibilitychange',visibility);document.removeEventListener('keydown',escape,true)})
 </script>
 <template>
   <CollapsibleSettingsCard section-id="plugin-source-priorities" :title="$t('mobile.plugins.sourcePriorities')" :subtitle="$t('mobile.plugins.prioritySubtitle')" @toggle="cardToggle">

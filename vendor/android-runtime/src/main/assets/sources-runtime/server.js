@@ -14,10 +14,10 @@ const fs = require('fs');
 const path = require('path');
 const { AsyncLocalStorage } = require('async_hooks');
 const tasks = new AsyncLocalStorage();
-const { compareValidatedSources, describeQuality } = require('./quality-selection.cjs');
+const { compareValidatedSources, describeQuality, probedAudioDuration } = require('./quality-selection.cjs');
 const { selectCandidate } = require('./strict-identity.cjs');
-const mediaGateway = require('./media-gateway.cjs').createMediaGateway();
 let plugins;
+const mediaGateway = require('./media-gateway.cjs').createMediaGateway({ allowKugouDns: id => plugins?.canRecoverKugouDns(id) === true });
 let pluginMedia;
 const diagnosticPath = process.argv[4];
 let diagnosticError = '';
@@ -104,7 +104,26 @@ function ensureMatcher() {
   const matcherDirectory = path.dirname(require.resolve('@unblockneteasemusic/server'));
   const findModulePath = path.join(matcherDirectory, 'find.js');
   require(findModulePath);
-  upstreamRequest = require(path.join(matcherDirectory, '../request.js'));
+  const requestModulePath = path.join(matcherDirectory, '../request.js');
+  upstreamRequest = require(requestModulePath);
+  require.cache[requestModulePath].exports = function (method, url, headers, ...options) {
+    const scope = tasks.getStore();
+    const request = upstreamRequest.call(this, method, url, headers, ...options);
+    if (!scope?.operation || method !== 'GET' || headers?.range !== 'bytes=0-8191' || headers['accept-encoding'] !== 'identity') return request;
+    return request.then(response => {
+      const body = response.body;
+      response.body = function (raw) {
+        const consumed = body.call(this, raw);
+        if (raw !== true) return consumed;
+        return consumed.then(bytes => {
+          const total = Number(/^bytes 0-8191\/(\d+)$/i.exec(response.headers['content-range'] || '')?.[1]);
+          scope.probe = { url: response.url.href, durationMs: probedAudioDuration(bytes, total) };
+          return bytes;
+        });
+      };
+      return response;
+    });
+  };
   require.cache[findModulePath].exports = async (id, data) => {
     const scope = tasks.getStore();
     let info;
@@ -131,6 +150,7 @@ function ensureMatcher() {
       let sources = validatedTracks.get(info);
       if (!sources) { sources = new Map(); validatedTracks.set(info, sources); }
       sources.set(scope.source, selection.rank);
+      scope.candidate = targetMetadata(selection.candidate);
     }
     if (scope) scope.identityRank = selection.rank;
     return selection.candidate;
@@ -156,9 +176,13 @@ function cancel(scope) {
 
 // Let the upstream matcher preserve its metadata and full 8192-byte Range check,
 // while comparing validated results with bounded concurrency and deadlines.
-async function highestQualityMatch(id, operation) {
+async function highestQualityMatch(id, operation, excluded = '', options = {}) {
   ensureMatcher();
   const deadline = Date.now() + QUALITY_SELECTION_TIMEOUT_MS;
+  const forcedSource = options.forcedSource || '';
+  const configuredSources = forcedSource ? [forcedSource] : SOURCES;
+  const candidateMetadata = new Map();
+  const candidates = [];
   const metadataDeadline = Math.min(Date.now() + SOURCE_TIMEOUT_MS, deadline);
   const metadataScope = { source: 'metadata', requests: new Set(), cancelled: false, deadline: metadataDeadline };
   operation.scopes.add(metadataScope);
@@ -182,7 +206,9 @@ async function highestQualityMatch(id, operation) {
   if (operation.cancelled) return null;
   const remainingBudget = Math.max(1, deadline - Date.now());
   const selected = await compareValidatedSources({
-    sources: SOURCES,
+    sources: configuredSources,
+    excludedSource: excluded,
+    referenceDurationMs: operation.reference.duration,
     concurrency: SOURCE_CONCURRENCY,
     sourceTimeoutMs: SOURCE_TIMEOUT_MS,
     totalTimeoutMs: remainingBudget,
@@ -210,8 +236,10 @@ async function highestQualityMatch(id, operation) {
         error.code = 'IDENTITY_EVIDENCE_MISSING';
         throw error;
       }
+      if (options.collectCandidates && scope.candidate) candidateMetadata.set(source, scope.candidate);
       return {
         ...describeQuality(result),
+        probedDurationMs: scope.probe?.url === result.url ? scope.probe.durationMs : 0,
         // pyncmd resolves the exact Netease ID directly and performs no
         // text search; searched providers are ranked by checked metadata.
         identityRank,
@@ -221,6 +249,14 @@ async function highestQualityMatch(id, operation) {
       diagnostic('source-ready', {
         source, br: Number(result.br) || 0, size: Number(result.size) || 0,
         audioType: result.audioType,
+      });
+      if (!options.collectCandidates) return;
+      const track = candidateMetadata.get(source);
+      if (!track) return;
+      candidates.push({
+        source, name: track.name, album: track.album || '', artists: track.artists || [],
+        duration: Number(track.duration) || 0, identityRank: Number(result.identityRank) || 0,
+        bitrate: Number(result.br) || 0, audioType: result.audioType || 'unknown', lossless: result.lossless === true,
       });
     },
     onFailure(source, error) {
@@ -237,6 +273,13 @@ async function highestQualityMatch(id, operation) {
     error.code = 'NO_AUDIO_SOURCE';
     throw error;
   }
+  if (options.collectCandidates) {
+    candidates.sort((left, right) => right.identityRank - left.identityRank
+      || Number(right.lossless) - Number(left.lossless)
+      || right.bitrate - left.bitrate
+      || SOURCES.indexOf(left.source) - SOURCES.indexOf(right.source));
+    selected.matches = candidates;
+  }
   diagnostic('quality-selected', {
     source: selected.source,
     br: Number(selected.result.br) || 0,
@@ -245,7 +288,8 @@ async function highestQualityMatch(id, operation) {
     candidateCount: selected.candidateCount,
     elapsedMs: selected.elapsedMs,
   });
-  return selected.result;
+  const { probedDurationMs, ...result } = selected.result;
+  return result;
 }
 
 function json(response, code, value) {
@@ -296,20 +340,49 @@ const server = http.createServer((request, response) => {
           const media = input.media || {};
           const remote = new URL(media.url), base = configured.baseUrl ? new URL(configured.baseUrl) : null;
           const registered = base && remote.origin === base.origin
-            ? pluginMedia.register(input.id, configured.baseUrl, media) : mediaGateway.register(media);
-          json(response,200,{code:200,path:registered}); return;
+            ? pluginMedia.register(input.id, configured.baseUrl, media)
+            : mediaGateway.register(media, configured.baseId === 'kugou' && !base ? configured.id : '');
+          json(response, 200, { code: 200, path: registered,
+            ...(mediaGateway.hasStartFailureWatch(registered) ? { watchStartFailure: true } : {}) });
+          return;
         }
         if (input.action === 'policy' && !input.allowNetwork) pluginMedia.revoke();
+        if (['policy', 'call'].includes(input.action) && input.allowNetwork !== true) mediaGateway.revokeStartFailures();
         const result = await plugins.handle(input);
+        if (input.action === 'beginAccountRestore') {
+          for (const id of input.ids) { pluginMedia.revoke(id); mediaGateway.revokeStartFailures(id); }
+        }
         const ownershipChanged = ['disable', 'remove', 'reset', 'configure'].includes(input.action)
           || input.action === 'call' && ((['doLogin', 'doLogout', 'updateBaseUrl'].includes(input.method) && result.result?.code === 200)
             || input.method === 'loginQrCodeCheck' && result.result?.code === 803);
-        if (ownershipChanged) pluginMedia.revoke(input.id);
+        if (ownershipChanged) {
+          pluginMedia.revoke(input.id);
+          mediaGateway.revokeStartFailures(input.id);
+        }
         json(response, 200, { code: 200, ...result });
       } catch (error) {
         json(response, 400, { code:400,errorCode:String(error.code || 'PLUGIN_ERROR'),message:require('./plugin-host.cjs').redact(error.message || 'Plugin operation failed') });
       }
     });
+    return;
+  }
+  if (request.method === 'GET' && target.pathname === '/media-status') {
+    const mediaPath = target.searchParams.get('path') || '';
+    if (!/^\/(?:media|plugin-media)\/[a-f0-9]{48}$/.test(mediaPath)) {
+      json(response, 400, { code:400 }); return;
+    }
+    const result = (mediaPath.startsWith('/media/') ? mediaGateway : pluginMedia)?.describe?.(mediaPath);
+    json(response, result ? 200 : 404, result ? { code:200, ...result } : { code:404 });
+    return;
+  }
+  if (request.method === 'GET' && target.pathname === '/media-start-failure') {
+    const cancel = mediaGateway.watchStartFailure(target.searchParams.get('path'), result => {
+      if (result) { json(response, 200, { code: 200, ...result }); return; }
+      if (response.destroyed || response.writableEnded) return;
+      response.writeHead(204, { 'Cache-Control': 'no-store' });
+      response.end();
+    });
+    if (cancel) response.once('close', cancel);
     return;
   }
   if (request.method === 'GET' && target.pathname === '/media/register') {
@@ -325,7 +398,40 @@ const server = http.createServer((request, response) => {
     return;
   }
   const id = target.searchParams.get('id');
-  if (request.method !== 'GET' || target.pathname !== '/song' || !/^[1-9]\d{0,17}$/.test(id || '')) {
+  const excluded = target.searchParams.get('exclude') || '';
+  const forcedSource = target.searchParams.get('source') || '';
+  if (request.method === 'GET' && target.pathname === '/song/matches'
+      && /^[1-9]\d{0,17}$/.test(id || '')) {
+    const operation = { scopes: new Set(), cancelled: false };
+    function cancelMatches() {
+      operation.cancelled = true;
+      for (const scope of operation.scopes) cancel(scope);
+    }
+    const timeout = setTimeout(() => {
+      cancelMatches();
+      stage = 'match-candidates-timeout';
+      json(response, 504, { code: 504, message: '音源匹配列表超时，请重试' });
+    }, 35000);
+    response.once('close', () => { clearTimeout(timeout); cancelMatches(); });
+    (async () => {
+      try {
+        const item = await highestQualityMatch(id, operation, '', { collectCandidates: true });
+        if (operation.cancelled) return;
+        const matches = item?.matches || [];
+        if (!matches.length) { json(response, 404, { code: 404, message: '没有找到身份信息一致的其它音源' }); return; }
+        json(response, 200, { code: 200, data: { matches } });
+      } catch {
+        if (!operation.cancelled) json(response, 502, { code: 502, message: '暂时无法核对音源候选，请稍后重试' });
+      } finally {
+        clearTimeout(timeout);
+        for (const scope of operation.scopes) cancel(scope);
+      }
+    })();
+    return;
+  }
+  if (request.method !== 'GET' || target.pathname !== '/song' || !/^[1-9]\d{0,17}$/.test(id || '')
+      || (excluded && !SOURCES.includes(excluded)) || (forcedSource && !SOURCES.includes(forcedSource))
+      || (excluded && forcedSource)) {
     json(response, 400, { code: 400, message: 'Invalid song request' });
     return;
   }
@@ -343,8 +449,8 @@ const server = http.createServer((request, response) => {
   response.once('close', () => { clearTimeout(timeout); cancelOperation(); });
   (async () => {
     try {
-      const item = await highestQualityMatch(id, operation);
-      if (operation.cancelled || !item) return;
+      const item = await highestQualityMatch(id, operation, excluded, { forcedSource });
+      if (operation.cancelled) return;
       if (!item || typeof item.url !== 'string' || !/^https?:\/\//i.test(item.url)) {
         json(response, 404, { code: 404, message: '暂未找到这首歌的可用音源' });
         return;
@@ -364,7 +470,8 @@ const server = http.createServer((request, response) => {
         stage = 'match-failed';
         lastError = errorType(error);
         diagnostic('match-failed', { errorType: lastError });
-        json(response, 404, { code: 404, message: '暂未找到这首歌的可用音源，可重试或使用本地文件' });
+        const code = !excluded || (error && error.code === 'NO_AUDIO_SOURCE') ? 404 : 502;
+        json(response, code, { code, message: code === 404 ? '暂未找到这首歌的可用音源，可重试或使用本地文件' : '暂时无法核对曲目信息，请稍后重试' });
       }
     } finally {
       clearTimeout(timeout);

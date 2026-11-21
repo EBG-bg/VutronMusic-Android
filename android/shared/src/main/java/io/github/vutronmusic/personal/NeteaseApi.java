@@ -590,7 +590,11 @@ public final class NeteaseApi {
         if (code!=200) throw new CommentFailure(code,code==301 || code==401 ? "登录已失效，请重新登录网易云" : apiMessage(response,"评论请求失败（"+code+"）"));
     }
 
-    public JSONObject songUrl(long id) throws IOException {
+    public JSONObject songUrl(long id) throws IOException { return songUrl(id, 999000); }
+
+    public JSONObject compatibleSongUrl(long id) throws IOException { return songUrl(id, 320000); }
+
+    private JSONObject songUrl(long id, int bitrate) throws IOException {
         if (id <= 0) throw new IOException("歌曲 ID 无效");
         // Keep the official request aligned with the desktop plugin.  The
         // desktop path asks the NetEase endpoint for its highest available
@@ -599,7 +603,7 @@ public final class NeteaseApi {
         // the server still returns `freeTrialInfo`/a null URL when the account
         // lacks the entitlement.
         JSONObject response = request("/api/song/enhance/player/url",
-                json("ids", "[\"" + id + "\"]", "br", 999000), false);
+                json("ids", "[\"" + id + "\"]", "br", bitrate), false);
         requireSuccess(response, "获取播放地址");
         JSONArray data = response.optJSONArray("data");
         JSONObject item = data == null ? null : data.optJSONObject(0);

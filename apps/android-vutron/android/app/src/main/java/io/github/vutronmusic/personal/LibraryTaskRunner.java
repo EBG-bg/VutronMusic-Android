@@ -13,12 +13,12 @@ final class LibraryTaskRunner {
     private static final ThreadLocal<Task> CURRENT = new ThreadLocal<>();
     private static final class Task {
         volatile String kind;
-        volatile boolean cancelled;
+        volatile boolean cancelled, committing;
         volatile Thread thread;
         volatile int done, total;
         final Consumer<JSObject> changed;
         Task(String kind, Consumer<JSObject> changed) { this.kind = kind; this.changed = changed; }
-        JSObject state() { return new JSObject().put("kind", kind).put("running", true).put("cancelled", cancelled).put("done", done).put("total", total); }
+        JSObject state() { return new JSObject().put("kind", kind).put("running", true).put("cancelled", cancelled).put("cancellable", !committing).put("done", done).put("total", total); }
     }
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Consumer<JSObject> changed;
@@ -43,16 +43,35 @@ final class LibraryTaskRunner {
     synchronized JSObject state() { return active == null ? new JSObject().put("running", false).put("kind", "").put("done", 0).put("total", 0) : active.state(); }
     synchronized void cancel() {
         if (active == null) return;
-        active.cancelled = true;
-        if (active.thread != null) active.thread.interrupt();
-        changed.accept(active.state());
+        synchronized (active) {
+            if (active.committing) return;
+            active.cancelled = true;
+            if (active.thread != null) active.thread.interrupt();
+            changed.accept(active.state());
+        }
     }
     static boolean isCancelled() { Task task = CURRENT.get(); return Thread.currentThread().isInterrupted() || task != null && task.cancelled; }
     static void checkCancelled() { if (isCancelled()) throw new CancellationException("任务已取消"); }
+    /** Validated backup restore publishes its local files/settings as a single non-cancellable step. */
+    static void beginCommit() {
+        Task task = CURRENT.get();
+        if (task == null) { checkCancelled(); return; }
+        synchronized (task) {
+            checkCancelled();
+            task.committing = true;
+            task.changed.accept(task.state());
+        }
+    }
     static void progress(int done, int total) {
         checkCancelled(); Task task = CURRENT.get();
         if (task != null) { task.done = done; task.total = total; task.changed.accept(task.state()); }
     }
     static void phase(String kind) { checkCancelled(); Task task = CURRENT.get(); if (task != null) { task.kind = kind; task.done = 0; task.total = 0; task.changed.accept(task.state()); } }
-    synchronized void close() { cancel(); executor.shutdownNow(); }
+    synchronized void close() {
+        if (active == null) { executor.shutdown(); return; }
+        synchronized (active) {
+            if (active.committing) executor.shutdown();
+            else { cancel(); executor.shutdownNow(); }
+        }
+    }
 }

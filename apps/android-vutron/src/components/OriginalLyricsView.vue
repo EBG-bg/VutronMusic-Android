@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue'
+import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import type { LyricFamily, LyricLine } from '@vutronmusic/core/lyrics'
 import { lyricDisplayStyle, type LyricDisplaySettings } from '../platform/lyricDisplay'
 import { isMotionReduced } from '../platform/motion'
+import { navigationPreviewKey } from '../composables/navigationPreview'
 import {
-  boundaryScrollRemainder, interpolatedPosition, lyricClock, lyricDisplayLines, lyricIndexAt, lyricLineProgress,
+  boundaryScrollRemainder, estimatedLyricWords, interpolatedPosition, lyricClock, lyricDisplayEnd, lyricDisplayLines, lyricIndexAt, lyricLineProgress,
   lyricCenteredScrollTop, lyricSeekPosition, lyricWordProgress, type LyricPlaybackAnchor
 } from '../utils/lyricPlayback'
 
@@ -19,6 +20,7 @@ const props = withDefaults(defineProps<{
   loop?: LyricPlaybackAnchor['loop']
 }>(), { duration: 0, rate: 1 })
 const emit = defineEmits<{ seek: [position: number] }>()
+const preview = inject(navigationPreviewKey, false)
 const container = ref<HTMLElement>()
 const activeIndex = ref(-1)
 const manualScroll = ref(false)
@@ -32,6 +34,30 @@ const estimated = computed(() => props.displaySettings?.estimatedWordTiming === 
 const hasEstimates = computed(() => estimated.value && props.family.original.some(line => !line.words.length && line.text))
 const displayLines = computed(() => lyricDisplayLines(props.family.original, estimated.value, props.duration))
 const displayStyle = computed(() => lyricDisplayStyle(props.displaySettings, 'theme'))
+
+// A peek needs only the lines around the same center as followActive. Avoid
+// creating a second scrolling lyric timeline or estimating the whole song.
+const previewClock = computed(() => lyricClock(props.position, props.offsetMs))
+const previewIndex = computed(() => lyricIndexAt(props.family.original, previewClock.value))
+const previewGroups = computed(() => {
+  const lines = props.family.original
+  const center = Math.max(0, previewIndex.value)
+  const first = Math.max(0, center - 8)
+  const rows = (start: number, end: number) => lines.slice(start, end).map((line, offset) => {
+    const index = start + offset
+    if (index === previewIndex.value && estimated.value && !line.words.length && line.text) {
+      const end = lyricDisplayEnd(lines, index, props.duration)
+      return { index, line: { ...line, end, words: estimatedLyricWords(line, end) } }
+    }
+    return { index, line }
+  })
+  return [
+    { side: 'before', rows: rows(first, center) },
+    { side: 'center', rows: rows(center, center + 1) },
+    { side: 'after', rows: rows(center + 1, center + 9) }
+  ]
+})
+function previewProgress(progress: number) { return { '--lyric-progress': progress * 100 + '%' } }
 let anchor: LyricPlaybackAnchor = { position: props.position, monotonicTime: performance.now(), playing: props.playing, rate: props.rate, loop: props.loop }
 let frame = 0
 let mounted = false
@@ -269,48 +295,50 @@ function onViewportChange() {
   })
 }
 
-watch(() => [props.position, props.playing, props.rate, props.offsetMs, props.duration, props.loop], reanchor)
-watch(displayLines, () => {
-  highlightedRow = -1
-  reanchor()
-  if (!manualScroll.value) void followActive(true)
-}, { deep: true, flush: 'post' })
-watch(() => props.family, async () => {
-  clearConfirmation()
-  ++followGeneration
-  highlightedRow = -1
-  activeWords = []
-  activeTranslation = null
-  highlightedElement = undefined
-  rows.length = 0
-  activeIndex.value = -1
-  manualScroll.value = false
-  await nextTick()
-  reanchor()
-  void followActive(true)
-})
-onMounted(() => {
-  mounted = true
-  document.addEventListener('visibilitychange', onVisibility)
-  window.addEventListener('resize', onViewportChange, { passive: true })
-  window.visualViewport?.addEventListener('resize', onViewportChange, { passive: true })
-  layoutObserver = new ResizeObserver(onViewportChange)
-  if (container.value) layoutObserver.observe(container.value)
-  reanchor()
-  void followActive(true)
-})
-onUnmounted(() => {
-  clearConfirmation()
-  mounted = false
-  cancelAnimationFrame(frame)
-  cancelAnimationFrame(handoffFrame)
-  cancelAnimationFrame(layoutFrame)
-  layoutObserver?.disconnect()
-  ++followGeneration
-  document.removeEventListener('visibilitychange', onVisibility)
-  window.removeEventListener('resize', onViewportChange)
-  window.visualViewport?.removeEventListener('resize', onViewportChange)
-})
+if (!preview) {
+  watch(() => [props.position, props.playing, props.rate, props.offsetMs, props.duration, props.loop], reanchor)
+  watch(displayLines, () => {
+    highlightedRow = -1
+    reanchor()
+    if (!manualScroll.value) void followActive(true)
+  }, { deep: true, flush: 'post' })
+  watch(() => props.family, async () => {
+    clearConfirmation()
+    ++followGeneration
+    highlightedRow = -1
+    activeWords = []
+    activeTranslation = null
+    highlightedElement = undefined
+    rows.length = 0
+    activeIndex.value = -1
+    manualScroll.value = false
+    await nextTick()
+    reanchor()
+    void followActive(true)
+  })
+  onMounted(() => {
+    mounted = true
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('resize', onViewportChange, { passive: true })
+    window.visualViewport?.addEventListener('resize', onViewportChange, { passive: true })
+    layoutObserver = new ResizeObserver(onViewportChange)
+    if (container.value) layoutObserver.observe(container.value)
+    reanchor()
+    void followActive(true)
+  })
+  onUnmounted(() => {
+    clearConfirmation()
+    mounted = false
+    cancelAnimationFrame(frame)
+    cancelAnimationFrame(handoffFrame)
+    cancelAnimationFrame(layoutFrame)
+    layoutObserver?.disconnect()
+    ++followGeneration
+    document.removeEventListener('visibilitychange', onVisibility)
+    window.removeEventListener('resize', onViewportChange)
+    window.visualViewport?.removeEventListener('resize', onViewportChange)
+  })
+}
 </script>
 
 <template>
@@ -318,6 +346,19 @@ onUnmounted(() => {
     <header class="original-lyrics-heading"><b>{{ $t('mobile.lyricUi.title') }}</b><span v-if="hasWords" class="original-lyrics-source">{{ $t('mobile.lyricUi.originalWords') }}</span><span v-if="hasEstimates" class="original-lyrics-source estimated-lyrics-note">{{ $t('mobile.lyricUi.estimatedWords') }}</span><button v-if="manualScroll" type="button" class="return-current-lyric" @click="returnToCurrent">{{ $t('mobile.lyricUi.returnCurrent') }}</button></header>
     <div class="lyric-seek-confirmation" aria-live="polite"><template v-if="pendingLine !== undefined"><span>{{ $t('mobile.playbackReview.seekAgain') }}</span><button type="button" class="text-button" @click="confirmLine(displayLines[pendingLine])">{{ $t('mobile.playbackReview.confirmSeek') }}</button></template></div>
     <div v-if="!family.original.length" class="original-lyrics-empty">{{ $t('mobile.refinements.noLyrics') }}</div>
+    <div v-else-if="preview" class="original-lyrics-scroll original-lyrics-preview">
+      <div class="original-lyrics-preview-center">
+        <div v-for="group in previewGroups" :key="group.side" class="original-lyrics-preview-group" :data-side="group.side">
+          <div v-for="{ index, line } in group.rows" :key="index" class="original-lyric-row" :class="{ active: previewIndex === index }">
+            <span class="original-lyric-text">
+              <template v-if="previewIndex === index && line.words.length"><span v-for="(word, wordIndex) in line.words" :key="wordIndex" class="original-lyric-word" :style="previewProgress(lyricWordProgress(word, previewClock))">{{ word.text }}</span></template>
+              <span v-else class="original-lyric-word" :style="previewIndex === index ? previewProgress(1) : undefined">{{ line.text || '♪' }}</span>
+            </span>
+            <span v-if="family.pairedTranslations[index]" class="original-lyric-translation" :style="previewIndex === index ? previewProgress(line.words.length ? lyricLineProgress(line, previewClock, lineEnd(index)) : 1) : undefined">{{ family.pairedTranslations[index] }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
     <div v-else ref="container" class="original-lyrics-scroll" tabindex="0" :aria-label="$t('mobile.lyricUi.scrollArea')" @wheel.passive="markManualScroll" @keydown="scrollKey" @touchstart.passive="touchStart" @touchmove.passive="touchMove">
       <button v-for="(line, index) in displayLines" :key="line.start + '-' + index" :ref="element => setRow(element, index)" type="button" class="original-lyric-row" :class="{ active: activeIndex === index, 'seek-pending': pendingLine === index }" :aria-current="activeIndex === index ? 'true' : undefined" :aria-label="$t('mobile.playbackReview.seekLabel', { text: line.text })" @click="seekLine(line, $event, index)">
         <span class="original-lyric-text"><span v-if="!line.words.length" class="original-lyric-word">{{ line.text || '♪' }}</span><template v-else><span v-for="(word, wordIndex) in line.words" :key="wordIndex" class="original-lyric-word">{{ word.text }}</span></template></span>
@@ -329,25 +370,64 @@ onUnmounted(() => {
 
 <style scoped>
 .original-lyrics-view { width: 100%; min-width: 0; color: var(--color-text); }
-.original-lyrics-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 36px; margin: 0 3px 8px; }
-.original-lyrics-heading b { font-size: calc(17px * var(--ui-font-scale, 1)); font-weight: 600; }
-.original-lyrics-source { font-size: calc(10px * var(--ui-font-scale, 1)); color: var(--color-secondary); padding: 4px 6px; border-radius: 6px; background: var(--color-secondary-bg); }
-.return-current-lyric { margin-left: auto; min-height: 36px; padding: 6px 9px; border: 0; border-radius: 8px; color: var(--color-primary); background: var(--color-secondary-bg); font: inherit; font-size: calc(11px * var(--ui-font-scale, 1)); }
-.original-lyrics-scroll { position: relative; min-width: 0; height: clamp(260px, 50dvh, 420px); border-radius: 12px; background: var(--lyric-background, transparent); overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: auto; touch-action: pan-y; scrollbar-width: none; scroll-padding-block: 20%; }
+.original-lyrics-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 36px; margin: 0 8px 6px; }
+.original-lyrics-heading b { font-size: calc(15px * var(--ui-font-scale, 1)); font-weight: 700; letter-spacing: -.01em; }
+.original-lyrics-source { font-size: calc(11px * var(--ui-font-scale, 1)); font-weight: 600; color: var(--muted); padding: 2px 6px; border-radius: 6px; background: var(--surface); }
+.return-current-lyric { margin-left: auto; min-height: 34px; padding: 5px 11px; border: 1px solid var(--accent-border, var(--line)); border-radius: 10px; color: var(--accent-ink, var(--color-primary)); background: var(--accent-soft, var(--color-secondary-bg)); font: inherit; font-size: calc(11px * var(--ui-font-scale, 1)); font-weight: 650; cursor: pointer; }
+.original-lyrics-scroll {
+  position: relative;
+  min-width: 0;
+  height: clamp(260px, 50dvh, 420px);
+  border-radius: 14px;
+  background: var(--lyric-background, transparent);
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: auto;
+  touch-action: pan-y;
+  scrollbar-width: none;
+  scroll-padding-block: 20%;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 11%, #000 89%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 11%, #000 89%, transparent 100%);
+}
 .original-lyrics-scroll::-webkit-scrollbar { display: none; }
+.original-lyrics-preview { overflow: hidden; }
+.original-lyrics-preview::before, .original-lyrics-preview::after { display: none; }
+.original-lyrics-preview-center { position: absolute; inset: 50% 0 auto; transform: translateY(-50%); }
+.original-lyrics-preview-group { display: flow-root; }
+.original-lyrics-preview-group[data-side="before"] { position: absolute; inset: auto 0 100%; }
+.original-lyrics-preview-group[data-side="after"] { position: absolute; inset: 100% 0 auto; }
 .original-lyrics-scroll::before, .original-lyrics-scroll::after { content: ''; display: block; height: var(--lyric-edge-space, 130px); pointer-events: none; }
-.original-lyric-row { display: block; width: 100%; min-width: 0; margin: 2px 0; padding: 13px 10px; border: 0; border-radius: 12px; color: var(--lyric-unplayed, var(--color-full-text-unplay)); background: transparent; text-align: left; font-family: inherit; font-weight: 600; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.original-lyric-row {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 2px 0;
+  padding: 12px 12px;
+  border: 0;
+  border-radius: 14px;
+  color: var(--lyric-unplayed, var(--muted));
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--motion-feedback, 180ms) ease, opacity var(--motion-state, 220ms) ease;
+}
+.original-lyric-row:not(.active) { opacity: 1; }
+.original-lyric-row.active { opacity: 1; font-weight: 700; }
 .original-lyric-row:active { background: var(--color-secondary-bg-for-transparent); }
-.original-lyric-row.seek-pending { background:var(--accent-soft); outline:1px solid var(--accent); outline-offset:-1px; }
-.lyric-seek-confirmation { min-height:34px; display:flex; align-items:center; flex-wrap:wrap; gap:4px; color:var(--muted); font-size:calc(11px * var(--ui-font-scale, 1)); }
-.original-lyric-text { display: block; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 21px; line-height: 1.5; filter: var(--lyric-shadow, none); transform: scale(.96); transform-origin: left center; transition: transform .3s cubic-bezier(.25,.46,.45,.94); }
+.original-lyric-row.seek-pending { opacity: 1; background: var(--accent-soft); outline: 1px solid var(--accent); outline-offset: -1px; }
+.lyric-seek-confirmation { min-height: 24px; padding: 0 8px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; color: var(--muted); font-size: calc(11px * var(--ui-font-scale, 1)); }
+.lyric-seek-confirmation:empty { min-height: 0; }
+.original-lyric-text { display: block; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 21px; line-height: 1.48; filter: var(--lyric-shadow, none); transform: scale(.96); transform-origin: left center; transition: transform .3s cubic-bezier(.25,.46,.45,.94); }
 .original-lyric-row.active .original-lyric-text { transform: scale(1); }
 .original-lyric-word { --lyric-progress: 0%; background-image: linear-gradient(to right, var(--lyric-played, var(--color-wbw-text-played)) var(--lyric-progress), var(--lyric-unplayed, var(--color-wbw-text-unplay)) var(--lyric-progress)); background-clip: text; -webkit-background-clip: text; color: transparent; }
-.original-lyric-row:not(.active) .original-lyric-word { background-image: none; color: var(--lyric-unplayed, var(--color-full-text-unplay)); }
-.original-lyric-translation { --lyric-progress: 0%; display: block; width: fit-content; max-width: 100%; margin: 5px 0 0; font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; filter: var(--lyric-shadow, none); background-image: linear-gradient(to right, var(--lyric-played, var(--color-wbw-text)) var(--lyric-progress), var(--lyric-unplayed, var(--color-wbw-text-unplay)) var(--lyric-progress)); background-clip: text; -webkit-background-clip: text; color: transparent; }
-.original-lyric-row:not(.active) .original-lyric-translation { background-image: none; color: var(--lyric-unplayed, var(--color-full-text-unplay)); }
+.original-lyric-row:not(.active) .original-lyric-word { background-image: none; color: var(--lyric-unplayed, var(--muted)); }
+.original-lyric-translation { --lyric-progress: 0%; display: block; width: fit-content; max-width: 100%; margin: 5px 0 0; font-size: 14px; line-height: 1.5; filter: var(--lyric-shadow, none); white-space: pre-wrap; overflow-wrap: anywhere; background-image: linear-gradient(to right, var(--lyric-played, var(--color-wbw-text)) var(--lyric-progress), var(--lyric-unplayed, var(--color-wbw-text-unplay)) var(--lyric-progress)); background-clip: text; -webkit-background-clip: text; color: transparent; }
+.original-lyric-row:not(.active) .original-lyric-translation { background-image: none; color: var(--lyric-unplayed, var(--muted)); }
 .original-lyric-row:focus-visible, .return-current-lyric:focus-visible, .original-lyrics-scroll:focus-visible { outline: 2px solid var(--color-primary); outline-offset: -2px; }
-.original-lyrics-empty { padding: 30px 8px; color: var(--color-secondary); text-align: center; font-size: calc(13px * var(--ui-font-scale, 1)); }
+.original-lyrics-empty { padding: 30px 8px; color: var(--muted); text-align: center; font-size: calc(13px * var(--ui-font-scale, 1)); }
 @media (max-width: 340px) { .original-lyric-text { font-size: 19px; } .original-lyric-translation { font-size: 13px; } .original-lyric-row { padding-inline: 8px; } }
-html[data-motion="reduced"] .original-lyric-text { transition: none; }
+html[data-motion="reduced"] .original-lyric-text, html[data-motion="reduced"] .original-lyric-row { transition: none; }
 </style>

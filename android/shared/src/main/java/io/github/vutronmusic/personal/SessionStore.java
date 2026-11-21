@@ -40,6 +40,12 @@ public final class SessionStore {
     }
 
     public static synchronized String load(Context context) {
+        try { return readForBackup(context); }
+        catch (Exception invalidKey) { return ""; }
+    }
+
+    // Normal startup tolerates an invalidated keystore. Explicit backups must report unreadable credentials.
+    public static synchronized String readForBackup(Context context) throws Exception {
         android.content.SharedPreferences prefs = context.getSharedPreferences("session", Context.MODE_PRIVATE);
         String data = prefs.getString("data", "");
         if (data.isEmpty()) return "";
@@ -48,9 +54,8 @@ public final class SessionStore {
             cipher.init(Cipher.DECRYPT_MODE, key(), new GCMParameterSpec(128,
                 Base64.decode(prefs.getString("iv", ""), Base64.NO_WRAP)));
             return new String(cipher.doFinal(Base64.decode(data, Base64.NO_WRAP)), StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            // A restored or invalidated keystore cannot decrypt the old session.
-            return "";
+        } catch (Exception failure) {
+            throw new java.io.IOException("无法解密此设备的网易云登录信息，请重新登录后导出", failure);
         }
     }
 

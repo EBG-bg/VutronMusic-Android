@@ -88,14 +88,14 @@ onBeforeUnmount(() => { ++revision; animation?.cancel(); cardAnimation?.cancel()
 
 <style scoped>
 .settings-collapse { margin: 0; overflow: clip; overflow-anchor: none; }
-.settings-collapse > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 38px; list-style: none; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; border-radius: 8px; transition: background-color .15s ease, color .15s ease; }
+.settings-collapse > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 40px; margin: -4px; padding: 4px; list-style: none; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; border-radius: 10px; transition: background-color .15s ease, color .15s ease; }
 .settings-collapse > summary::-webkit-details-marker { display: none; }
-.settings-collapse > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
+.settings-collapse > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .settings-collapse > summary .settings-title { flex: 1; min-width: 0; margin: 0; }
 .settings-chevron { flex-shrink: 0; font-size: calc(15px * var(--ui-font-scale, 1)); color: var(--muted); transition: transform var(--motion-state, 220ms) ease; }
-.settings-collapse > summary[aria-expanded='true'] .settings-chevron { transform: rotate(180deg); }
+.settings-collapse > summary[aria-expanded='true'] .settings-chevron { transform: rotate(180deg); color: var(--accent-ink); }
 .settings-collapse-content { overflow: hidden; }
-.settings-collapse-inner { padding-top: 12px; }
-.settings-collapse .settings-collapse { background: var(--color-secondary-bg-for-transparent); border-color: var(--line); box-shadow: none; }
+.settings-collapse-inner { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.settings-collapse .settings-collapse { background: var(--surface); border-color: var(--line); box-shadow: none; }
 html[data-motion="reduced"] .settings-chevron { transition: none; }
 </style>

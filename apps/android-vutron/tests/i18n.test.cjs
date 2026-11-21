@@ -148,6 +148,7 @@ test('cache controls and track-menu accessibility labels follow the active langu
     '../stores/androidShell': { useAndroidShellStore: () => cacheStore },
     '../utils/formatting': { formatBytes: value => value + ' B' },
     './CollapsibleSettingsCard.vue': wrapped(card), './PlaybackPrefetchSettings.vue': wrapped(empty),
+    './SettingsSwitchRow.vue': wrapped(component('SettingsSwitchRow.vue', {})),
     './OriginalIcon.vue': wrapped(empty), './ThumbRange.vue': wrapped(range)
   })
   const menu = component('TrackMenuButton.vue', {

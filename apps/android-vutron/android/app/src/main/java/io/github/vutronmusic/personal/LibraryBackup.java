@@ -8,9 +8,10 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.*;
 
-/** Portable user metadata only. Folder grants, media bytes, account state and paths never leave the app. */
+/** Portable settings and library metadata. Optional media uses the separate streaming cache archive. */
 final class LibraryBackup {
     static final String GENERATOR = "vutron-mobile-backup";
+    static final String ACCOUNT_ENVELOPE = "encryptedAccounts";
     static final int MAX_BYTES = 8 * 1024 * 1024;
     static final int MAX_STORE_BYTES = 64 * 1024 * 1024;
     private static final String[] PREFS = {"lyric_overlay", "playback_volume", "audio_cache_settings", "artwork_cache_settings", "audio_sources", "vutron_playback", "playback_tuning"};
@@ -93,6 +94,7 @@ final class LibraryBackup {
             return "font_size".equals(key) ? number >= 16 && number <= 34 : "shadow_radius".equals(key) ? number >= 0 && number <= 8 : number >= Integer.MIN_VALUE && number <= Integer.MAX_VALUE;
         }
         if ("audio_cache_settings".equals(pref) && key.equals("enabled")) return value instanceof Boolean;
+        if ("artwork_cache_settings".equals(pref) && key.equals("auto_cache")) return value instanceof Boolean;
         if ((pref.equals("audio_cache_settings") || pref.equals("artwork_cache_settings")) && key.equals("capacity_mib")) {
             if (!(value instanceof Number)) return false; long number = ((Number) value).longValue();
             return pref.equals("audio_cache_settings") ? number >= 256 && number <= 10240 : number >= 32 && number <= 1024;
@@ -108,6 +110,27 @@ final class LibraryBackup {
             result.put(pref, safe);
         }
         return result;
+    }
+    static JSONObject exportPreferences(JSONObject supplied, boolean includePrivacy) throws Exception {
+        JSONObject preferences = safePreferences(supplied);
+        if (!includePrivacy) {
+            preferences.getJSONObject("audio_sources").remove("auto_match");
+            preferences.getJSONObject("lyric_overlay").remove("wifi_validation");
+            preferences.getJSONObject("playback_tuning").remove("prefetchWifi");
+        }
+        return preferences;
+    }
+    /** Pull the native-only section out before the ordinary restore plan or JS receipt can see it. */
+    static JSONObject takeAccountEnvelope(JSONObject document, boolean includePrivacy) throws Exception {
+        Object envelope = document.remove(ACCOUNT_ENVELOPE);
+        if (!includePrivacy) {
+            JSONObject settings = document.optJSONObject("settings");
+            if (settings != null) document.put("settings", exportPreferences(settings, false));
+            return null;
+        }
+        if (envelope == null) return null; // Previous backups and signed-out exports have no accounts.
+        if (!(envelope instanceof JSONObject)) throw new IOException("备份账号资料格式无效");
+        return (JSONObject) envelope;
     }
     private static JSONObject load(Context c) throws Exception { return file(c).isFile() ? readStore(new FileInputStream(file(c))) : new JSONObject().put("collections", new JSONArray()); }
     static byte[] storeBytes(JSONObject data) throws Exception {
@@ -210,7 +233,7 @@ final class LibraryBackup {
         }
         return result;
     }
-    static JSONObject snapshot(Context c, JSONObject frontend, JSONObject orders) throws Exception {
+    static JSONObject snapshot(Context c, JSONObject frontend, JSONObject orders, boolean includePrivacy) throws Exception {
         String historyText = frontend.optString(CollectionOrderHistoryBackup.KEY, "{}");
         if (historyText.length() > MAX_BYTES) throw new IOException("排序历史超过备份大小限制，请精简后备份");
         JSONObject histories = new JSONObject(historyText);
@@ -237,8 +260,8 @@ final class LibraryBackup {
             JSONArray rows = new JSONArray(); for (JSONArray lane : new JSONArray[]{queue.songs, queue.upNext}) for (int i = 0; i < lane.length(); i++) rows.put(lane.getJSONObject(i));
             collections.put(portableCollection(c, "backup:queue", "恢复的播放队列", rows, new JSONObject(), new JSONObject()));
         }
-        return new JSONObject().put("format", 1).put("generator", GENERATOR).put("settings", safePreferences(preferences)).put("frontend", safeFrontend(frontend)).put("collections", collections)
-                .put("pluginSourcePriorities",PluginSourceRegistry.priorities(c));
+        return new JSONObject().put("format", 1).put("generator", GENERATOR).put("settings", exportPreferences(preferences, includePrivacy)).put("frontend", safeFrontend(frontend)).put("collections", collections)
+                .put("pluginSourcePriorities",PluginSourceRegistry.priorities(c)).put("trackSourceOverrides",TrackSourceOverrides.snapshot(c));
     }
     static JSONObject safeFrontend(JSONObject value) throws Exception {
         JSONObject result = new JSONObject();
@@ -352,9 +375,11 @@ final class LibraryBackup {
             if (item.opt("createTime") instanceof Number && item.optLong("createTime") > 0) collection.put("createTime",item.getLong("createTime"));
             safe.put(collection);
         }
-        return new JSONObject().put("collections", safe).put("frontend", safeFrontend(input.optJSONObject("frontend") == null ? new JSONObject() : input.getJSONObject("frontend")))
+        JSONObject result = new JSONObject().put("collections", safe).put("frontend", safeFrontend(input.optJSONObject("frontend") == null ? new JSONObject() : input.getJSONObject("frontend")))
                 .put("settings", safePreferences(input.optJSONObject("settings") == null ? new JSONObject() : input.getJSONObject("settings")))
                 .put("pluginSourcePriorities",PluginSourceRegistry.sanitizePriorities(input.optJSONObject("pluginSourcePriorities")==null ? new JSONObject() : input.getJSONObject("pluginSourcePriorities")));
+        if (input.has("trackSourceOverrides")) result.put("trackSourceOverrides",TrackSourceOverrides.sanitize(input.getJSONObject("trackSourceOverrides")));
+        return result;
     }
     static final class RestorePlan {
         final JSONObject document,safe,orders;
@@ -362,6 +387,10 @@ final class LibraryBackup {
         final byte[] encoded;
         RestorePlan(JSONObject document,JSONObject safe,JSONObject orders,List<JSONObject> added,byte[] encoded) {
             this.document=document;this.safe=safe;this.orders=orders;this.added=added;this.encoded=encoded;
+        }
+        JSONObject receipt() throws JSONException {
+            return new JSONObject().put("frontend", safe.getJSONObject("frontend")).put("orders", orders)
+                    .put("collectionCount", added.size()).put("collectionSkipped", safe.getJSONArray("collections").length() - added.size());
         }
     }
     static RestorePlan planRestore(JSONObject previous,JSONObject input) throws Exception {
@@ -409,28 +438,35 @@ final class LibraryBackup {
     }
     static JSONObject restore(Context c, JSONObject input) throws Exception {
         RestorePlan plan=planRestore(load(c),input);
-        LibraryFiles.writeBytes(file(c),plan.encoded);
+        if (!plan.added.isEmpty()) LibraryFiles.writeBytes(file(c),plan.encoded);
         PluginSourceRegistry.setPriorities(c,plan.safe.getJSONObject("pluginSourcePriorities"));
+        if (plan.safe.has("trackSourceOverrides")) TrackSourceOverrides.restore(c,plan.safe.getJSONObject("trackSourceOverrides"));
         for(JSONObject item:plan.added) PlaybackVolume.setPlaylistPercent(c,item.getString("id"),item.getInt("volume"));
         JSONObject settings = plan.safe.getJSONObject("settings");
+        JSONObject audioSettings = settings.getJSONObject("audio_cache_settings");
+        JSONObject artworkSettings = settings.getJSONObject("artwork_cache_settings");
+        long audioCapacity = audioSettings.optLong("capacity_mib"), artworkCapacity = artworkSettings.optLong("capacity_mib");
+        if (audioCapacity > 0 && audioCapacity * 1024L * 1024L < AudioCache.stats(c).bytes) audioSettings.remove("capacity_mib");
+        if (artworkCapacity > 0 && artworkCapacity * 1024L * 1024L < ArtworkCache.bytes(c)) artworkSettings.remove("capacity_mib");
         for (String pref : PREFS) {
             SharedPreferences.Editor editor = c.getSharedPreferences(pref, Context.MODE_PRIVATE).edit(); JSONObject values = settings.getJSONObject(pref);
             for (Iterator<String> i = values.keys(); i.hasNext();) {
                 String key = i.next(); Object value = values.get(key);
+                // Capacity setters maintain native caches; don't update prefs ahead of them.
+                if ("capacity_mib".equals(key) || "artwork_cache_settings".equals(pref) && "auto_cache".equals(key)) continue;
                 if (value instanceof Boolean) editor.putBoolean(key, (Boolean) value);
                 else if ("playback_tuning".equals(pref)) editor.putFloat(key,((Number)value).floatValue());
-                else if (key.equals("capacity_mib") || key.startsWith("lyric_offset_ms_")) editor.putLong(key, ((Number) value).longValue());
+                else if (key.startsWith("lyric_offset_ms_")) editor.putLong(key, ((Number) value).longValue());
                 else editor.putInt(key, ((Number) value).intValue());
             }
             if (!editor.commit()) throw new IOException("备份设置写入失败：" + pref);
         }
-        SharedPreferences audio = c.getSharedPreferences("audio_cache_settings", Context.MODE_PRIVATE);
-        if (audio.contains("capacity_mib")) AudioCache.setCapacityMiB(c, audio.getLong("capacity_mib", 2048));
-        SharedPreferences artwork = c.getSharedPreferences("artwork_cache_settings", Context.MODE_PRIVATE);
-        if (artwork.contains("capacity_mib")) ArtworkCache.setCapacityMiB(c, artwork.getLong("capacity_mib", 128));
+        if (audioSettings.has("capacity_mib")) AudioCache.setCapacityMiB(c, audioCapacity);
+        if (artworkSettings.has("capacity_mib")) ArtworkCache.setCapacityMiB(c, artworkCapacity);
+        if (artworkSettings.has("auto_cache")) ArtworkCache.setAutomatic(c, artworkSettings.getBoolean("auto_cache"));
         AndroidLyricOverlayService.refreshSettings(); AndroidPlaybackService.onVolumeSettingsChanged(c);
         AndroidPlaybackService.onPlaybackTuningChanged(c,() -> {});
-        return new JSONObject().put("frontend", plan.safe.getJSONObject("frontend")).put("orders", plan.orders).put("collectionCount", plan.document.getJSONArray("collections").length());
+        return plan.receipt();
     }
     static void remove(Context c, String id, String entry) throws Exception {
         removeEntries(c, id, entry == null ? null : java.util.Collections.singleton(entry));

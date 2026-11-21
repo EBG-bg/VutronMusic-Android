@@ -3,12 +3,14 @@ const moduleScope={exports:{}};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(__dirname,'../src/platform/playbackFailure.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{module:moduleScope,exports:moduleScope.exports});
 const {describePlaybackFailure}=moduleScope.exports;
 test('playback recovery actions distinguish sign-in, folder access, offline and retry',()=>{
-  for(const [code,action] of [['auth','login'],['local_permission','folders'],['local_missing','folders'],['offline','offline'],['network','retry'],['decode','retry']]){
+  for(const [code,action] of [['auth','login'],['plugin_auth','sourceSettings'],['local_permission','folders'],['local_missing','folders'],['offline','offline'],['network','retry'],['source_address','retry'],['decode','retry'],['alternatives_unavailable','retry']]){
     const result=describePlaybackFailure({error:'native message',errorCode:code});
     assert.equal(result.action,action);assert.equal(result.legacyMessage,'');
     for(const language of ['en','zh-hans','zh-hant']){
       const messages=JSON.parse(fs.readFileSync(path.join(__dirname,'../src/locales',language+'.json'),'utf8'));
       assert.equal(typeof messages.playbackErrors[code],'string');
+      if (action === 'sourceSettings') assert.equal(typeof messages.playbackErrors.sourceSettings,'string');
+      if (code === 'source_address') assert.match(messages.playbackErrors.sourceAddressHint,/DNS/);
     }
   }
 });

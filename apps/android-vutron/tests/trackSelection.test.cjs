@@ -24,3 +24,22 @@ test('a delayed result from another account cannot clear a new selection or its 
  releaseOld(true);await old;assert.equal(state.selected.value.length,1);assert.equal(state.busy.value,true)
  releaseNew(true);await next;assert.equal(state.selected.value.length,0);assert.equal(state.busy.value,false);scope.stop()
 })
+test('large-list selection count and all-selected state do not scan track metadata',()=>{
+ let keyReads=0
+ const rows=vue.ref(Array.from({length:5000},(_,id)=>({id}))),scope=vue.effectScope()
+ const state=scope.run(()=>moduleObject.exports.useTrackSelection(rows,row=>{keyReads++;return String(row.id)},vue.ref('large-list')))
+ keyReads=0;state.keys.value=new Set(rows.value.map(row=>String(row.id)))
+ assert.equal(state.selectedCount.value,5000);assert.equal(state.allSelected.value,true);assert.equal(keyReads,0)
+ scope.stop()
+})
+test('range controller survives appended pages but is replaced when the selection scope changes',async()=>{
+ let loadCalls=0
+ const scope=vue.effectScope(),rows=vue.ref([{id:'one'}]),owner=vue.ref('query:one'),state=scope.run(()=>moduleObject.exports.useTrackSelection(rows,row=>row.id,owner,async()=>{loadCalls++;return true}))
+ const initial=state.range.value
+ rows.value=[...rows.value,{id:'two'}];await vue.nextTick()
+ assert.equal(state.range.value,initial);assert.deepEqual(initial.order(),['one','two'])
+ assert.equal(await initial.loadMore(),true);assert.equal(loadCalls,1)
+ owner.value='query:two';await vue.nextTick()
+ assert.notEqual(state.range.value,initial);assert.equal(initial.valid(),false)
+ scope.stop()
+})

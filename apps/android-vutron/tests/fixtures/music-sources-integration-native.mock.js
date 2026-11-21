@@ -22,17 +22,30 @@ const snapshot = () => ({ plugins: clone(plugins), catalog: [] })
 const calls = [], held = []
 let hold, current, playing = false, queue = { tracks: [], index: -1, upNext: [], mode: 0 }
 const record = (method, value = {}) => calls.push({ method, ...clone(value) })
+const savedKey = 'source-integration:saved-plugin-playlists'
+const progressKey = (scope, key) => `source-integration:progress:${scope}|${key}`
+const readSaved = () => JSON.parse(localStorage.getItem(savedKey) || '{}')
+const visibleSaved = () => Object.values(readSaved()).filter(row => {
+  const owner = source(row.pluginId)
+  return owner?.enabled && owner.accountScope === row.pluginAccountScope
+})
 const nativeTrack = (track, pluginId, accountScope) => ({ id: (pluginId === 'fixture' ? 1000 : 2000) + Number(String(track.id).split('-').at(-1)), name: track.name, artists: track.artists?.map(row => row.name) || [], duration: track.duration || 180000, picUrl: track.picUrl, pluginId, pluginTrackId: String(track.id), pluginTrack: clone(track), pluginSourceContext: clone(track.sourceContext), pluginAccountScope: accountScope })
 
 export const musicSourcesBackend = {
   calls, held, picture,
   setPlaylistLength(id, count) { playlistLengths.set(id, count) },
+  checkpointPlaylist(position) {
+    if (!current?.playlistOrderScope || !current.playlistVolumeKey) throw new Error('No playlist selected for checkpoint')
+    const progress = { trackId:current.id, position, cueTrackNo:current.cueTrackNo || 0, localEntryKey:current.localEntryKey }
+    localStorage.setItem(progressKey(current.playlistOrderScope, current.playlistVolumeKey), JSON.stringify(progress))
+  },
   get plugins() { return plugins },
   setNativeLogin(value) { localStorage.setItem('source-integration:native-login', String(value)) },
   setConnected: offlineTestBackend.setConnected,
   holdNext(pluginId, method) { hold = { pluginId, method } },
   releaseHeld() { for (const complete of held.splice(0)) complete() },
   setEnabled(id, enabled) { source(id).enabled = enabled; return snapshot() },
+  setAccount(id, accountScope) { source(id).accountScope = accountScope; return snapshot() },
   remove(id) { plugins = plugins.filter(row => row.id !== id); return snapshot() },
   snapshot
 }
@@ -88,6 +101,43 @@ export const vutronPlugin = {
   async search(params) { record('nativeSearch', { params }); return { items: [{ id: 81, name: 'Native search ' + params.keywords, artists: ['Native artist'] }], count: 1, page: 1, nextPage: 2 } },
   async getPlaybackState() { return current ? { trackId: current.id, title: current.name, artist: current.artists?.join(' / ') || '', track: clone(current), duration: current.duration || 180000, position: 2000, playing, error: '' } : { playing: false, trackId: 0, duration: 0, position: 0, title: '', artist: '', error: '' } },
   async getPlaybackQueue() { return clone(queue) },
+  async getPlaylistProgress({ scope, playlistKey }) {
+    record('getPlaylistProgress', { scope, playlistKey })
+    return JSON.parse(localStorage.getItem(progressKey(scope, playlistKey)) || '{}')
+  },
+  async cachePluginPlaylist(value) {
+    record('savePluginPlaylist', { value })
+    const row = value.playlist, saved = readSaved(), owner = source(value.pluginId)
+    if (!owner?.enabled || owner.accountScope !== value.accountScope) throw new Error('Invalid snapshot owner')
+    const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${value.pluginId}/${value.accountScope}/${row.id}`))), byte => byte.toString(16).padStart(2, '0')).join('')
+    const rows = tracks(value.pluginId).slice(0, 2)
+    const songs = [rows[0], rows[1], rows[0]].map((song, index) => {
+      const row = nativeTrack(song, value.pluginId, value.accountScope)
+      delete row.pluginTrack; delete row.pluginSourceContext
+      return { ...row, cached:index !== 1, source:'plugin-snapshot', offlineOnly:true, localEntryKey:`plugin-snapshot:${hash}:${index}` }
+    })
+    saved[hash] = { id: 71, name: row.name, trackCount: songs.length, pluginId: value.pluginId, pluginAccountScope: value.accountScope, cacheProviderName: owner.name, pluginCacheKey: hash, coverLocalUri: picture, offlineSnapshot: true, songs }
+    localStorage.setItem(savedKey, JSON.stringify(saved))
+    return { count:songs.length }
+  },
+  async getCachedPlaylists() {
+    return { playlists: [...(await nativeBase.getCachedPlaylists()).playlists, ...visibleSaved().map(({ songs, ...header }) => header)] }
+  },
+  async getCachedPlaylistTracks(value) {
+    if (!value.pluginCacheKey) return nativeBase.getCachedPlaylistTracks(value)
+    record('readPluginPlaylist', { value })
+    const saved = visibleSaved().find(row => row.pluginCacheKey === value.pluginCacheKey)
+    if (!saved) throw new Error('Snapshot unavailable')
+    return { tracks:clone(saved.songs) }
+  },
+  async deleteCachedPlaylist(value) {
+    if (!value.pluginCacheKey) return nativeBase.deleteCachedPlaylist(value)
+    record('removePluginPlaylist', { value })
+    if (!visibleSaved().some(row => row.pluginCacheKey === value.pluginCacheKey)) return { removed:false }
+    const saved = readSaved(); delete saved[value.pluginCacheKey]
+    localStorage.setItem(savedKey, JSON.stringify(saved))
+    return { removed: true }
+  },
   async playMusicPlugin(value) { record('pluginPlay', { value }); current = nativeTrack(value.track, value.pluginId, value.accountScope); queue = { tracks: value.queue.map(row => nativeTrack(row, value.pluginId, value.accountScope)), index: 0, upNext: [], mode: 0 }; playing = true; return { track: clone(current) } },
   async queueMusicPlugin(value) { record('pluginQueue', { value }); queue.upNext.push(nativeTrack(value.track, value.pluginId, value.accountScope)); return clone(queue) },
   async play(value) { record('nativePlay', { value }); current = clone(value.track); queue = { tracks: clone(value.queue || [value.track]), index: value.index || 0, upNext: [], mode: 0 }; playing = true },

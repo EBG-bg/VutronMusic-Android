@@ -71,6 +71,20 @@ test('successful malformed results fail; known legacy account fields and boolean
   assert.deepEqual(account.scanDir, ['content://authorized'])
 })
 
+test('playlist detail validation preserves the original rank response cursor', () => {
+  const detail = {
+    id: 12, name: 'Ranking', subscribed: false, picUrl: '', trackIds: [], trackCount: 3, updateTime: 0,
+    description: '', isPrivate: false, pluginId: '', tracks: [], copywriter: null, updateFrequency: null,
+    creator: { userId: 0, avatarUrl: '', nickname: 'Test', isVip: false, signature: '' },
+    specialPlaylistInfo: null, tags: [], sourceContext: { id: 12, type: 'rank', other: 'unchanged' }
+  }
+  const raw = { code: 200, data: detail, sourceContext: { id: 12, type: 'rank', page: 2 } }
+  const checked = validateResult('getPlaylistDetail', raw)
+  assert.deepEqual(checked.data.sourceContext, { id: 12, type: 'rank', other: 'unchanged', page: 2 })
+  assert.equal(raw.data.sourceContext.page, undefined)
+  assert.throws(() => validateResult('getPlaylistDetail', { ...raw, data: 'wrong' }))
+})
+
 test('lyric adapter preserves line seconds, word milliseconds, translation and enhanced timing', () => {
   const lines = parseLyric({ yrc: { lyric: '[1000,2000](1000,1000,0)One(2000,1000,0)Two' }, ytlrc: { lyric: '[00:01.00]译文' } })
   assert.equal(lines[0].start, 1)

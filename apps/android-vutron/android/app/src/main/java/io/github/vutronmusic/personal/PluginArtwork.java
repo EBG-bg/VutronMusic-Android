@@ -43,7 +43,7 @@ final class PluginArtwork {
         ArtworkCache.Result complete=new ArtworkCache.Result() {
             @Override public void success(String path) {
                 if (revision != AndroidPluginManager.artworkRevision(context, id)) { result.failure(new IOException("Plugin account or server changed")); return; }
-                if (requested == 512) { result.success(path); return; }
+                if (requested == 512 || path.startsWith("data:image/")) { result.success(path); return; }
                 ArtworkThumbnail.request(context, path, requested, smallKey, new ArtworkCache.Result() {
                     @Override public void success(String thumbnail) {
                         if (revision == AndroidPluginManager.artworkRevision(context, id)) result.success(thumbnail);
@@ -73,6 +73,22 @@ final class PluginArtwork {
             if (revision != AndroidPluginManager.artworkRevision(context, id)) throw new IOException("Plugin account or server changed");
             return bytes;
         }, complete);
+    }
+
+    static void enqueuePlaylistCover(Context context, String id, String scope, String uri, JSONObject sourceContext, long revision) {
+        if (uri.isEmpty()) return;
+        ArtworkCache.fetchOwnedManual(context, cacheKey(id, uri, revision), () -> {
+            checkPlaylistOwner(context, id, scope, revision);
+            byte[] bytes = load(context, id, uri, sourceContext == null ? new JSONObject() : sourceContext);
+            checkPlaylistOwner(context, id, scope, revision);
+            return bytes;
+        });
+    }
+
+    private static void checkPlaylistOwner(Context context, String id, String scope, long revision) throws Exception {
+        AndroidPluginManager.requireEnabled(context, id);
+        if (!AndroidPluginManager.networkAllowed(context) || revision != AndroidPluginManager.artworkRevision(context, id)
+                || !scope.equals(AndroidPluginManager.accountScope(context, id))) throw new IOException("Plugin playlist owner changed");
     }
 
     static String resolve(Context context, String id, String uri) throws Exception { return resolve(context, id, uri, new JSONObject()); }

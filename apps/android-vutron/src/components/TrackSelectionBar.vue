@@ -11,9 +11,13 @@ defineEmits<{ all: []; close: []; action: [id: string] }>()
   </section>
 </template>
 <style scoped>
-.track-selection-bar { position:sticky; top:calc(var(--safe-top, 0px) + 8px); z-index:12; margin:8px 0 12px; padding:8px 10px; border:1px solid var(--line); border-radius:var(--radius-card); background:var(--color-body-bg); box-shadow:var(--shadow); animation:selection-enter var(--motion-state) ease both; }
-.selection-heading,.selection-actions { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }.selection-heading { justify-content:space-between; }.selection-heading b { font-size:calc(12px * var(--ui-font-scale,1)); }.selection-heading .icon-button { width:44px; height:44px; }.selection-actions>button { min-height:44px; padding:8px 10px; font-size:calc(12px * var(--ui-font-scale,1)); }
-.selection-actions>.danger-text { color:var(--danger); }
+.track-selection-bar { position: sticky; top: calc(var(--safe-top, 0px) + 8px); z-index: 12; margin: 8px 0 12px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-card); background: var(--surface-glass); backdrop-filter: blur(18px) saturate(160%); -webkit-backdrop-filter: blur(18px) saturate(160%); box-shadow: var(--shadow-float); animation: selection-enter var(--motion-state) ease both; }
+.selection-heading, .selection-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.selection-heading { justify-content: space-between; }
+.selection-heading b { font-size: calc(13px * var(--ui-font-scale, 1)); font-variant-numeric: tabular-nums; }
+.selection-heading .icon-button { width: 44px; height: 44px; }
+.selection-actions > button { min-height: 44px; padding: 8px 11px; font-size: calc(12px * var(--ui-font-scale, 1)); }
+.selection-actions > .danger-text { color: var(--danger); }
 @keyframes selection-enter { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:none; } }
 html[data-motion='reduced'] .track-selection-bar { animation:none; }
 @media(max-width:340px) { .selection-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }.selection-actions>button { min-width:0; white-space:normal; line-height:1.35; overflow-wrap:anywhere; } }

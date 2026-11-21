@@ -2,7 +2,7 @@ import type { VutronLocalCollection, VutronPlaylist, VutronTrack } from '../../p
 
 /** All tabs the app shell can show. */
 export type ShellTab =
-  | 'home' | 'library' | 'search' | 'entity' | 'localCollection'
+  | 'home' | 'library' | 'search' | 'playlist' | 'entity' | 'localCollection'
   | 'player' | 'settings' | 'about' | 'plugins'
 
 /** An artist or album the user has drilled into. */

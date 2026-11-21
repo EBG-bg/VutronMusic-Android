@@ -39,6 +39,13 @@ export function createShellNavigation(options: ShellNavigationOptions) {
   const rootTab = computed<ShellTab>(() =>
     localOnly.value && !activeMusicSourceId.value ? 'library' : 'home'
   )
+  const playlistOrigin = computed(() => {
+    for (let i = navigationHistory.value.length - 1; i >= 0; i--) {
+      const tab = navigationHistory.value[i]?.tab
+      if (tab === 'home' || tab === 'library' || tab === 'search') return tab
+    }
+    return 'library'
+  })
   const canNavigateBack = computed(() =>
     (loginRequested.value && localOnly.value) ||
     navigationHistory.value.length > 0 ||
@@ -63,20 +70,26 @@ export function createShellNavigation(options: ShellNavigationOptions) {
     navigationScrollY.value = 0
   }
 
+  function tabScrollFor(tab: ShellTab) { return tabScrolls.get(activeMusicSourceId.value + ':' + tab) ?? 0 }
+
   function navigateTo(tab: ShellTab) {
     if (
       !activeMusicSourceId.value &&
       !onlineAvailable.value &&
       ['home', 'search', 'entity'].includes(tab)
     ) return
-    if (tab === activeTab.value && !(tab === 'library' && selectedPlaylist.value)) return
-    if (!(activeTab.value === 'library' && selectedPlaylist.value) && activeTab.value !== 'entity' && activeTab.value !== 'localCollection') tabScrolls.set(activeMusicSourceId.value + ':' + activeTab.value, window.scrollY)
+    if (tab === activeTab.value) return
+    if (activeTab.value === 'playlist' && tab === playlistOrigin.value) {
+      while (navigationHistory.value.at(-1)?.tab === 'playlist') navigationHistory.value = navigationHistory.value.slice(0, -1)
+      if (navigationHistory.value.at(-1)?.tab === tab) { navigateBack(); return }
+    }
+    if (activeTab.value !== 'playlist' && activeTab.value !== 'entity' && activeTab.value !== 'localCollection') tabScrolls.set(activeMusicSourceId.value + ':' + activeTab.value, window.scrollY)
     rememberPage()
-    navigationScrollY.value = tabScrolls.get(activeMusicSourceId.value + ':' + tab) ?? 0
+    navigationScrollY.value = tabScrollFor(tab)
     incrementTrackListRequest()
     loading.value = false
     activeTab.value = tab
-    if (tab === 'library') {
+    if (tab === 'home' || tab === 'library' || tab === 'search') {
       selectedPlaylist.value = undefined
       selectedEntity.value = undefined
       selectedLocalCollection.value = undefined
@@ -111,7 +124,7 @@ export function createShellNavigation(options: ShellNavigationOptions) {
   }
 
   function selectMusicSource(pluginId: string, tab: 'home' | 'library' | 'search' = 'library') {
-    if (activeMusicSourceId.value === pluginId && activeTab.value === tab && !selectedPlaylist.value) return
+    if (activeMusicSourceId.value === pluginId && activeTab.value === tab) return
     rememberPage()
     incrementTrackListRequest()
     incrementSearchRequest()
@@ -161,9 +174,11 @@ export function createShellNavigation(options: ShellNavigationOptions) {
     activeTab,
     activePluginId,
     activeMusicSourceId,
+    playlistOrigin,
     navigationHistory,
     navigationDirection,
     navigationScrollY,
+    tabScrollFor,
     rootTab,
     canNavigateBack,
     rememberPage,

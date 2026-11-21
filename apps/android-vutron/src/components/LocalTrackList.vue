@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, inject, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { VutronTrack } from '../platform/vutronPlugin'
 import { isCurrentTrack } from '../platform/currentTrack'
@@ -8,23 +8,26 @@ import { useTrackSearch } from '../composables/libraryPresentation'
 import { useTrackSelection, type TrackBatchAction } from '../composables/trackSelection'
 import TrackSelectionBar from './TrackSelectionBar.vue'
 import WindowedTrackList from './WindowedTrackList.vue'
+import { vRangeSelect } from '../composables/rangeSelect'
 import { vTrackMenu } from '../composables/trackActionMenu'
 import TrackMenuButton from './TrackMenuButton.vue'
 import OriginalIcon from './OriginalIcon.vue'
 import AppSelect from './AppSelect.vue'
 import PlaylistContinueButton from './PlaylistContinueButton.vue'
+import { navigationPreviewKey } from '../composables/navigationPreview'
 import { appNavigation, useNavigationDraft } from '../composables/navigationGuard'
 import { playlistLoadingText } from '../platform/playlistLoadingMessages'
 
 const CollectionOrderHistorySheet = defineAsyncComponent(() => import('./CollectionOrderHistorySheet.vue'))
 
-const props = withDefaults(defineProps<{ tracks: VutronTrack[]; collectionKey: string; orderKey?: string; originalOrderLabel?: string; continueScope?: string; query?: string; loading?: boolean; incomplete?: boolean; loadError?: string; localOnly?: boolean; syncOrder?: (tracks: VutronTrack[]) => Promise<boolean>; currentTrack?: VutronTrack; batchActions?: TrackBatchAction[]; runBatch?: (action: string, tracks: VutronTrack[]) => Promise<boolean> }>(), { query: '', continueScope: 'local:device' })
+const preview = inject(navigationPreviewKey, false)
+const props = withDefaults(defineProps<{ tracks: VutronTrack[]; collectionKey: string; orderKey?: string; originalOrderLabel?: string; continueScope?: string; query?: string; loading?: boolean; incomplete?: boolean; loadError?: string; localOnly?: boolean; cachedOnly?: boolean; syncOrder?: (tracks: VutronTrack[]) => Promise<boolean>; currentTrack?: VutronTrack; batchActions?: TrackBatchAction[]; runBatch?: (action: string, tracks: VutronTrack[]) => Promise<boolean> }>(), { query: '', continueScope: 'local:device' })
 const emit = defineEmits<{ play: [track: VutronTrack, queue: VutronTrack[]]; menu: [track: VutronTrack]; orderChange: [keys: string[]]; retry: [] }>()
 const { t } = useI18n()
 const source = computed(() => props.tracks)
 const storageKey = computed(() => props.orderKey || props.collectionKey)
-const trackKey = (track: VutronTrack) => props.orderKey?.startsWith('netease:') ? 'netease:' + (track.neteaseId || track.id) : localTrackKey(track)
-const { mode, ordered, commit, selectView, dirty, sequenceDirty, prepareDraftSave, saveDraft, discardDraft, history, historyLimit, recentCustomId, ensureLegacy, loadHistory, setHistoryLimit, renameHistory, pinHistory, removeHistory, historyError: storedHistoryError } = useCollectionTrackOrder(source, storageKey, trackKey)
+const trackKey = (track: VutronTrack) => props.cachedOnly && track.localEntryKey ? `${track.localEntryKey}:${track.id}` : props.orderKey?.startsWith('netease:') ? 'netease:' + (track.neteaseId || track.id) : localTrackKey(track)
+const { mode, ordered, commit, selectView, dirty, sequenceDirty, prepareDraftSave, saveDraft, discardDraft, history, historyLimit, recentCustomId, activeHistoryId, ensureLegacy, loadHistory, setHistoryLimit, renameHistory, pinHistory, removeHistory, historyError: storedHistoryError } = useCollectionTrackOrder(source, storageKey, trackKey)
 const sortModes = ['original', 'title', 'artist', 'album', 'custom'] as const
 const sortLabels = { original: 'mobile.library.originalOrder', title: 'mobile.library.title', artist: 'nav.artist', album: 'nav.album', custom: 'mobile.ordering.custom' }
 const normalizedQuery = computed(() => props.query.trim().toLowerCase())
@@ -33,10 +36,17 @@ const orderLoading = computed(() => Boolean(props.loading || props.incomplete))
 const displayOrder = computed(() => incomplete.value ? source.value : ordered.value)
 const filtered = useTrackSearch(displayOrder, normalizedQuery)
 const listStateKey = computed(()=>JSON.stringify(['native-tracks',storageKey.value,normalizedQuery.value,mode.value]))
-const selection = useTrackSelection(filtered, trackKey, storageKey)
-const { active: selecting, keys: selectedKeys, busy: batchBusy, selected, allSelected } = selection
+const cachedUnavailable = (track: VutronTrack) => Boolean(props.cachedOnly && !track.cached)
+const selectable = computed(() => props.cachedOnly ? filtered.value.filter(track => !cachedUnavailable(track)) : filtered.value)
+const selection = useTrackSelection(selectable, trackKey, storageKey)
+const { active: selecting, keys: selectedKeys, busy: batchBusy, selected, selectedCount, allSelected } = selection
 const windowed = ref<{ scrollToIndex(index: number, options?: { align?: 'center' }): Promise<void> }>()
-const currentIndex = computed(() => filtered.value.findIndex(row => isCurrentTrack(row, props.currentTrack, props.continueScope)))
+const currentIndex = computed(() => {
+  const current = props.currentTrack
+  if (props.cachedOnly && current?.localEntryKey && current.playlistVolumeKey === props.collectionKey)
+    return filtered.value.findIndex(row => row.localEntryKey === current.localEntryKey)
+  return filtered.value.findIndex(row => isCurrentTrack(row, current, props.continueScope))
+})
 function locateCurrent() { if (currentIndex.value >= 0) void windowed.value?.scrollToIndex(currentIndex.value, { align: 'center' }) }
 const message = ref('')
 const historyOpen = ref(false), historyMounted = ref(false), historyError = ref(''), historyTrigger = ref<HTMLElement>()
@@ -46,7 +56,7 @@ const list = ref<HTMLElement>()
 const drag = ref<{ key: string; pointer: number; x: number; y: number; startX: number; startY: number; active: boolean; anchor: string; after: boolean; label: string }>()
 let animation = 0
 const canDrag = computed(() => mode.value === 'custom' && !selecting.value && !normalizedQuery.value && !orderLoading.value && !syncBusy.value)
-const playable = computed(() => incomplete.value ? [] : ordered.value.filter(row => !row.missingLocal && (!props.localOnly || !row.onlineOnly)))
+const playable = computed(() => incomplete.value ? [] : ordered.value.filter(row => !cachedUnavailable(row) && !row.missingLocal && (!props.localOnly || !row.onlineOnly)))
 const missingCount = computed(() => displayOrder.value.filter(row => row.missingLocal).length)
 const syncBusy = ref(false)
 const orderSignature = computed(() => JSON.stringify(ordered.value.map(trackKey)))
@@ -74,7 +84,7 @@ function syncBeforeLeave(): Promise<boolean> {
   })
   return syncTask
 }
-useNavigationDraft({
+if (!preview) useNavigationDraft({
   dirty: () => syncDirty.value,
   save: syncBeforeLeave,
   discard: discardOrder,
@@ -175,6 +185,7 @@ function moveKeyboard(event: KeyboardEvent, track: VutronTrack) {
 }
 function play(track: VutronTrack) {
   if (incomplete.value) { message.value = playlistLoadingText('wait'); return }
+  if (cachedUnavailable(track)) return
   if (selecting.value) { selection.toggle(track); return }
   if (drag.value?.active) return
   if (track.missingLocal) { message.value = t('mobile.backup.missingHint'); return }
@@ -183,7 +194,7 @@ function play(track: VutronTrack) {
 }
 watch(storageKey, () => { cancelDrag(); historyOpen.value = false; historyError.value = '' })
 watch(source, cancelDrag)
-onMounted(() => document.addEventListener('keydown', keyboard, true))
+onMounted(() => { if (!preview) document.addEventListener('keydown', keyboard, true) })
 onBeforeUnmount(() => { cancelDrag(); document.removeEventListener('keydown', keyboard, true) })
 </script>
 
@@ -193,7 +204,7 @@ onBeforeUnmount(() => { cancelDrag(); document.removeEventListener('keydown', ke
     <div class="local-order-tools">
       <button class="text-button" type="button" :disabled="!playable.length || loading || selecting" @click="playable[0] && play(playable[0])"><OriginalIcon name="play" />{{ $t('mobile.ordering.playAll', { count: playable.length }) }}</button>
       <button v-if="currentIndex >= 0" class="text-button locate-current" type="button" @click="locateCurrent"><OriginalIcon name="locate" />{{ $t('mobile.player.locateCurrent') }}</button>
-      <button v-if="batchActions?.length && !selecting" type="button" class="text-button" :disabled="orderLoading || syncBusy" @click="cancelDrag(); selecting = true">{{ $t('mobile.batch.select') }}</button>
+      <button v-if="batchActions?.length && (!cachedOnly || selectable.length > 0) && !selecting" type="button" class="text-button" :disabled="orderLoading || syncBusy" @click="cancelDrag(); selecting = true">{{ $t('mobile.batch.select') }}</button>
       <div class="local-order-select"><span>{{ $t('mobile.library.sort') }}</span><AppSelect :model-value="mode" :disabled="syncBusy || incomplete" :label="$t('mobile.library.sortLabel')" :options="sortModes.map(value => ({ value, label: value === 'original' && originalOrderLabel ? originalOrderLabel : $t(sortLabels[value]) }))" @update:model-value="changeMode" /><button class="icon-button local-history-button" type="button" :disabled="syncBusy || incomplete" :aria-label="$t('mobile.orderHistory.title')" :title="$t('mobile.orderHistory.title')" aria-haspopup="dialog" :aria-expanded="historyOpen" @click="openHistory"><OriginalIcon name="refresh" /></button></div>
     </div>
     <div v-if="mode === 'custom'" class="local-order-hint"><span v-if="query">{{ $t('mobile.ordering.clearFilter') }}</span><button class="text-button" type="button" :disabled="syncBusy || incomplete" @click="restoreOrder">{{ originalOrderLabel ? $t('mobile.orderHistory.restoreSource', { label: originalOrderLabel }) : $t('mobile.ordering.restore') }}</button></div>
@@ -202,16 +213,16 @@ onBeforeUnmount(() => { cancelDrag(); document.removeEventListener('keydown', ke
     <p v-if="syncBusy" class="local-order-message" role="status">{{ $t('mobile.ordering.syncing') }}</p>
     <p v-else-if="orderKey?.startsWith('netease:') && !syncOrder && mode !== 'original'" class="local-order-message">{{ $t('mobile.ordering.localViewOnly') }}</p>
     <p v-if="missingCount" class="local-order-message">{{ $t('mobile.backup.missing', { count: missingCount }) }}</p>
-    <TrackSelectionBar v-if="selecting" :count="selected.length" :total="filtered.length" :all="allSelected" :busy="batchBusy" :actions="batchActions || []" @all="selection.selectAll" @close="selection.close" @action="action => selection.run(action, runBatch)" />
-    <div ref="list" class="track-list" @pointermove="moveDrag" @pointerup="finishDrag" @pointercancel="cancelDrag" @lostpointercapture="cancelDrag">
+    <TrackSelectionBar v-if="selecting" :count="selectedCount" :total="selectable.length" :all="allSelected" :busy="batchBusy" :actions="batchActions || []" @all="selection.selectAll" @close="selection.close" @action="action => selection.run(action, runBatch)" />
+    <div ref="list" v-range-select="!preview && batchActions?.length && !orderLoading && !syncBusy && !drag && !batchBusy ? selection.range.value : undefined" class="track-list" @pointermove="moveDrag" @pointerup="finishDrag" @pointercancel="cancelDrag" @lostpointercapture="cancelDrag">
       <WindowedTrackList ref="windowed" :items="filtered" :item-key="trackKey" :state-key="listStateKey" :restore-ready="!orderLoading" animate-changes :pinned-index="drag ? filtered.findIndex(row => trackKey(row) === drag?.key) : undefined"><template #default="{ item: track, index }">
-      <div :data-local-track-key="trackKey(track)" class="track-row" :class="{ 'track-current': index === currentIndex, 'track-selected': selectedKeys.has(trackKey(track)), 'sort-moving': drag?.active && drag.key === trackKey(track), 'sort-before': drag?.anchor === trackKey(track) && !drag.after, 'sort-after': drag?.anchor === trackKey(track) && drag.after }" :role="selecting ? 'checkbox' : 'button'" :aria-checked="selecting ? selectedKeys.has(trackKey(track)) : undefined" :aria-disabled="incomplete || undefined" :aria-current="index === currentIndex ? 'true' : undefined" tabindex="0" v-track-menu="() => !incomplete && !selecting && emit('menu', track)" @click="play(track)" @keydown.enter.self.prevent="play(track)" @keydown.space.self.prevent="play(track)">
+      <div :data-range-key="cachedUnavailable(track) ? undefined : trackKey(track)" :data-local-track-key="trackKey(track)" class="track-row" :class="{ 'track-current': index === currentIndex, 'track-selected': selectedKeys.has(trackKey(track)), 'sort-moving': drag?.active && drag.key === trackKey(track), 'sort-before': drag?.anchor === trackKey(track) && !drag.after, 'sort-after': drag?.anchor === trackKey(track) && drag.after }" :role="selecting ? 'checkbox' : 'button'" :aria-checked="selecting ? selectedKeys.has(trackKey(track)) : undefined" :aria-disabled="incomplete || cachedUnavailable(track) || undefined" :aria-current="index === currentIndex ? 'true' : undefined" tabindex="0" v-track-menu="preview ? undefined : () => !incomplete && !selecting && !cachedUnavailable(track) && emit('menu', track)" @click="play(track)" @keydown.enter.self.prevent="play(track)" @keydown.space.self.prevent="play(track)">
         <span v-if="selecting" class="track-selection-check" :class="{ checked: selectedKeys.has(trackKey(track)) }" aria-hidden="true"><OriginalIcon v-if="selectedKeys.has(trackKey(track))" name="check" /></span>
         <button v-else-if="mode === 'custom'" class="sort-handle icon-button" type="button" :disabled="!canDrag" :aria-label="$t('mobile.ordering.move', { name: track.name })" @click.stop @contextmenu.prevent.stop @pointerdown.stop.prevent="startDrag($event, track)" @keydown="moveKeyboard($event, track)"><OriginalIcon name="drag" /></button>
         <span v-else class="track-index">{{ index + 1 }}</span>
-        <span class="track-copy"><b>{{ track.name }}</b><small>{{ track.artists?.join(' / ') || track.album || $t('mobile.common.local') }}<span v-if="track.cueTrackNo"> · CUE #{{ track.cueTrackNo }}</span><span v-else-if="track.cueWarning" :title="track.cueWarning"> · CUE ⚠</span></small></span>
+        <span class="track-copy"><b>{{ track.name }}</b><small>{{ track.artists?.join(' / ') || track.album || $t('mobile.common.local') }}<span v-if="track.cueTrackNo"> · CUE #{{ track.cueTrackNo }}</span><span v-else-if="track.cueWarning" :title="track.cueWarning"> · CUE ⚠</span></small><small v-if="cachedUnavailable(track)" class="track-cache-state">{{ $t('mobile.playlistCache.audioMissing') }}</small></span>
         <span v-if="track.missingLocal" class="offline-badge">{{ $t('mobile.backup.unlinked') }}</span><span v-else-if="track.onlineOnly" class="offline-badge">{{ $t('mobile.ordering.online') }}</span>
-        <TrackMenuButton v-if="!selecting" :disabled="incomplete" :name="track.name" @open="emit('menu', track)" />
+        <TrackMenuButton v-if="!selecting && !cachedUnavailable(track)" :disabled="incomplete" :name="track.name" @open="emit('menu', track)" />
       </div>
       </template></WindowedTrackList>
       <div v-if="loading && orderKey?.startsWith('netease:')" class="playlist-load-state" role="status"><span>{{ playlistLoadingText('loading', { count: tracks.length }) }}</span><small>{{ playlistLoadingText('sorting') }}</small></div>
@@ -220,11 +231,12 @@ onBeforeUnmount(() => { cancelDrag(); document.removeEventListener('keydown', ke
       <div v-else-if="!filtered.length" class="empty-state">{{ query ? $t('mobile.ordering.noMatches') : $t('mobile.ordering.empty') }}</div>
     </div>
     <Teleport to="body"><div v-if="drag?.active" class="sort-floating-label" :style="{ left: drag.x + 12 + 'px', top: drag.y - 28 + 'px' }">{{ drag.label }}</div></Teleport>
-    <CollectionOrderHistorySheet v-if="historyMounted" ref="historySurface" :open="historyOpen" :scope-key="storageKey" :entries="history" :limit="historyLimit" :recent-custom-id="recentCustomId" :items="historyItems" :disabled="syncBusy || loading" :error="historyError || storedHistoryError" :return-focus="historyTrigger" @close="historyOpen = false" @load="loadHistoryOrder" @update:limit="value => updateHistory(() => setHistoryLimit(value))" @rename="(id, name) => updateHistory(() => renameHistory(id, name))" @pin="(id, pinned) => updateHistory(() => pinHistory(id, pinned))" @remove="id => updateHistory(() => removeHistory(id))" />
+    <CollectionOrderHistorySheet v-if="historyMounted" ref="historySurface" :open="historyOpen" :scope-key="storageKey" :entries="history" :limit="historyLimit" :recent-custom-id="recentCustomId" :active-id="historyOpen ? activeHistoryId : undefined" :items="historyItems" :disabled="syncBusy || loading" :error="historyError || storedHistoryError" :return-focus="historyTrigger" @close="historyOpen = false" @load="loadHistoryOrder" @update:limit="value => updateHistory(() => setHistoryLimit(value))" @rename="(id, name) => updateHistory(() => renameHistory(id, name))" @pin="(id, pinned) => updateHistory(() => pinHistory(id, pinned))" @remove="id => updateHistory(() => removeHistory(id))" />
   </div>
 </template>
 
 <style scoped>
+.track-copy .track-cache-state { margin-top:2px; font-size:calc(10px * var(--ui-font-scale, 1)); }
 .local-order-tools { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:8px; margin:8px 0; }
 .playlist-load-state { display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px; padding:18px 12px; color:var(--muted); font-size:calc(12px * var(--ui-font-scale,1)); line-height:1.6; }.playlist-load-state>small { display:block; flex-basis:100%; text-align:center; font-size:calc(11px * var(--ui-font-scale,1)); }.playlist-load-interrupted { border:1px solid var(--line); border-radius:var(--radius-card); margin-top:10px; background:var(--surface); }
 .local-order-hint { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:8px 0; }

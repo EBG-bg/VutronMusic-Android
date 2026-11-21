@@ -5,6 +5,7 @@ import android.net.Uri;
 
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.json.JSONArray;
 
 import java.io.IOException;
 import java.util.Locale;
@@ -35,22 +36,61 @@ public final class PlaybackSourceResolver {
         return resolveSession(app, trackId, SessionStore.load(app), status, gate);
     }
 
+    static JSONObject resolveCompatible(Context context, long trackId, String cookie, NeteasePlaybackPolicy.Gate gate) throws IOException {
+        NeteasePlaybackPolicy.check(gate);
+        JSONObject result = fullTrack(new NeteaseApi(cookie, () -> NeteasePlaybackPolicy.permitted(gate)).compatibleSongUrl(trackId), "netease");
+        NeteasePlaybackPolicy.check(gate);
+        JSONObject playable = EmbeddedSources.playable(context, result);
+        NeteasePlaybackPolicy.check(gate);
+        return playable;
+    }
+
+    /** A failed matched stream may be replaced once, using the same recording identity. */
+    static JSONObject resolveOtherMatch(Context context, long trackId, String rejected, NeteasePlaybackPolicy.Gate owner) throws IOException {
+        Context app = context.getApplicationContext();
+        NeteasePlaybackPolicy.Gate gate = () -> {
+            NeteasePlaybackPolicy.check(owner);
+            if (LocalOnlyMode.enabled(app) || !MusicConnectivity.available(app) || !SourceSettings.autoMatch(app))
+                throw new IOException("其它音源不可用");
+        };
+        NeteasePlaybackPolicy.check(gate);
+        JSONObject result = EmbeddedSources.songUrl(app, trackId, ignored -> { }, rejected);
+        NeteasePlaybackPolicy.check(gate);
+        JSONObject playable = EmbeddedSources.playable(app, fullTrack(result, result.optString("source")));
+        NeteasePlaybackPolicy.check(gate);
+        return playable;
+    }
+
     /** Cookie is chosen by the caller's account owner, never by this shared policy. */
     static JSONObject resolveSession(Context context, long trackId, String cookie, Consumer<String> status,
             NeteasePlaybackPolicy.Gate gate) throws IOException {
         if (trackId <= 0) throw new IOException("歌曲 ID 无效");
         Context app = context.getApplicationContext();
-        JSONObject location = NeteasePlaybackPolicy.resolveSources(gate, () -> {
-            status.accept("正在获取网易云播放地址…");
-            return fullTrack(new NeteaseApi(cookie, () -> NeteasePlaybackPolicy.permitted(gate)).songUrl(trackId), "netease");
-        }, () -> SourceSettings.autoMatch(app), () -> {
-            JSONObject result = EmbeddedSources.songUrl(app, trackId, status);
-            return fullTrack(result, result.optString("source", "其它音源"));
-        });
+        String preferred = TrackSourceOverrides.get(app, trackId);
+        JSONObject location;
+        if (!preferred.isEmpty()) {
+            status.accept("正在获取指定音源…");
+            NeteasePlaybackPolicy.check(gate);
+            location = fullTrack(EmbeddedSources.songUrlForSource(app, trackId, status, preferred), preferred);
+        } else location = NeteasePlaybackPolicy.resolveSources(gate, () -> {
+                status.accept("正在获取网易云播放地址…");
+                return fullTrack(new NeteaseApi(cookie, () -> NeteasePlaybackPolicy.permitted(gate)).songUrl(trackId), "netease");
+            }, () -> SourceSettings.autoMatch(app), () -> {
+                JSONObject result = EmbeddedSources.songUrl(app, trackId, status);
+                return fullTrack(result, result.optString("source", "其它音源"));
+            });
         NeteasePlaybackPolicy.check(gate);
         JSONObject playable = EmbeddedSources.playable(app, location);
         NeteasePlaybackPolicy.check(gate);
         return playable;
+    }
+
+    static JSONObject matchCandidates(Context context, long trackId) throws IOException {
+        if (trackId <= 0) throw new IOException("歌曲 ID 无效");
+        Context app = context.getApplicationContext();
+        LocalOnlyMode.requireOnline(app);
+        if (!MusicConnectivity.available(app)) throw new IOException("当前没有网络连接");
+        return EmbeddedSources.matchCandidates(app, trackId);
     }
 
     interface Source extends NeteasePlaybackPolicy.Source { }

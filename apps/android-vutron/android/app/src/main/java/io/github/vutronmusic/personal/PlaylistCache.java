@@ -27,6 +27,11 @@ final class PlaylistCache {
 
     private PlaylistCache() { }
 
+    /** Trusted, app-owned sources are read up to the same limit used by their native writer. */
+    static int archiveSourceLimit(String fileName) {
+        return fileName.startsWith("playlist-") ? MAX_PLAYLIST_BYTES : MAX_BYTES;
+    }
+
     /** Cache ownership is not an authenticated session and survives logout. */
     static void rememberOwner(Context context, long userId) {
         if (userId > 0) context.getSharedPreferences("vutron_cache_index", Context.MODE_PRIVATE)
@@ -70,8 +75,9 @@ final class PlaylistCache {
     }
 
     static void savePlaylists(Context context, long userId, List<JSONObject> values) throws IOException {
-        if (userId <= 0) return;
+        if (userId <= 0 || !ArtworkCache.canAutomaticallyCache(context)) return;
         synchronized (LOCK) {
+            if (!ArtworkCache.canAutomaticallyCache(context)) return;
             JSONObject document = readDocument(context, userId);
             JSONArray rows = new JSONArray();
             if (values != null) for (JSONObject value : values) if (value != null && !excluded(document, value.optLong("id"))) rows.put(copy(value));
@@ -83,14 +89,16 @@ final class PlaylistCache {
     }
 
     static void saveRecommendedPlaylists(Context context, long userId, List<JSONObject> values) throws IOException {
-        if (userId <= 0) return;
+        if (userId <= 0 || !ArtworkCache.canAutomaticallyCache(context)) return;
         JSONArray rows = new JSONArray();
         if (values != null) for (JSONObject value : values) rows.put(copy(value));
         JSONObject document;
         try { document = new JSONObject().put("version", 1).put("userId", userId)
                 .put("updatedAt", System.currentTimeMillis()).put("playlists", rows); }
         catch (JSONException invalid) { throw new IOException("Cannot encode home recommendation snapshot", invalid); }
-        writeAtomic(recommendationFile(context, userId), document, MAX_BYTES);
+        synchronized (LOCK) {
+            if (ArtworkCache.canAutomaticallyCache(context)) writeAtomic(recommendationFile(context, userId), document, MAX_BYTES);
+        }
     }
 
     static List<JSONObject> readRecommendedPlaylists(Context context, long userId) {
@@ -107,16 +115,16 @@ final class PlaylistCache {
         return result;
     }
 
-    static void saveTracks(Context context, long userId, long playlistId, List<JSONObject> values) throws IOException {
-        saveTracks(context, userId, playlistId, values, null);
+    static boolean saveTracks(Context context, long userId, long playlistId, List<JSONObject> values) throws IOException {
+        return saveTracks(context, userId, playlistId, values, null);
     }
 
-    static void saveTracks(Context context, long userId, long playlistId, List<JSONObject> values, JSONObject suppliedPlaylist) throws IOException {
-        saveTracks(context, userId, playlistId, values, suppliedPlaylist, false);
+    static boolean saveTracks(Context context, long userId, long playlistId, List<JSONObject> values, JSONObject suppliedPlaylist) throws IOException {
+        return saveTracks(context, userId, playlistId, values, suppliedPlaylist, false);
     }
 
-    static void saveTracks(Context context, long userId, long playlistId, List<JSONObject> values, JSONObject suppliedPlaylist, boolean explicitlyRestore) throws IOException {
-        if (userId <= 0 || playlistId <= 0) return;
+    static boolean saveTracks(Context context, long userId, long playlistId, List<JSONObject> values, JSONObject suppliedPlaylist, boolean explicitlyRestore) throws IOException {
+        if (userId <= 0 || playlistId <= 0 || !explicitlyRestore && !ArtworkCache.canAutomaticallyCache(context)) return false;
         JSONArray rows = new JSONArray();
         if (values != null) for (JSONObject value : values) rows.put(copy(value));
         JSONObject snapshot;
@@ -124,8 +132,9 @@ final class PlaylistCache {
                 .put("updatedAt", System.currentTimeMillis()).put("tracks", rows); }
         catch (JSONException invalid) { throw new IOException("Cannot encode playlist track snapshot", invalid); }
         synchronized (LOCK) {
+            if (!explicitlyRestore && !ArtworkCache.canAutomaticallyCache(context)) return false;
             JSONObject document = readDocument(context, userId);
-            if (!explicitlyRestore && excluded(document, playlistId)) return;
+            if (!explicitlyRestore && excluded(document, playlistId)) return false;
             writeAtomic(trackFile(context, userId, playlistId), snapshot, MAX_PLAYLIST_BYTES);
             if (explicitlyRestore) exclude(document, playlistId, false);
             JSONObject recommendations = readAtomic(recommendationFile(context, userId), MAX_BYTES);
@@ -143,6 +152,7 @@ final class PlaylistCache {
             try { document.put("visitedPlaylists", updated); }
             catch (JSONException invalid) { throw new IOException("Cannot encode visited playlist index", invalid); }
             writeDocument(context, userId, document);
+            return true;
         }
     }
 
@@ -173,6 +183,10 @@ final class PlaylistCache {
             }
         } catch (Exception error) { Log.w(TAG, "Playlist track cache unavailable", error); }
         return result;
+    }
+
+    static boolean excludesAutomaticSnapshot(Context context, long userId, long playlistId) throws IOException {
+        return excluded(readDocument(context, userId), playlistId);
     }
 
     static boolean hasTrackSnapshot(Context context, long userId, long playlistId) {
@@ -290,10 +304,11 @@ final class PlaylistCache {
     }
 
     static void clear(Context context) {
-        File root = root(context);
-        File[] files = root.listFiles();
-        if (files != null) for (File file : files) if (file.isFile()) file.delete();
-        ArtworkCache.clear(context);
+        synchronized (LOCK) {
+            File[] files = root(context).listFiles();
+            if (files != null) for (File file : files) if (file.isFile()) file.delete();
+            ArtworkCache.clear(context);
+        }
     }
 
     private static JSONObject decorate(Context context, JSONObject value) throws JSONException {
@@ -366,10 +381,14 @@ final class PlaylistCache {
     }
 
     private static void writeAtomic(File destination, JSONObject document, int maxBytes) throws IOException {
-        File root = destination.getParentFile();
-        if (!root.isDirectory() && !root.mkdirs() && !root.isDirectory()) throw new IOException("Playlist cache directory unavailable");
         byte[] raw = document.toString().getBytes(StandardCharsets.UTF_8);
         if (raw.length > maxBytes) throw new IOException("Playlist cache exceeds its size limit");
+        writeAtomic(destination, raw);
+    }
+
+    private static void writeAtomic(File destination, byte[] raw) throws IOException {
+        File root = destination.getParentFile();
+        if (!root.isDirectory() && !root.mkdirs() && !root.isDirectory()) throw new IOException("Playlist cache directory unavailable");
         AtomicFile file = new AtomicFile(destination);
         FileOutputStream output = null;
         try {
@@ -380,6 +399,53 @@ final class PlaylistCache {
             if (output != null) file.failWrite(output);
             throw failure;
         }
+    }
+
+    /** Restore only absent cache rows/snapshots, retaining the destination account's exclusions. */
+    static boolean restoreArchiveSnapshot(Context context, long owner, String name, File staged) throws Exception {
+        synchronized (LOCK) {
+            File base = root(context);
+            if (name.startsWith("user-")) {
+                File destination = new File(base, name);
+                if (!destination.exists() && !new File(base, name + ".bak").exists())
+                    return BackupCacheArchive.moveNew(staged, context.getFilesDir(), DIRECTORY, name);
+                JSONObject target = readDocument(context, owner);
+                JSONObject source = readAtomic(staged, MAX_BYTES);
+                if (source == null) throw new IOException("无法读取待恢复的歌单索引");
+                byte[] merged = mergedArchiveIndex(target, source, MAX_BYTES);
+                if (merged == null) return false;
+                writeAtomic(destination, merged);
+                return true;
+            }
+            if (name.startsWith("playlist-")) {
+                long playlistId = Long.parseLong(name.substring(name.lastIndexOf('-') + 1, name.length() - 5));
+                if (excluded(readDocument(context, owner), playlistId)) return false;
+            }
+            return BackupCacheArchive.moveNew(staged, context.getFilesDir(), DIRECTORY, name);
+        }
+    }
+
+    /** A valid archive and an existing index can exceed the limit only after combining. Keep the old index. */
+    static byte[] mergedArchiveIndex(JSONObject target, JSONObject source, int maxBytes) throws JSONException {
+        JSONArray previous = target.optJSONArray("visitedPlaylists"), merged = new JSONArray();
+        for (int i = 0; previous != null && i < previous.length(); i++) merged.put(previous.get(i));
+        JSONArray current = visiblePlaylists(target);
+        java.util.Set<Long> ids = new java.util.HashSet<>();
+        for (int i = 0; i < current.length(); i++) ids.add(current.getJSONObject(i).getLong("id"));
+        int previousSize = merged.length();
+        JSONArray items = visiblePlaylists(source);
+        for (int i = 0; i < items.length(); i++) {
+            JSONObject row = items.getJSONObject(i); long id = row.getLong("id");
+            if (!excluded(target, id) && ids.add(id)) merged.put(row);
+        }
+        if (merged.length() == previousSize) return null;
+        JSONObject updated = new JSONObject();
+        for (java.util.Iterator<String> keys = target.keys(); keys.hasNext();) {
+            String key = keys.next(); updated.put(key, target.get(key));
+        }
+        updated.put("visitedPlaylists", merged);
+        byte[] encoded = updated.toString().getBytes(StandardCharsets.UTF_8);
+        return encoded.length <= maxBytes ? encoded : null;
     }
 
     private static JSONObject copy(JSONObject value) {

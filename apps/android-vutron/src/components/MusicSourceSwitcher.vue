@@ -32,8 +32,8 @@ const options = computed(() => [
 .source-heading .original-icon { font-size: 18px; }
 .source-strip { display: flex; gap: 8px; padding: 3px 2px 7px; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; scroll-snap-type: x proximity; }
 .source-strip::-webkit-scrollbar { display: none; }
-.source-strip button { flex: 0 0 auto; min-height: 44px; padding: 10px 16px; border: 1px solid var(--line); border-radius: 999px; color: var(--source-muted); background: var(--color-body-bg); font: inherit; font-size: calc(12px * var(--ui-font-scale, 1)); line-height: 1.45; font-weight: 600; white-space: nowrap; scroll-snap-align: start; transition: color var(--motion-feedback), background-color var(--motion-feedback), border-color var(--motion-feedback), transform var(--motion-feedback); }
-.source-strip button.selected { color: var(--source-accent-ink); border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); background: var(--accent-soft); font-weight: 750; }
+.source-strip button { flex: 0 0 auto; min-height: 40px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 11px; color: var(--source-muted); background: var(--surface-card); font: inherit; font-size: calc(12px * var(--ui-font-scale, 1)); line-height: 1.4; font-weight: 600; white-space: nowrap; scroll-snap-align: start; transition: color var(--motion-feedback), background-color var(--motion-feedback), border-color var(--motion-feedback), transform var(--motion-feedback); }
+.source-strip button.selected { color: var(--source-accent-ink); border-color: var(--accent-border, color-mix(in srgb, var(--accent) 35%, var(--line))); background: var(--accent-soft); font-weight: 750; }
 .source-strip button:active { transform: scale(.97); }
 .source-strip button:disabled { opacity: .45; }
 @media (hover: hover) { .source-strip button:enabled:hover { color: var(--source-accent-ink); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 25%, var(--line)); } }

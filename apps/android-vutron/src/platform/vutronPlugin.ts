@@ -1,10 +1,11 @@
 import { registerPlugin, type Plugin } from '@capacitor/core'
 import type { VutronCommentTarget, VutronCommentQuery, VutronCommentPage } from './commentTypes'
-import type { PluginPlayback } from '../plugins/protocol'
+import type { PluginItem, PluginPlayback } from '../plugins/protocol'
 
 export interface VutronProfile { userId: number; nickname: string; avatarUrl?: string; isVip?: boolean }
-export interface VutronPlaylist { createTime?: number; id: number; name: string; coverImgUrl?: string; coverLocalUri?: string; trackCount?: number; copywriter?: string; creatorUserId?: number; subscribed?: boolean; privacy?: number; description?: string; tags?: string[]; specialType?: number; offlineSnapshot?: boolean; cacheOwnerId?: number; tracksIncomplete?: boolean; tracksLoadError?: string }
-export interface VutronPlaylistTracksResult { tracks: VutronTrack[]; playlist?: VutronPlaylist; cached?: boolean; incomplete?: boolean; message?: string }
+export interface VutronPlaylist { createTime?: number; id: number; name: string; coverImgUrl?: string; coverLocalUri?: string; trackCount?: number; copywriter?: string; creatorUserId?: number; subscribed?: boolean; privacy?: number; description?: string; tags?: string[]; specialType?: number; offlineSnapshot?: boolean; cacheOwnerId?: number; tracksIncomplete?: boolean; tracksLoadError?: string; pluginCacheKey?: string; pluginId?: string; pluginAccountScope?: string; cacheProviderName?: string }
+export interface VutronPlaylistProgress { trackId?: number; position?: number; duration?: number; cueTrackNo?: number; updatedAt?: number; localEntryKey?: string }
+export interface VutronPlaylistTracksResult { tracks: VutronTrack[]; playlist?: VutronPlaylist; cached?: boolean; cacheSaved?: boolean; cacheSkipped?: boolean; incomplete?: boolean; message?: string }
 export interface VutronPlaylistTracksProgress { requestToken: string; userId: number; playlistId: number; offset: number; total: number; tracks: VutronTrack[]; playlist?: VutronPlaylist }
 export interface VutronNetworkState { enabled: boolean; manual?: boolean; connected?: boolean }
 export interface VutronOnlineLibrary { userId: number; playlists?: VutronPlaylist[]; likedIds?: number[]; playlist?: VutronPlaylist; tracks?: VutronTrack[]; committed?: boolean; refreshFailed?: boolean; deletedPlaylistId?: number; createdPlaylistId?: number; message?: string }
@@ -12,7 +13,7 @@ export interface VutronNeteaseMutation { action: 'like' | 'create' | 'edit' | 'd
 export interface VutronLocalCollection { createTime?: number; id: string; name: string; trackCount: number; uri?: string; isLocalBundle?: boolean; permissionGranted?: boolean }
 export interface VutronLocalLibrary { folders: VutronLocalCollection[]; playlists: VutronLocalCollection[]; excludedTrackCount?: number }
 export interface VutronRemovedLocalTrack { id: string; name: string; artists: string[]; album: string; removedAt: number }
-export interface VutronLibraryTask { kind: string; running: boolean; cancelled?: boolean; done: number; total: number }
+export interface VutronLibraryTask { kind: string; running: boolean; cancelled?: boolean; cancellable?: boolean; done: number; total: number }
 export interface VutronLocalImportResult { cancelled?: boolean; playlist?: VutronLocalCollection; needsMode?: boolean; importToken?: string; audioCount?: number; canMatchOnline?: boolean; matched?: number; total?: number; failed?: number; matchingCancelled?: boolean; matchingPaused?: boolean; matchingFailed?: boolean }
 export interface VutronTrack {
   pluginId?: string
@@ -26,6 +27,8 @@ export interface VutronTrack {
   cached?: boolean
   missingLocal?: boolean
   onlineOnly?: boolean
+  offlineOnly?: boolean
+  source?: string
   localEntryKey?: string
   localKey?: string
   localFolderId?: string
@@ -54,6 +57,10 @@ export interface VutronTrack {
   playlistVolumeName?: string
   playlistOrderScope?: string
   playlistOrderKey?: string
+}
+export interface VutronTrackSourceMatch {
+  source: string; name: string; album: string; artists: string[]; duration: number
+  identityRank: number; bitrate: number; audioType: string; lossless: boolean
 }
 export interface VutronBanner { id: number; picUrl?: string; picLocalUri?: string; type?: string; typeTitle?: string; url?: string; sourceId?: number }
 export interface VutronArtist { id: number; name: string; picUrl?: string }
@@ -85,6 +92,8 @@ export interface VutronCacheStatus {
   libraryBytes?: number
   artworkCapacityMb?: number
   artworkBytes?: number
+  artworkFull?: boolean
+  libraryAutoCache?: boolean
   enabled?: boolean
   queued?: number
   downloading?: boolean
@@ -203,27 +212,28 @@ export interface VutronMusicPlugin extends Plugin {
   cancelQrLogin?(options: { key: string }): Promise<void>
   logout(): Promise<void>
   getPlaylists(options: { userId: number }): Promise<{ playlists: VutronPlaylist[]; cached?: boolean }>
-  getPlaylistTracks(options: { playlistId: number; playlist?: VutronPlaylist; userId?: number; requestToken?: string }): Promise<VutronPlaylistTracksResult>
+  getPlaylistTracks(options: { playlistId: number; playlist?: VutronPlaylist; userId?: number; requestToken?: string; cacheOnly?: boolean }): Promise<VutronPlaylistTracksResult>
   getLikedTrackIds?(): Promise<{ userId: number; likedIds: number[] }>
   getOnlineLibrary?(options: { playlistId?: number }): Promise<VutronOnlineLibrary>
   manageNeteaseLibrary?(options: VutronNeteaseMutation): Promise<VutronOnlineLibrary>
   getCachedPlaylists?(): Promise<{ playlists: VutronPlaylist[] }>
-  getCachedPlaylistTracks?(options: { playlistId: number }): Promise<{ tracks: VutronTrack[] }>
-  deleteCachedPlaylist?(options: { playlistId: number; userId?: number }): Promise<{ removed: boolean }>
+  getCachedPlaylistTracks?(options: { playlistId: number; pluginCacheKey?: string }): Promise<{ tracks: VutronTrack[] }>
+  deleteCachedPlaylist?(options: { playlistId: number; userId?: number; pluginCacheKey?: string }): Promise<{ removed: boolean }>
+  cachePluginPlaylist?(options: { pluginId: string; accountScope: string; playlist: Pick<PluginItem, 'id' | 'name' | 'picUrl' | 'sourceContext' | 'trackCount'> }): Promise<{ count: number; cancelled?: boolean }>
   getLocalLibrary?(): Promise<VutronLocalLibrary>
   importLocalPlaylist?(): Promise<VutronLocalImportResult>
   completeLocalPlaylistImport?(options: { importToken: string; matchOnline: boolean }): Promise<VutronLocalImportResult>
   discardLocalPlaylistImport?(options: { importToken: string }): Promise<void>
   getLocalPlaylistTracks?(options: { playlistId: string }): Promise<{ tracks: VutronTrack[] }>
   getLocalFolderTracks?(options: { folderId: string }): Promise<{ tracks: VutronTrack[] }>
-  cachePlaylist?(options: { playlistId: number }): Promise<{ count: number }>
+  cachePlaylist?(options: { playlistId: number }): Promise<{ count?: number; cancelled?: boolean }>
   cacheAllPlaylists?(): Promise<{ cachedPlaylists: number; cachedTracks: number; failedPlaylists: number; pendingCovers?: number; cancelled?: boolean }>
   getHomeData?(): Promise<VutronHomeData>
   search?(options: { category: VutronSearchCategory; keywords: string; page: number }): Promise<VutronSearchResult>
   getEntityTracks?(options: { category: 'albums' | 'artists'; id: number }): Promise<{ tracks: VutronTrack[] }>
   openMv?(options: { id: number }): Promise<void>
   play(options: { track: VutronTrack; queue?: VutronTrack[]; index?: number; position?: number }): Promise<void>
-  getPlaylistProgress?(options: { scope: string; playlistKey: string }): Promise<{ trackId?: number; position?: number; duration?: number; cueTrackNo?: number; updatedAt?: number }>
+  getPlaylistProgress?(options: { scope: string; playlistKey: string }): Promise<VutronPlaylistProgress>
   next(): Promise<void>
   previous(): Promise<void>
   getPlaybackQueue?(): Promise<VutronQueue>
@@ -233,8 +243,10 @@ export interface VutronMusicPlugin extends Plugin {
   removeQueueTrack?(options: { index: number; upNext?: boolean }): Promise<VutronQueue>
   clearPlayNext?(): Promise<VutronQueue>
   undoPlaybackQueue?(options: { undoToken: string }): Promise<VutronQueue>
-  exportUserBackup?(options: { frontend: Record<string, string>; orders: Record<string, unknown> }): Promise<{ cancelled?: boolean; collectionCount?: number }>
-  importUserBackup?(): Promise<{ cancelled?: boolean; frontend?: Record<string, string>; orders?: Record<string, unknown>; collectionCount?: number }>
+  exportUserBackup?(options: { frontend: Record<string, string>; orders: Record<string, unknown>; includePrivacy?: boolean; includeCache?: boolean; language: string }): Promise<{ cancelled?: boolean; collectionCount?: number; cacheItems?: number }>
+  inspectUserBackup?(options?: Record<string, never>): Promise<{ cancelled?: boolean; requestId?: string; archive?: boolean; collectionCount?: number; trackCount?: number; cacheItems?: number; audioItems?: number; hasAccounts?: boolean }>
+  cancelUserBackupImport?(options: { requestId: string }): Promise<void>
+  completeUserBackupImport?(options: { requestId: string; includePrivacy: boolean; includeCache?: boolean; language: string }): Promise<{ cancelled?: boolean; frontend?: Record<string, string>; orders?: Record<string, unknown>; collectionCount?: number; collectionSkipped?: number; cacheItems?: number; cacheSkipped?: number; cacheIncomplete?: boolean; neteaseRestored?: boolean; pluginAccountsRestored?: number; pluginAccountsSkipped?: number }>
   reorderLocalPlaybackQueue?(options: { collectionId: string; keys: string[] }): Promise<VutronQueue>
   pause(): Promise<void>
   resume(): Promise<void>
@@ -251,6 +263,7 @@ export interface VutronMusicPlugin extends Plugin {
   getArtwork?(options: { url: string; localUri?: string; size?: number }): Promise<{ uri: string }>
   setCacheCapacity?(options: { capacityMb: number }): Promise<VutronCacheStatus>
   setCacheEnabled?(options: { enabled: boolean }): Promise<VutronCacheStatus>
+  setLibraryAutoCache?(options: { enabled: boolean }): Promise<VutronCacheStatus>
   setArtworkCacheCapacity?(options: { capacityMb: number }): Promise<VutronCacheStatus>
   cacheTrack?(options: { track: VutronTrack }): Promise<{ cached: boolean }>
   getCachedTracks?(): Promise<{ tracks: VutronLocalTrack[] }>
@@ -276,6 +289,8 @@ export interface VutronMusicPlugin extends Plugin {
   setAbLoop?(options: { action?: 'set' | 'clear'; expectedTrackKey: string; startMs?: number; endMs?: number; enabled?: boolean }): Promise<VutronAbLoopState>
   getSourceSettings(): Promise<{ autoMatch: boolean }>
   updateSourceSettings(options: { autoMatch: boolean }): Promise<{ autoMatch: boolean }>
+  getTrackSourceMatches(options: { trackId: number }): Promise<{ matches: VutronTrackSourceMatch[]; override: string }>
+  setTrackSourceOverride(options: { trackId: number; source: string }): Promise<{ changed: boolean; source: string }>
   getVolumeSettings(options?: { track?: VutronTrack; playlistKey?: string }): Promise<{ trackPercent: number; playlistPercent: number }>
   setTrackVolume(options: { percent: number; track?: VutronTrack }): Promise<{ trackPercent: number; playlistPercent: number }>
   setPlaylistVolume(options: { playlistKey: string; percent: number }): Promise<{ trackPercent: number; playlistPercent: number }>

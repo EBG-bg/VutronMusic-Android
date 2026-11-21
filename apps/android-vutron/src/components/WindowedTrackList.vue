@@ -1,6 +1,7 @@
 <script setup lang="ts" generic="T">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
-import { MeasuredTrackHeights, readWindowedViewState, saveWindowedViewState, type WindowedScrollPosition } from '../composables/windowedTracks'
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { MeasuredTrackHeights, peekWindowedPreview, readWindowedViewState, saveWindowedViewState, type WindowedScrollPosition } from '../composables/windowedTracks'
+import { navigationPreviewKey } from '../composables/navigationPreview'
 import { reducedMotion } from '../platform/motion'
 
 const props = withDefaults(defineProps<{
@@ -17,7 +18,9 @@ const props = withDefaults(defineProps<{
   animateChanges?: boolean
   stateKey?: string
   restoreReady?: boolean
+  selectionRevision?: number
 }>(), { enabled: true, estimatedHeight: 70, overscan: 480, gap: 6, scrollTarget: 'window', restoreReady: true })
+const preview = inject(navigationPreviewKey, false)
 const root = ref<HTMLElement>()
 const measured = new Map<string | number, number>()
 const model = shallowRef(new MeasuredTrackHeights([], props.estimatedHeight))
@@ -28,7 +31,7 @@ let animationTimer: ReturnType<typeof setTimeout> | undefined
 let observer: ResizeObserver | undefined, target: Window | HTMLElement | undefined, frame = 0, disposed = false
 let scrollAnimation = 0, finishScroll: (() => void) | undefined
 let activeStateKey = '', mounted = false, pendingPosition: WindowedScrollPosition | undefined, restoreRevision = 0
-const windowed = computed(() => props.enabled && props.items.length > 60)
+const windowed = computed(() => !preview && props.enabled && props.items.length > 60)
 const totalHeight = computed(() => { revision.value; return model.value.total })
 const range = computed(() => {
   revision.value
@@ -38,14 +41,20 @@ const range = computed(() => {
     end: Math.min(props.items.length, model.value.indexAt(Math.max(0, localTop.value + viewportHeight.value + props.overscan)) + 1)
   }
 })
+const previewWindow = ref({ start: 0, padding: 0 })
 const rendered = computed(() => {
+  if (preview) {
+    const { start, padding } = previewWindow.value
+    return props.items.slice(start, start + 24).map((item, i) => ({ item, index: start + i,
+      key: props.itemKey(item, start + i), before: i === 0 ? padding : 0, selectionRevision: props.selectionRevision ?? 0 }))
+  }
   revision.value
   const { start, end } = range.value, indices = Array.from({ length: Math.max(0, end - start) }, (_, i) => start + i)
   if (windowed.value) for (const index of [focusedIndex.value, props.pinnedIndex ?? -1]) {
     if (index >= 0 && index < props.items.length && (index < start || index >= end) && !indices.includes(index)) indices.push(index)
   }
   indices.sort((a, b) => a - b)
-  return indices.map((index, i) => ({ index, item: props.items[index]!, key: props.itemKey(props.items[index]!, index),
+  return indices.map((index, i) => ({ index, item: props.items[index]!, key: props.itemKey(props.items[index]!, index), selectionRevision: props.selectionRevision ?? 0,
     before: windowed.value ? model.value.offset(index) - model.value.offset(i ? indices[i - 1]! + 1 : 0) : 0 }))
 })
 const bottom = computed(() => {
@@ -165,7 +174,10 @@ async function keydown(event: KeyboardEvent) {
 function rememberView() {
   if (activeStateKey && root.value && target) {
     updateViewport()
-    saveWindowedViewState(activeStateKey, measured, localTop.value >= 0 ? captureScrollPosition() : undefined)
+    const position = localTop.value >= 0 ? captureScrollPosition() : undefined
+    const start = position ? Math.max(0, position.index - 3) : 0
+    saveWindowedViewState(activeStateKey, measured, position,
+      position && target === window ? { start, padding: model.value.offset(start), scroll: localTop.value } : undefined)
   }
 }
 async function restoreCachedPosition() {
@@ -179,7 +191,7 @@ async function restoreCachedPosition() {
   pendingPosition = undefined
   await restoreScrollPosition(position)
 }
-watch([() => props.items, () => props.itemKey, () => props.estimatedHeight, () => props.stateKey], () => {
+if (!preview) watch([() => props.items, () => props.itemKey, () => props.estimatedHeight, () => props.stateKey], () => {
   if (activeStateKey !== (props.stateKey ?? '')) {
     rememberView(); measured.clear(); restoreRevision++
     activeStateKey = props.stateKey ?? ''
@@ -206,6 +218,18 @@ watch([() => props.items, () => props.itemKey, () => props.estimatedHeight, () =
 watch(() => props.scrollTarget, () => { if (target) bindTarget() }, { flush: 'post' })
 watch(() => props.restoreReady, ready => { if (ready) void restoreCachedPosition(); else restoreRevision++ })
 onMounted(async () => {
+  if (preview) {
+    const top = Math.max(0, -(root.value?.getBoundingClientRect().top ?? 0))
+    if (top > props.estimatedHeight * 4 && props.items.length > 24) {
+      const saved = props.stateKey ? peekWindowedPreview(props.stateKey) : undefined
+      if (saved && saved.start < props.items.length && Math.abs(saved.scroll - top) <= props.estimatedHeight * 3) previewWindow.value = saved
+      else {
+        const start = Math.max(0, Math.min(props.items.length - 1, Math.floor(top / props.estimatedHeight)) - 3)
+        previewWindow.value = { start, padding: start * props.estimatedHeight }
+      }
+    }
+    return
+  }
   mounted = true
   observer = new ResizeObserver(measure)
   for (const row of elements.values()) observer.observe(row)
@@ -241,7 +265,7 @@ defineExpose({ scrollToIndex, refresh, indexAtClientY, captureScrollPosition, re
     <TransitionGroup tag="div" name="windowed-row" :css="animateRows && !reducedMotion">
     <template v-for="row in rendered" :key="row.key">
       <div v-if="row.before > 0" :key="`spacer:${row.key}`" class="windowed-spacer" aria-hidden="true" :style="{ height: `${row.before}px` }" />
-      <div :ref="element => setRow(element, row.index)" class="windowed-track-item" role="listitem" :aria-posinset="row.index + 1" :aria-setsize="items.length" :data-windowed-index="row.index"><slot :item="row.item" :index="row.index" /></div>
+      <div :ref="element => setRow(element, row.index)" class="windowed-track-item" role="listitem" :aria-posinset="row.index + 1" :aria-setsize="items.length" :data-windowed-index="row.index" :data-selection-revision="row.selectionRevision"><slot :item="row.item" :index="row.index" /></div>
     </template>
     <div v-if="bottom > 0" key="bottom-spacer" class="windowed-spacer" aria-hidden="true" :style="{ height: `${bottom}px` }" />
     </TransitionGroup>

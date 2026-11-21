@@ -10,6 +10,7 @@ import java.util.Map;
 final class PlaylistProgress {
     private static final String PREFS = "vutron_playlist_progress";
     private static final int MAX_PLAYLISTS = 512;
+    private static final java.util.regex.Pattern SNAPSHOT_ENTRY = java.util.regex.Pattern.compile("plugin-snapshot:[a-f0-9]{64}:[0-9]{1,5}");
     private PlaylistProgress() { }
 
     static String key(String scope, String playlist) {
@@ -25,6 +26,10 @@ final class PlaylistProgress {
         JSONObject result = new JSONObject().put("trackId", id).put("cueTrackNo", track.optInt("cueTrackNo"))
                 .put("position", Math.min(position, Math.max(0, duration - 1)))
                 .put("duration", duration).put("updatedAt", now);
+        if ("plugin-snapshot".equals(track.optString("source"))) {
+            String entry = track.optString("localEntryKey");
+            if (SNAPSHOT_ENTRY.matcher(entry).matches()) result.put("localEntryKey", entry);
+        }
         if (PluginMedia.isPlugin(track)) result.put("pluginId",track.optString("pluginId")).put("pluginTrackId",track.optString("pluginTrackId"));
         return result;
     }

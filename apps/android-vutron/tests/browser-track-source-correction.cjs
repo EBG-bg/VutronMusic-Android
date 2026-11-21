@@ -1,0 +1,48 @@
+const assert = require('node:assert/strict')
+
+module.exports = async ({ page, evaluate, wait, delay }) => {
+  const count = selector => evaluate(`document.querySelectorAll(${JSON.stringify(selector)}).length`)
+  const text = selector => evaluate(`document.querySelector(${JSON.stringify(selector)})?.textContent || ''`)
+  const click = selector => evaluate(`(()=>{const element=document.querySelector(${JSON.stringify(selector)});if(!element)throw new Error('Missing '+${JSON.stringify(selector)});element.click()})()`)
+  const clickMatching = (selector, content) => evaluate(`(()=>{const element=Array.from(document.querySelectorAll(${JSON.stringify(selector)})).find(item=>item.textContent.includes(${JSON.stringify(content)}));if(!element)throw new Error('Missing action '+${JSON.stringify(content)});element.click()})()`)
+  const pressEscape = async () => {
+    await page.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+    await page.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 })
+  }
+  await evaluate(`(()=>{const s=window.featureHarness.store;s.navigateTo('search');s.searchCategory='tracks';s.searchKeywords='Source';s.submittedSearch={category:'tracks',keywords:'Source'};s.searchResults=[{id:991,name:'Source match fixture',artists:['Fixture artist'],album:'Fixture album',duration:180000}];s.searchCount=1})()`)
+  await wait(`document.querySelector('.search-track-list .track-menu-button')`)
+  await evaluate(`(async()=>{const {vutronPlugin}=await import('/src/platform/vutronPlugin.ts');window.sourceChoiceCalls=[];window.sourceChoice='';const matches=[{source:'kuwo',name:'Source match fixture',album:'Fixture album',artists:['Fixture artist'],duration:180000,identityRank:100,bitrate:320000,audioType:'mp3',lossless:false},{source:'kugou',name:'Source match fixture',album:'Fixture album',artists:['Fixture artist'],duration:180000,identityRank:98,bitrate:999000,audioType:'flac',lossless:true}];vutronPlugin.getTrackSourceMatches=async({trackId})=>({matches,override:window.sourceChoice,trackId});vutronPlugin.setTrackSourceOverride=async({trackId,source})=>{window.sourceChoiceCalls.push({trackId,source});window.sourceChoice=source;return {changed:true,source}}})()`)
+  await click('.track-menu-button')
+  await wait(`document.querySelector('.track-action-menu')`)
+  await clickMatching('.track-action-options button', '纠正音源')
+  await wait(`document.querySelector('.track-source-sheet .track-source-candidate')`)
+  assert.equal(await count('.track-source-candidate'), 2)
+  await evaluate(`document.querySelectorAll('.track-source-candidate')[1].click()`)
+  await click('.track-source-actions .secondary-button')
+  await wait(`document.querySelector('.track-source-sheet')===null&&window.sourceChoice==='kugou'`)
+  assert.deepEqual(await evaluate('window.sourceChoiceCalls'), [{ trackId: 991, source: 'kugou' }])
+  assert.match(await text('.track-action-notice'), /酷狗/)
+
+  await clickMatching('.track-action-options button', '纠正音源')
+  await wait(`document.querySelector('.track-source-sheet .track-source-candidate.selected')`)
+  assert.match(await text('.track-source-candidate.selected'), /酷狗/)
+  await pressEscape()
+  await wait(`document.querySelector('.track-source-sheet')===null`)
+  assert.ok(await count('.track-action-menu'), 'Closing the source sheet keeps the track menu open')
+
+  await clickMatching('.track-action-options button', '纠正音源')
+  await wait(`document.querySelector('.track-source-sheet .track-source-candidate.selected')`)
+  await click('.track-source-actions .text-button')
+  await wait(`window.sourceChoice===''&&document.querySelector('.track-source-sheet')===null`)
+  assert.deepEqual(await evaluate('window.sourceChoiceCalls'), [{ trackId: 991, source: 'kugou' }, { trackId: 991, source: '' }])
+
+  for (const language of ['zh', 'zht', 'en']) {
+    await evaluate(`document.querySelector('#app').__vue_app__.config.globalProperties.$i18n.locale=${JSON.stringify(language)}`)
+    await delay(50)
+    assert.match(await text('.track-action-options'), new RegExp(language === 'en' ? 'Correct audio source' : language === 'zht' ? '修正音源' : '纠正音源'))
+  }
+  await click('.track-action-menu header .icon-button')
+  await delay(80)
+  assert.equal(await count('.track-source-sheet'), 0)
+  console.log('PASS: source correction menu, identity candidates, per-track save/restore, nested Escape behavior, and three locales')
+}

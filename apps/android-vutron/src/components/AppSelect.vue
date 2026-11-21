@@ -89,17 +89,17 @@ onBeforeUnmount(close)
 .app-select-trigger > span { min-width: 0; overflow-wrap: anywhere; }
 .app-select-trigger .original-icon { flex: 0 0 13px; font-size: 13px; transition: transform var(--motion-feedback, 180ms) ease; }
 .app-select-trigger[aria-expanded="true"] .original-icon { transform: rotate(180deg); }
-.app-select-layer { position: fixed; inset: 0; z-index: 800; display: grid; place-items: center; padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); background: rgb(0 0 0 / 40%); overscroll-behavior: contain; overflow: hidden; }
-.app-select-panel { width: min(100%, 380px); max-height: min(85dvh, calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom))); display: flex; flex-direction: column; box-sizing: border-box; padding: 12px; border: 1px solid var(--line); border-radius: 18px; background: var(--color-body-bg); color: var(--ink); box-shadow: 0 14px 50px #0004; }
-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 2px 8px 10px; }
-h2 { margin: 0; font-size: calc(15px * var(--ui-font-scale, 1)); overflow-wrap: anywhere; }
+.app-select-layer { position: fixed; inset: 0; z-index: 800; display: grid; place-items: center; padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); background: var(--scrim); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); overscroll-behavior: contain; overflow: hidden; }
+.app-select-panel { width: min(100%, 380px); max-height: min(85dvh, calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom))); display: flex; flex-direction: column; box-sizing: border-box; padding: 14px; border: 1px solid var(--line); border-radius: 20px; background: var(--color-body-bg); color: var(--ink); box-shadow: var(--shadow-float); }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 2px 10px 8px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
+h2 { margin: 0; font-size: calc(15px * var(--ui-font-scale, 1)); font-weight: 700; overflow-wrap: anywhere; }
 header button { width: 44px; height: 44px; flex-shrink: 0; border-radius: 12px; }
 .app-select-options { min-height: 0; overflow: auto; overscroll-behavior: contain; display: grid; gap: 4px; }
 .app-select-options button { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 44px; padding: 11px 12px; border: 1px solid transparent; border-radius: 11px; color: var(--ink); background: transparent; text-align: start; font: inherit; font-size: calc(13px * var(--ui-font-scale, 1)); line-height: 1.5; }
 .app-select-options button > span:first-child { min-width: 0; overflow-wrap: anywhere; }
-.app-select-options button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); }
+.app-select-options button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent-border); font-weight: 600; }
 .app-select-options button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.selection-mark { width: 16px; height: 16px; border: 1.5px solid var(--line); border-radius: 50%; flex: 0 0 auto; box-sizing: border-box; }
+.selection-mark { width: 16px; height: 16px; border: 1.5px solid var(--line-strong); border-radius: 50%; flex: 0 0 auto; box-sizing: border-box; }
 [aria-selected="true"] .selection-mark { border: 5px solid var(--accent); }
 .app-select-enter-active, .app-select-leave-active { transition: opacity var(--motion-feedback, 180ms) ease; }
 .app-select-enter-active .app-select-panel, .app-select-leave-active .app-select-panel { transition: transform var(--motion-feedback, 180ms) ease, opacity var(--motion-feedback, 180ms) ease; }

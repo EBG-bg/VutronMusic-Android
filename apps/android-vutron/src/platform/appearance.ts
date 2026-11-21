@@ -40,6 +40,12 @@ watch([appearance, accent, resolvedAppearance], () => {
   root.dataset.theme = resolvedAppearance.value
   root.style.colorScheme = resolvedAppearance.value
   root.style.setProperty('--color-primary', accent.value)
+  const linear = (start: number) => {
+    const channel = parseInt(accent.value.slice(start, start + 2), 16) / 255
+    return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+  }
+  const luminance = 0.2126 * linear(1) + 0.7152 * linear(3) + 0.0722 * linear(5)
+  root.style.setProperty('--on-accent', luminance > 0.179 ? '#000' : '#fff')
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', resolvedAppearance.value === 'dark' ? '#222222' : '#ffffff')
   if (localStorage.getItem('vutron:appearance') !== appearance.value) localStorage.setItem('vutron:appearance', appearance.value)
   if (localStorage.getItem('vutron:accent') !== accent.value) localStorage.setItem('vutron:accent', accent.value)

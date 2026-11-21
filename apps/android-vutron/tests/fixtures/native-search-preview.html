@@ -1,0 +1,52 @@
+<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app"></div><script type="module">
+import { createApp, h, reactive } from 'vue'
+import { createPinia } from 'pinia'
+import '/src/style.css'
+import '/src/adaptive.css'
+import '/src/platform/appearance.ts'
+import { i18n } from '/src/platform/i18n.ts'
+import NativeSearchHeader from '/src/components/NativeSearchHeader.vue'
+import NativeSearchResults from '/src/components/NativeSearchResults.vue'
+import NativeSearchPreview from '/src/components/NativeSearchPreview.vue'
+import NavigationPeek from '/src/components/NavigationPeek.vue'
+import { useAndroidShellStore } from '/src/stores/androidShell.ts'
+
+const state = reactive({ preview: true, nestedCategory: undefined })
+const cover = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" fill="#784193"/></svg>')
+const artist = { id: 1, name: 'Preview artist', picLocalUri: cover }
+const rows = {
+  tracks: Array.from({ length: 100 }, (_, i) => ({ id: i + 10, name: 'Preview track ' + i, artists: [artist.name] })),
+  albums: [{ id: 2, name: 'Preview album', artists: [artist], picLocalUri: cover }],
+  artists: [artist],
+  playlists: [{ id: 3, name: 'Preview playlist', trackCount: 17, coverLocalUri: cover }],
+  mvs: [{ id: 4, name: 'Preview video', artists: [artist], picLocalUri: cover }]
+}
+const events = []
+createApp({ setup() {
+  const store = useAndroidShellStore()
+  store.profile = { userId: 7, nickname: 'Preview fixture' }
+  store.searchKeywords = 'Preview query'
+  store.playback.track = rows.tracks[0]
+  store.openPlaylist = playlist => events.push('playlist:' + playlist.id)
+  function show(category, preview, nested = false) {
+    state.preview = preview
+    state.nestedCategory = nested && preview ? category : undefined
+    const liveCategory = nested && preview ? 'tracks' : category
+    store.searchCategory = liveCategory
+    store.submittedSearch = { category: liveCategory, keywords: store.searchKeywords.trim() }
+    store.searchResults = rows[liveCategory]
+    store.searchCount = rows[liveCategory].length
+    store.adjacentSearch = nested && preview ? { category, items: rows[category].slice(0, 6) } : undefined
+  }
+  show('tracks', true)
+  window.nativeSearchPreview = { store, rows, events, show }
+  const note = name => () => events.push(name)
+  const header = () => h(NativeSearchHeader, { onSubmit: note('submit'), onCategory: note('category') })
+  const results = () => h(NativeSearchResults, { category: store.searchCategory, items: store.searchResults, searched: true, more: false, onTrack: note('track'), onEntity: note('entity'), onSelect: note('select'), onMenu: note('menu') })
+  return () => h('main', { class: 'app-shell playlist-layout-cards', style: '--playlist-columns:2' }, [
+    h('div', { class: 'swipe-deck' }, [state.preview
+      ? h(NavigationPeek, { style: { top: '0px' } }, { default: () => h(NativeSearchPreview, { nestedCategory: state.nestedCategory }) })
+      : h('section', { class: 'page search-page' }, [header(), h('div', { class: 'swipe-deck' }, results())])])
+  ])
+} }).use(createPinia()).use(i18n).mount('#app')
+</script></body></html>

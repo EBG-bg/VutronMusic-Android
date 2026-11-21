@@ -67,6 +67,25 @@ function fixture(t, options = {}) {
     write(id, data) { fs.writeFileSync(path.join(root, id + '.state.json'), JSON.stringify(data)); }
   };
 }
+test('rank details start at page one and KuGou reports rows dropped by its original playlist filter', async t => {
+  const stub = stubApi({
+    rank_info: () => ({ status: 1, data: { rankid: 12, rankname: 'Fixture ranking' } }),
+    rank_audio: () => ({ status: 1, data: { songlist: [] } }),
+    playlist_track_all: () => ({ status: 1, data: { songs: [{ shield: true, hash: 'blocked' }, { shield: false }] } })
+  });
+  const host = fixture(t, { kugouApi: stub.api }).current();
+  await host.manage({ action: 'enable', id: 'kugou' });
+  const first = await host.call('kugou', 'getPlaylistDetail', { id: 12, type: 'rank' }, true);
+  assert.equal(first.code, 200);
+  assert.equal(first.data.sourceContext.page, 2);
+  await host.call('kugou', 'getPlaylistTracks', first.data.sourceContext, true);
+  assert.deepEqual(stub.calls.filter(item => item.method === 'rank_audio').map(item => Number(item.params.page)), [1, 2]);
+  const rows = await host.call('kugou', 'getPlaylistTracks', { id: 'fixture', page: 1 }, true);
+  assert.equal(rows.code, 200);
+  assert.equal(rows.data.length, 0);
+  assert.equal(rows.skippedUnavailableTracks, 2);
+});
+
 function row(host, id = 'kugou') { return host.list().plugins.find(plugin => plugin.id === id); }
 function cookieFields(cookie) {
   if (cookie && typeof cookie === 'object') return cookie;
@@ -295,4 +314,46 @@ test('Kugou network Errors preserve diagnostic codes while keeping QR polling er
   assert.equal(f.state('kugou').db?.PluginData?.token, undefined);
   failing = false;
   assert.equal((await host.call('kugou', 'loginQrCodeCheck', { key: 'fixture-key' }, true)).code, 801, 'A recovered request can continue waiting for the same QR code');
+});
+
+test('built-in Kugou preserves playback rejection status and transport timeout', async t => {
+  let sample = 'expired';
+  const stub = stubApi({ song_url: params => {
+    assert.equal(params.free_part, 0);
+    if (sample === 'expired') throw { status: 502, body: { status: 0, error_code: 20018, msg: 'Session expired' } };
+    if (sample === 'timeout') throw { status: 502, body: { status: 0, msg: Object.assign(new Error('Read timed out'), { code: 'ETIMEDOUT' }) } };
+    if (sample === 'denied') return { status: 2 };
+    return { status: 1, url: ['https://music.invalid/primary.mp3'], backupUrl: ['https://music.invalid/backup.mp3'] };
+  } });
+  const host = fixture(t, { kugouApi: stub.api }).current();
+  await host.manage({ action: 'enable', id: 'kugou' });
+  const input = { hash: 'fixture', album: { id: '123' }, mxid: '456' };
+  for (const [name, code] of [['expired', 'PLUGIN_AUTH'], ['timeout', 'ETIMEDOUT']]) {
+    sample = name;
+    const before = stub.calls.filter(item => item.method === 'song_url').length;
+    await assert.rejects(host.call('kugou', 'songUrl', input, true), { code });
+    assert.equal(stub.calls.filter(item => item.method === 'song_url').length, before + 1);
+  }
+  sample = 'denied';
+  assert.deepEqual((await host.call('kugou', 'songUrl', input, true)).data.url, []);
+  sample = 'normal';
+  assert.deepEqual((await host.call('kugou', 'songUrl', input, true)).data.url, ['https://music.invalid/primary.mp3', 'https://music.invalid/backup.mp3']);
+});
+
+
+test('CDN DNS recovery requires the built-in KuGou API and active networking', async t => {
+  const host = fixture(t, { kugouApi: stubApi().api }).current();
+  assert.equal(host.canRecoverKugouDns('kugou'), false);
+  await host.manage({ action: 'enable', id: 'kugou' });
+  assert.equal(host.canRecoverKugouDns('kugou'), true);
+  host.policy(false);
+  assert.equal(host.canRecoverKugouDns('kugou'), false);
+  host.policy(true);
+  await host.manage({ action: 'configure', id: 'kugou', baseUrl: 'https://custom.example/' });
+  assert.equal(host.canNetwork('kugou'), true);
+  assert.equal(host.canRecoverKugouDns('kugou'), false);
+  await host.manage({ action: 'configure', id: 'kugou', baseUrl: '' });
+  assert.equal(host.canRecoverKugouDns('kugou'), true);
+  await host.manage({ action: 'enable', id: 'emby' });
+  assert.equal(host.canRecoverKugouDns('emby'), false);
 });

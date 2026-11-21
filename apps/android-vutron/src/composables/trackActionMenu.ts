@@ -20,8 +20,9 @@ type MenuTrigger = () => void
 type TrackElement = HTMLElement & { __trackMenuCleanup?: () => void; __trackMenuOpen?: MenuTrigger }
 
 /** Capture only menu gestures. A scroll cancels the timer and its eventual row click. */
-export const vTrackMenu: ObjectDirective<TrackElement, MenuTrigger> = {
+export const vTrackMenu: ObjectDirective<TrackElement, MenuTrigger | undefined> = {
   mounted(element, binding) {
+    if (!binding.value) return
     element.__trackMenuOpen = binding.value
     const previousStyle = { select: element.style.userSelect, callout: element.style.getPropertyValue('-webkit-touch-callout') }
     element.style.userSelect = 'none'
@@ -36,6 +37,7 @@ export const vTrackMenu: ObjectDirective<TrackElement, MenuTrigger> = {
     }
     const open = () => { cancel(); suppressUntil = performance.now() + 1200; element.__trackMenuOpen?.() }
     const down = (event: PointerEvent) => {
+      if (event.pointerType === 'touch' && element.hasAttribute('data-range-key') && element.closest('[data-range-select]')) return
       if (ignore(event) || event.button !== 0 || !event.isPrimary) return
       pointer = event.pointerId; x = event.clientX; y = event.clientY; suppressUntil = 0; cancel()
       timer = setTimeout(open, 450)

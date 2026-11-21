@@ -52,7 +52,7 @@ test('actual error notice keeps original diagnostics as escaped details and offe
   const raw = 'network failure: <img src=x onerror=alert(1)>'
   const network = await render({message:raw, offline:true})
   assert.match(network,/The service cannot be reached/)
-  assert.match(network,/Browse local and offline music/)
+  assert.match(network,/Local &amp; offline music/)
   assert.match(network,/&lt;img/)
   assert.doesNotMatch(network,/<img/)
   assert.doesNotMatch(network,/Reload current page/,'A missing retry callback must not show a reload button')

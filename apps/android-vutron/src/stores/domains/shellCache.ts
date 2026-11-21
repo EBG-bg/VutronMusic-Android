@@ -35,50 +35,72 @@ export function createShellCache(options: ShellCacheOptions) {
   const cacheCapacityMb = ref(2048)
   const artworkCacheCapacityMb = ref(128)
   const cachedTracks = ref<VutronLocalTrack[]>([])
-  let cacheStatusPending = false
-  let cacheSettingsRevision = 0
+  let cacheStatusRead: { includeTracks: boolean } | undefined
+  let cacheReadRevision = 0
   let cachePollAt = 0
+  let cacheWriteTail: Promise<void> | undefined
   const cacheWrites = new Map<string, { value: boolean | number; task: Promise<void> }>()
-  function saveCacheSetting(field: 'enabled' | 'capacityMb' | 'artworkCapacityMb', value: boolean | number, write: () => Promise<VutronCacheStatus>, failure: string): Promise<void> {
+  function saveCacheSetting(field: 'enabled' | 'libraryAutoCache' | 'capacityMb' | 'artworkCapacityMb', value: boolean | number, write: () => Promise<VutronCacheStatus>, failure: string): Promise<void> {
     const previous = cacheWrites.get(field)
     if (previous?.value === value) return previous.task
     if (!previous && cacheStatus.value[field] === value) return Promise.resolve()
-    const revision = ++cacheSettingsRevision
-    const task = Promise.resolve(previous?.task).then(write).then(status => {
-      if (revision === cacheSettingsRevision) cacheStatus.value = status
+    ++cacheReadRevision
+    // Setters return the whole cache status, so even different fields must
+    // settle in request order before their snapshots can be published.
+    const task = Promise.resolve(cacheWriteTail).then(write).then(status => {
+      cacheStatus.value = status
     }).catch(cause => { error.value = formatError(cause, t(failure)) }).finally(() => {
       if (cacheWrites.get(field)?.task === task) cacheWrites.delete(field)
+      if (cacheWriteTail === task) cacheWriteTail = undefined
     })
+    cacheWriteTail = task
     cacheWrites.set(field, { value, task })
     return task
   }
 
   async function loadCacheStatus(updateInputs = true, includeTracks = true) {
-    if (!vutronPlugin.getCacheStatus || cacheStatusPending) return
-    cacheStatusPending = true
-    const revision = cacheSettingsRevision
+    if (!vutronPlugin.getCacheStatus || cacheStatusRead) return
+    const read = cacheStatusRead = { includeTracks }
+    const revision = cacheReadRevision
+    const audioInput = cacheCapacityMb.value, artworkInput = artworkCacheCapacityMb.value
     try {
+      if (cacheWriteTail) await cacheWriteTail
+      if (revision !== cacheReadRevision) return
       const status = await vutronPlugin.getCacheStatus()
-      if (revision !== cacheSettingsRevision) return
+      if (revision !== cacheReadRevision) return
       cacheStatus.value = status
       if (updateInputs) {
-        cacheCapacityMb.value = status.capacityMb
-        artworkCacheCapacityMb.value = status.artworkCapacityMb ?? artworkCacheCapacityMb.value
+        if (cacheCapacityMb.value === audioInput) cacheCapacityMb.value = status.capacityMb
+        if (artworkCacheCapacityMb.value === artworkInput && status.artworkCapacityMb !== undefined) artworkCacheCapacityMb.value = status.artworkCapacityMb
       }
       if (includeTracks && vutronPlugin.getCachedTracks) {
         const cached = await vutronPlugin.getCachedTracks()
-        if (revision === cacheSettingsRevision) cachedTracks.value = cached.tracks ?? []
+        if (revision === cacheReadRevision) cachedTracks.value = cached.tracks ?? []
       }
     } catch (cause) {
-      error.value = formatError(cause, t('mobile.runtimeText.cacheStatusReadFailed'))
+      if (revision === cacheReadRevision) error.value = formatError(cause, t('mobile.runtimeText.cacheStatusReadFailed'))
     } finally {
-      cacheStatusPending = false
+      if (cacheStatusRead === read) cacheStatusRead = undefined
     }
+  }
+
+  function refreshCacheAfterMutation(includeTracks = true): Promise<void> {
+    // A confirmed cache mutation needs a snapshot taken after it. Do not drop
+    // that refresh behind an older poll, or lose its requested audio rows.
+    const readTracks = includeTracks || cacheStatusRead?.includeTracks === true
+    ++cacheReadRevision
+    cacheStatusRead = undefined
+    return loadCacheStatus(false, readTracks)
   }
 
   async function setAutomaticCache(enabled: boolean) {
     if (!vutronPlugin.setCacheEnabled) return
     await saveCacheSetting('enabled', enabled, () => vutronPlugin.setCacheEnabled!({ enabled }), 'mobile.runtimeText.autoCacheSaveFailed')
+  }
+
+  async function setLibraryAutomaticCache(enabled: boolean) {
+    if (!vutronPlugin.setLibraryAutoCache) return
+    await saveCacheSetting('libraryAutoCache', enabled, () => vutronPlugin.setLibraryAutoCache!({ enabled }), 'mobile.runtimeText.autoCacheSaveFailed')
   }
 
   async function setCacheCapacity() {
@@ -97,13 +119,13 @@ export function createShellCache(options: ShellCacheOptions) {
     if (!onlineAvailable.value || !vutronPlugin.cacheTrack || !playback.value.trackId) return
     const track = resolveCacheTrack()
     if (!track) return
-    try { await vutronPlugin.cacheTrack({ track }); await loadCacheStatus() }
+    try { await vutronPlugin.cacheTrack({ track }); await refreshCacheAfterMutation() }
     catch (cause) { error.value = formatError(cause, t('mobile.runtimeText.trackCacheFailed')) }
   }
 
   async function clearCache() {
     if (!vutronPlugin.clearCache) return
-    try { await vutronPlugin.clearCache(); await Promise.all([loadCacheStatus(), loadOfflinePlaylists()]) }
+    try { await vutronPlugin.clearCache(); await Promise.all([refreshCacheAfterMutation(), loadOfflinePlaylists()]) }
     catch (cause) { error.value = formatError(cause, t('mobile.runtimeText.cacheClearFailed')) }
   }
 
@@ -199,11 +221,11 @@ export function createShellCache(options: ShellCacheOptions) {
   }
 
   /** Prevent an older native cache read from applying after logout. */
-  function bumpCacheReadRevision(): void { ++cacheSettingsRevision }
+  function bumpCacheReadRevision(): void { ++cacheReadRevision }
 
   return {
     cacheStatus, cacheCapacityMb, artworkCacheCapacityMb, cachedTracks,
-    loadCacheStatus, setAutomaticCache, setCacheCapacity, setArtworkCacheCapacity,
+    loadCacheStatus, refreshCacheAfterMutation, setAutomaticCache, setLibraryAutomaticCache, setCacheCapacity, setArtworkCacheCapacity,
     cacheCurrent, clearCache, pollCacheStatus,
     sleepTimerDeadline, sleepTimerNow, sleepTimerBusy, sleepTimerMinutes, sleepTimerMode, sleepTimerRemainingTracks, sleepTimerFadeSeconds, sleepTimerActive,
     sleepTimerRemainingMs, sleepTimerLabel,

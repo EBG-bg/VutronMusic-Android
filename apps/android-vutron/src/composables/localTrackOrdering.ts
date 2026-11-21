@@ -137,6 +137,19 @@ export function useCollectionTrackOrder<T extends VutronTrack>(source: ComputedR
   const mode = computed<CollectionOrder>({ get: () => active.value.mode, set: value => { selectView(value) } })
   const ordered = computed(() => applyCollectionOrder(source.value, active.value, identify))
   const savedMode = computed(() => saved.value.mode), savedKeys = computed(() => saved.value.keys)
+  const activeHistoryId = computed(() => {
+    const entries = history.value
+    if (!entries.length || !source.value.length) return undefined
+    const current = ordered.value.map(identify)
+    const exact = entries.find(entry => sameKeys(entry.keys, current))
+    if (exact) return exact.id
+    // A saved custom order can remain active after tracks were removed or added.
+    if (active.value.mode !== 'custom' || !active.value.keys.length) return undefined
+    const matchingPreset = entries.find(entry => sameKeys(entry.keys, active.value.keys))
+    const available = new Set(current)
+    if (matchingPreset && matchingPreset.keys.some(key => available.has(key))) return matchingPreset.id
+    return undefined
+  })
   function commit(keys: string[]) {
     const value = { mode: 'custom' as CollectionOrder, keys: reconcileCollectionOrder(keys, source.value.map(identify)) }
     if (active.value.mode === 'custom' && sameKeys(value.keys, ordered.value.map(identify))) return
@@ -167,7 +180,7 @@ export function useCollectionTrackOrder<T extends VutronTrack>(source: ComputedR
     return true
   }
   watch(collection, () => { discardDraft(); orderRecords.value = readOrders(); tryLegacy() }, { flush: 'sync' })
-  return { mode, ordered, commit, restore, selectView, dirty, sequenceDirty, prepareDraftSave, saveDraft, discardDraft, savedMode, savedKeys, history, historyLimit, recentCustomHistory, recentCustomId,
+  return { mode, ordered, commit, restore, selectView, dirty, sequenceDirty, prepareDraftSave, saveDraft, discardDraft, savedMode, savedKeys, history, historyLimit, recentCustomHistory, recentCustomId, activeHistoryId,
     setHistoryLimit, loadHistory, loadRecentCustomHistory, loadRecentHistory: loadRecentCustomHistory,
     renameHistory, pinHistory, removeHistory, recordCurrent, recordBaseline, ensureLegacy, historyError }
 }

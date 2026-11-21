@@ -229,7 +229,7 @@ final class PluginSourceRegistry {
     }
     private static JSONObject cloneObject(JSONObject value) throws Exception { return new JSONObject(value.toString()); }
     private static JSONArray cloneArray(JSONArray value) throws Exception { return new JSONArray(value.toString()); }
-    private static String canonical(Object value) throws Exception {
+    static String canonical(Object value) throws Exception {
         if (value instanceof JSONObject) {
             JSONObject object=(JSONObject)value; List<String> keys=new ArrayList<>(); Iterator<String> names=object.keys();
             while(names.hasNext()) keys.add(names.next()); Collections.sort(keys); StringBuilder result=new StringBuilder("{");

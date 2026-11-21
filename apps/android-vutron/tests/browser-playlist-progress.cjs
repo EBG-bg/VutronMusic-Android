@@ -3,7 +3,11 @@ async function main(){
  const browser=await chromium.launch({headless:true}),errors=[]
  try{
   const page=await browser.newPage({viewport:{width:390,height:844}});page.on('pageerror',error=>errors.push(error.message))
-  await page.goto(new URL('tests/fixtures/playlist-progress.html',process.env.VUTRON_FIXTURE_URL||'http://127.0.0.1:5173/').href);await page.waitForFunction(()=>window.playlistProgressReady)
+  await page.route('**/src/platform/vutronPlugin.ts*',route=>route.fulfill({contentType:'application/javascript',body:"export { vutronPlugin } from '/tests/fixtures/offline-native.mock.js'"}))
+  const fixture=new URL('tests/fixtures/playlist-progress.html',process.env.VUTRON_FIXTURE_URL||'http://127.0.0.1:5173/').href
+  const response=await page.goto(fixture)
+  assert.ok(response?.ok(),`Fixture failed to load: ${fixture} (${response?.status()})`)
+  await page.waitForFunction(()=>window.playlistProgressReady)
   await page.evaluate(()=>{window.playlistLoadTask=window.playlistProgressHarness.start()});await page.waitForFunction(()=>window.playlistProgressHarness.requests===1)
   await page.evaluate(()=>{
     window.playlistHadEnterMotion=false
@@ -52,7 +56,23 @@ async function main(){
   assert.equal(await page.evaluate(()=>window.playlistProgressHarness.store.tracks.length),80,'A stale completed request cannot overwrite the saved prefix')
   await page.locator('.playlist-load-interrupted .secondary-button').waitFor();assert.equal(await page.locator('.local-order-select .app-select-trigger').isDisabled(),true)
   assert.equal(await page.evaluate(()=>window.playlistProgressHarness.removed),4)
-  assert.deepEqual(errors,[]);console.log('PASS: real Vue 1003-track prefix arrives/animates before completion, bounded virtual rows, saved custom order only after complete, incomplete playback/sort/resume blocked, retry and complete cached fallback, no partial sync/history mutation')
- }finally{await browser.close()}
+
+  await page.evaluate(()=>{window.playlistLoadTask=window.playlistProgressHarness.start()});await page.waitForFunction(()=>window.playlistProgressHarness.requests===5)
+  await page.evaluate(()=>window.playlistProgressHarness.finish('complete'));await page.evaluate(()=>window.playlistLoadTask)
+  const playedEvents=()=>page.evaluate(()=>window.playlistProgressHarness.playedEvents.slice())
+  await page.evaluate(async()=>{const h=window.playlistProgressHarness;h.setCache(false,false);await h.playFirst()})
+  assert.deepEqual(await playedEvents(),['play'],'No background playlist request while playback is preparing')
+  await page.evaluate(()=>window.playlistProgressHarness.updatePlaying(true,true))
+  assert.deepEqual(await playedEvents(),['play'],'No playlist request while the native player waits for the first audio')
+  await page.evaluate(()=>window.playlistProgressHarness.updatePlaying(true))
+  assert.deepEqual(await playedEvents(),['play','cache:7:42'])
+  await page.evaluate(async()=>{const h=window.playlistProgressHarness;h.setCache(true,false);await h.updatePlaying(false);await h.updatePlaying(true)})
+  assert.equal((await playedEvents()).length,2,'No request while the artwork capacity is full')
+  await page.evaluate(async()=>{const h=window.playlistProgressHarness;h.setCache(false,true);await h.updatePlaying(false);await h.updatePlaying(true)})
+  assert.deepEqual(await playedEvents(),['play','cache:7:42','cache:7:42'],'A skipped save can retry after space is available')
+  await page.evaluate(async()=>{const h=window.playlistProgressHarness;await h.updatePlaying(false);await h.updatePlaying(true)})
+  assert.equal((await playedEvents()).length,3,'A completed save is not repeated on resume')
+  assert.deepEqual(errors,[]);console.log('PASS: real Vue 1003-track prefix arrives/animates before completion, bounded virtual rows, saved custom order only after complete, incomplete playback/sort/resume blocked, retry and complete cached fallback, no partial sync/history mutation; automatic cache waits for confirmed playback')
+ }catch(error){if(errors.length)console.error('Browser errors:',errors);throw error}finally{await browser.close()}
 }
 main().catch(error=>{console.error(error);process.exitCode=1})

@@ -7,7 +7,7 @@ function fixture() {
   const filename=path.join(__dirname,'../src/components/OriginalLyricsView.vue'),descriptor=parse(fs.readFileSync(filename,'utf8'),{filename}).descriptor
   const script=compileScript(descriptor,{id:'lyric-touch-fixture'}),module={exports:{}}
   vm.runInNewContext(ts.transpileModule(script.content,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{
-    module,exports:module.exports,require(name){if(name==='vue')return{...vue,onMounted(){},onUnmounted:fn=>cleanup.push(fn)};if(name==='../utils/lyricPlayback')return helpers;if(name==='../platform/lyricDisplay')return{lyricDisplayStyle:()=>({})};if(name==='../platform/motion')return{isMotionReduced:()=>true};throw new Error('Unexpected lyric-touch dependency '+name)},
+    module,exports:module.exports,require(name){if(name==='vue')return{...vue,inject:(_,fallback)=>fallback,onMounted(){},onUnmounted:fn=>cleanup.push(fn)};if(name==='../composables/navigationPreview')return{navigationPreviewKey:Symbol('navigation-preview')};if(name==='../utils/lyricPlayback')return helpers;if(name==='../platform/lyricDisplay')return{lyricDisplayStyle:()=>({})};if(name==='../platform/motion')return{isMotionReduced:()=>true};throw new Error('Unexpected lyric-touch dependency '+name)},
     document:{visibilityState:'visible',removeEventListener(){}},window:{scrollY:0,scrollBy:options=>scrolls.push(options.top),removeEventListener(){}},performance:{now:()=>1000},
     requestAnimationFrame:fn=>{frames.set(++nextId,fn);return nextId},cancelAnimationFrame:id=>frames.delete(id),setTimeout:fn=>{timers.set(++nextId,fn);return nextId},clearTimeout:id=>timers.delete(id),console
   })

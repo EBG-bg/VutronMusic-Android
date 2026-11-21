@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { inject, onMounted } from 'vue'
+import { navigationPreviewKey } from '../composables/navigationPreview'
 import { usePlaybackTuning } from '../composables/playbackTuning'
+import SettingsSwitchRow from './SettingsSwitchRow.vue'
 const { settings, ready, error, errorKind, load, update, flush } = usePlaybackTuning()
-onMounted(load)
+if (!inject(navigationPreviewKey, false)) onMounted(load)
 </script>
 <template>
   <section class="prefetch-setting">
-    <label class="settings-detail"><span>{{ $t('mobile.advancedPlayback.prefetch') }}</span><input type="checkbox" :checked="settings.prefetchWifi" :disabled="!ready" @change="update({ prefetchWifi: ($event.target as HTMLInputElement).checked }); flush()" /></label>
+    <SettingsSwitchRow :label="$t('mobile.advancedPlayback.prefetch')" :checked="settings.prefetchWifi" :disabled="!ready" @change="enabled => { update({ prefetchWifi: enabled }); flush() }" />
     <p class="setting-note">{{ $t('mobile.advancedPlayback.prefetchHint') }}</p>
     <p v-if="error" class="inline-error" role="alert">{{ $t(`mobile.playbackFeedback.${errorKind}Error`) }} <button class="text-button" type="button" @click="errorKind === 'save' ? flush() : load()">{{ $t('mobile.advancedPlayback.retry') }}</button></p>
   </section>

@@ -44,7 +44,7 @@ public final class VutronMusicPlugin extends Plugin {
     private final Object playbackCommandLock = new Object();
     private long playbackCommandEpoch;
     private final Object onlineCacheLock = new Object();
-    private long onlineCacheEpoch;
+    private volatile long onlineCacheEpoch;
     private void requireBatchOwner(String cookie,long epoch) throws java.io.IOException {
         LibraryTaskRunner.checkCancelled();
         LocalOnlyMode.requireOnline(getContext());
@@ -169,8 +169,10 @@ public final class VutronMusicPlugin extends Plugin {
                 try {
                     LocalOnlyMode.requireOnline(context);
                     account = new NeteaseApi(cookie, () -> !LocalOnlyMode.enabled(context)).profile();
-                    if(!cookie.equals(SessionStore.load(context))) { call.resolve(new JSObject().put("loggedIn",false));return; }
-                    cacheProfile(context, account);
+                    synchronized (qrSessions) {
+                        if (!cookie.equals(SessionStore.load(context))) { call.resolve(new JSObject().put("loggedIn", false)); return; }
+                        cacheProfile(context, account);
+                    }
                 } catch (Exception networkUnavailable) {
                     if (account == null || account.optLong("userId") <= 0) {
                         call.resolve(new JSObject().put("loggedIn", false).put("sessionSaved", true).put("restorePending", true)); return;
@@ -412,6 +414,11 @@ public final class VutronMusicPlugin extends Plugin {
 
     @PluginMethod
     public void getPlaylistTracks(PluginCall call) {
+        if (Boolean.TRUE.equals(call.getBoolean("cacheOnly", false))) {
+            long epoch = onlineCacheEpoch;
+            worker.execute(() -> cachePlaylistOnly(call, epoch));
+            return;
+        }
         worker.execute(() -> {
             Context context = getContext();
             long playlistId = longArg(call, "playlistId", 0L), owner = cachedUserId(context);
@@ -435,9 +442,11 @@ public final class VutronMusicPlugin extends Plugin {
                     if (batch.length() > 0 && !requestToken.isEmpty()) notifyListeners("playlistTracksProgress", new JSObject().put("requestToken", requestToken).put("userId", owner).put("playlistId", playlistId).put("offset", offset).put("total", total).put("tracks", batch).put("playlist", summary));
                 });
                 if (!cookie.equals(SessionStore.load(context)) || owner != cachedUserId(context) || LocalOnlyMode.enabled(context)) throw new java.io.IOException("账号或网络模式已变化，请重新打开歌单");
-                try { PlaylistCache.saveTracks(context, owner, playlistId, fetched, metadata); }
-                catch (Exception cacheFailure) { android.util.Log.w("VutronPlaylistCache", "Unable to persist the opened playlist", cacheFailure); }
-                call.resolve(new JSObject().put("tracks", values).put("playlist", summary));
+                JSObject result = new JSObject().put("tracks", values).put("playlist", summary);
+                try {
+                    if (PlaylistCache.saveTracks(context, owner, playlistId, fetched, metadata)) result.put("cacheSaved", true);
+                } catch (Exception cacheFailure) { android.util.Log.w("VutronPlaylistCache", "Unable to persist the opened playlist", cacheFailure); }
+                call.resolve(result);
             } catch (Exception error) {
                 if (!cookie.equals(SessionStore.load(context)) || owner != cachedUserId(context)) { call.reject(message(error, "账号已变化，请重新打开歌单")); return; }
                 JSONArray cached = new JSONArray();
@@ -449,6 +458,36 @@ public final class VutronMusicPlugin extends Plugin {
                 call.resolve(new JSObject().put("tracks", cached).put("cached", true));
             }
         });
+    }
+
+    private void cachePlaylistOnly(PluginCall call, long epoch) {
+        Context context = getContext();
+        boolean saved = false;
+        try {
+            long playlistId = longArg(call, "playlistId", 0L), owner = cachedUserId(context);
+            String cookie = SessionStore.load(context);
+            if (playlistId > 0 && owner > 0 && longArg(call, "userId", owner) == owner && !cookie.isEmpty()) {
+                // The API consults this gate before every page request and while reading its response.
+                java.util.function.BooleanSupplier admitted = () -> epoch == onlineCacheEpoch && !LocalOnlyMode.enabled(context)
+                        && cookie.equals(SessionStore.load(context)) && ArtworkCache.canAutomaticallyCache(context);
+                if (admitted.getAsBoolean() && !PlaylistCache.excludesAutomaticSnapshot(context, owner, playlistId)) {
+                    NeteaseApi api = new NeteaseApi(cookie, admitted);
+                    JSONObject metadata = api.playlistDetail(playlistId);
+                    if (admitted.getAsBoolean()) {
+                        List<JSONObject> tracks = api.tracks(metadata);
+                        synchronized (onlineCacheLock) {
+                            if (admitted.getAsBoolean() && owner == cachedUserId(context)) {
+                                saved = PlaylistCache.saveTracks(context, owner, playlistId, tracks, metadata);
+                                if (saved) ArtworkCache.enqueue(context, metadata.optString("coverImgUrl", metadata.optString("picUrl", "")));
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception failure) {
+            android.util.Log.d("VutronPlaylistCache", "Background playlist not saved: " + failure.getClass().getSimpleName());
+        }
+        call.resolve(new JSObject().put("tracks", new JSONArray()).put("cacheSaved", saved).put("cacheSkipped", !saved));
     }
 
     @PluginMethod
@@ -548,20 +587,30 @@ public final class VutronMusicPlugin extends Plugin {
 
     @PluginMethod
     public void getCachedPlaylists(PluginCall call) {
-        Context context = getContext();
-        long owner = cachedUserId(context);
-        JSONArray rows = new JSONArray();
-        for (JSONObject item : PlaylistCache.readPlaylists(context, owner)) rows.put(playlist(item, context).put("cacheOwnerId", owner).put("offlineSnapshot", true));
-        call.resolve(new JSObject().put("playlists", rows));
+        worker.execute(() -> {
+            Context context = getContext();
+            long owner = cachedUserId(context);
+            JSONArray rows = new JSONArray();
+            for (JSONObject item : PlaylistCache.readPlaylists(context, owner)) rows.put(playlist(item, context).put("cacheOwnerId", owner).put("offlineSnapshot", true));
+            try { for (JSONObject item : PluginPlaylistCache.list(context)) rows.put(item); }
+            catch (Exception unavailable) { android.util.Log.w("VutronPlaylistCache", "Plugin playlist index unavailable"); }
+            call.resolve(new JSObject().put("playlists", rows));
+        });
     }
 
     @PluginMethod
     public void getCachedPlaylistTracks(PluginCall call) {
-        Context context = getContext();
-        long id = longArg(call, "playlistId", 0L);
-        JSONArray rows = new JSONArray();
-        for (JSONObject item : PlaylistCache.readTracks(context, cachedUserId(context), id)) rows.put(track(item, context));
-        call.resolve(new JSObject().put("tracks", rows));
+        worker.execute(() -> {
+            try {
+                Context context = getContext();
+                String key = call.getString("pluginCacheKey", "");
+                List<JSONObject> songs = key.isEmpty() ? PlaylistCache.readTracks(context, cachedUserId(context), longArg(call, "playlistId", 0L))
+                        : PluginPlaylistCache.tracks(context, key);
+                JSONArray rows = new JSONArray();
+                for (JSONObject item : songs) rows.put(track(item, context));
+                call.resolve(new JSObject().put("tracks", rows));
+            } catch (Exception unavailable) { call.reject(message(unavailable, "读取缓存歌单失败")); }
+        });
     }
 
     @PluginMethod
@@ -571,9 +620,14 @@ public final class VutronMusicPlugin extends Plugin {
         worker.execute(() -> {
             try {
                 Context context = getContext();
-                long owner = cachedUserId(context), supplied = longArg(call, "userId", owner);
-                if (supplied > 0 && supplied != owner) throw new java.io.IOException("缓存账号已变化，请刷新后重试");
-                PlaylistCache.removeCachedPlaylist(context, owner, id);
+                String key = call.getString("pluginCacheKey", "");
+                if (!key.isEmpty()) {
+                    synchronized (onlineCacheLock) { PluginPlaylistCache.remove(context, key); onlineCacheEpoch++; }
+                } else {
+                    long owner = cachedUserId(context), supplied = longArg(call, "userId", owner);
+                    if (supplied > 0 && supplied != owner) throw new java.io.IOException("缓存账号已变化，请刷新后重试");
+                    PlaylistCache.removeCachedPlaylist(context, owner, id);
+                }
                 call.resolve(new JSObject().put("removed", true));
             } catch (Exception error) { call.reject(message(error, "删除缓存歌单失败")); }
         });
@@ -583,17 +637,84 @@ public final class VutronMusicPlugin extends Plugin {
     public void cachePlaylist(PluginCall call) {
         long playlistId = longArg(call, "playlistId", 0L);
         if (playlistId <= 0) { call.reject("歌单 ID 无效"); return; }
-        worker.execute(() -> {
-            try {
-                Context context = getContext();
-                NeteaseApi api = authenticated();
-                JSONObject metadata = api.playlistDetail(playlistId);
-                List<JSONObject> values = api.tracks(metadata);
-                PlaylistCache.saveTracks(context, cachedUserId(context), playlistId, values, metadata, true);
-                for (JSONObject song : values) ArtworkCache.enqueue(context, ArtworkSource.coverUrl(song));
-                call.resolve(new JSObject().put("count", values.size()));
-            } catch (Exception error) { call.reject(message(error, "缓存歌单失败")); }
+        Context context = getContext(); String cookie = SessionStore.load(context); long userId = cachedUserId(context);
+        if (cookie.isEmpty() || userId <= 0) { call.reject("请先登录网易云"); return; }
+        final long epoch;
+        synchronized (onlineCacheLock) { epoch = onlineCacheEpoch; }
+        libraryTasks.execute("cachePlaylists", call, () -> {
+            synchronized (onlineCacheLock) { requireBatchOwner(cookie, epoch); }
+            NeteaseApi api = new NeteaseApi(cookie, () -> !LocalOnlyMode.enabled(context) && cookie.equals(SessionStore.load(context)) && !LibraryTaskRunner.isCancelled());
+            JSONObject metadata = api.playlistDetail(playlistId);
+            List<JSONObject> values = api.tracks(metadata, (items, total) -> {
+                synchronized (onlineCacheLock) { requireBatchOwner(cookie, epoch); }
+            });
+            synchronized (onlineCacheLock) {
+                requireBatchOwner(cookie, epoch);
+                PlaylistCache.saveTracks(context, userId, playlistId, values, metadata, true);
+                ArtworkCache.enqueueManual(context, metadata.optString("coverImgUrl", metadata.optString("picUrl", "")));
+                for (JSONObject song : values) {
+                    if (!ArtworkCache.hasRoomForManual(context)) break;
+                    ArtworkCache.enqueueManual(context, ArtworkSource.coverUrl(song));
+                }
+            }
+            call.resolve(new JSObject().put("count", values.size()));
         });
+    }
+
+    @PluginMethod
+    public void cachePluginPlaylist(PluginCall call) {
+        String id = call.getString("pluginId", ""), scope = call.getString("accountScope", "");
+        JSONObject playlist = call.getObject("playlist");
+        if (playlist == null || !scope.matches("[a-f0-9]{64}")) { call.reject("插件歌单或账号无效"); return; }
+        final long epoch;
+        synchronized (onlineCacheLock) { epoch = onlineCacheEpoch; }
+        libraryTasks.execute("cachePlaylists", call, () -> {
+            Context context = getContext();
+            requirePluginCacheOwner(context, id, scope);
+            PluginPlaylistReader.Loaded loaded = PluginPlaylistReader.read(playlist, (method, params) -> {
+                requirePluginCacheOwner(context, id, scope);
+                return AndroidPluginManager.callScoped(context, id, method, params, scope);
+            }, LibraryTaskRunner::progress);
+            HashMap<String, String> scopes = new HashMap<>(); scopes.put(id, scope);
+            HashMap<String, Long> coverRevisions = new HashMap<>();
+            List<JSONObject> tracks = new ArrayList<>(loaded.tracks().size());
+            for (JSONObject row : loaded.tracks()) {
+                LibraryTaskRunner.checkCancelled();
+                String source = row.optString("pluginId").isEmpty() ? id : row.optString("pluginId");
+                String trackScope = scopes.get(source);
+                if (trackScope == null) {
+                    AndroidPluginManager.requireEnabled(context, source);
+                    trackScope = AndroidPluginManager.accountScope(context, source);
+                    scopes.put(source, trackScope);
+                }
+                JSONObject adapted = PluginTrackAdapter.displayTrack(source, row, trackScope);
+                String image = row.optString("picUrl");
+                if (!image.isEmpty()) {
+                    long revision = coverRevisions.computeIfAbsent(source, ownerId -> AndroidPluginManager.artworkRevision(context, ownerId));
+                    adapted.put("coverFingerprint", ArtworkCache.ownedFingerprint(PluginArtwork.cacheKey(source, image, revision)));
+                }
+                tracks.add(adapted);
+            }
+            synchronized (onlineCacheLock) {
+                if (epoch != onlineCacheEpoch) throw new java.io.IOException("缓存已变化，请重新保存歌单");
+                for (Map.Entry<String, String> entry : scopes.entrySet()) requirePluginCacheOwner(context, entry.getKey(), entry.getValue());
+                LibraryTaskRunner.beginCommit();
+                JSONObject detail = loaded.detail().put("trackCount", tracks.size());
+                String cover = detail.optString("picUrl");
+                long revision = AndroidPluginManager.artworkRevision(context, id);
+                if (!cover.isEmpty()) detail.put("coverFingerprint", ArtworkCache.ownedFingerprint(PluginArtwork.cacheKey(id, cover, revision)));
+                PluginPlaylistCache.save(context, id, scope, detail, tracks);
+                PluginArtwork.enqueuePlaylistCover(context, id, scope, cover, detail.optJSONObject("sourceContext"), revision);
+            }
+            call.resolve(new JSObject().put("count", tracks.size()));
+        });
+    }
+
+    private static void requirePluginCacheOwner(Context context, String id, String scope) throws Exception {
+        LibraryTaskRunner.checkCancelled();
+        if (!AndroidPluginManager.networkAllowed(context)) throw new java.io.IOException("请联网后保存插件歌单");
+        AndroidPluginManager.requireEnabled(context, id);
+        if (!scope.equals(AndroidPluginManager.accountScope(context, id))) throw new java.io.IOException("插件账号已变化，请重新打开音乐库");
     }
 
     @PluginMethod
@@ -614,7 +735,8 @@ public final class VutronMusicPlugin extends Plugin {
                     if(id<=0) throw new java.io.IOException("歌单标识无效");
                     List<JSONObject> songs=api.tracks(id);
                     synchronized(onlineCacheLock) { requireBatchOwner(cookie,epoch);PlaylistCache.saveTracks(context,userId,id,songs,playlist,true); }
-                    for(JSONObject song:songs) { LibraryTaskRunner.checkCancelled();ArtworkCache.enqueue(context,ArtworkSource.coverUrl(song)); }
+                    ArtworkCache.enqueueManual(context, playlist.optString("coverImgUrl", playlist.optString("picUrl", "")));
+                    for(JSONObject song:songs) { LibraryTaskRunner.checkCancelled();if (!ArtworkCache.hasRoomForManual(context)) break;ArtworkCache.enqueueManual(context,ArtworkSource.coverUrl(song)); }
                     cachedPlaylists++;cachedTracks+=songs.size();
                 } catch(Exception failure) {
                     synchronized(onlineCacheLock) { requireBatchOwner(cookie,epoch); }
@@ -693,6 +815,25 @@ public final class VutronMusicPlugin extends Plugin {
         SourceSettings.autoMatch(getContext(), call.getBoolean("autoMatch", true));
         AndroidPlaybackService.invalidatePrefetchForPolicyChange();
         getSourceSettings(call);
+    }
+
+    @PluginMethod public void getTrackSourceMatches(PluginCall call) {
+        pluginWorker.execute(() -> {
+            try {
+                long trackId = call.getLong("trackId", 0L);
+                JSONObject result = PlaybackSourceResolver.matchCandidates(getContext(), trackId)
+                        .put("override", TrackSourceOverrides.get(getContext(), trackId));
+                call.resolve(new JSObject(result.toString()));
+            } catch (Exception failure) { call.reject(message(failure, "读取单曲音源候选失败")); }
+        });
+    }
+
+    @PluginMethod public void setTrackSourceOverride(PluginCall call) {
+        try {
+            long trackId = call.getLong("trackId", 0L);
+            String source = call.getString("source", "");
+            call.resolve(new JSObject(TrackSourceOverrides.set(getContext(), trackId, source).toString()));
+        } catch (Exception failure) { call.reject(message(failure, "保存单曲音源选择失败")); }
     }
 
     @PluginMethod
@@ -1090,53 +1231,235 @@ public final class VutronMusicPlugin extends Plugin {
         });
     }
 
+    // Only ciphertext survives the trip to the system file picker. An activity recreated
+    // without this state must ask the user to start a fresh private export.
+    private record PendingPrivateExport(String callId, JSONObject envelope) { }
+    private volatile PendingPrivateExport pendingPrivateExport;
+    private record PendingBackupImport(String id, Uri uri, JSONObject document, boolean archive,
+            int cacheItems, int audioItems, String manifestHash, long createdAt) { }
+    private final Map<String, PendingBackupImport> pendingBackupImports = new HashMap<>();
+
     @PluginMethod
     public void exportUserBackup(PluginCall call) {
-        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE)
-                .putExtra(Intent.EXTRA_TITLE, "VutronMusic-backup-" + new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(new java.util.Date()) + ".json");
+        if (!Boolean.TRUE.equals(call.getBoolean("includePrivacy", false))) {
+            pickBackupDestination(call);
+            return;
+        }
+        libraryTasks.execute("backupExport", call, () -> {
+            JSONObject accounts;
+            synchronized (qrSessions) { accounts = PortableAccounts.snapshot(getContext()); }
+            JSONObject envelope = null;
+            if (PortableAccounts.hasAccounts(accounts)) {
+                char[] password = BackupPasswordPrompt.request(getActivity(), true, call.getString("language", ""));
+                try { envelope = BackupAccountCipher.seal(accounts, password); }
+                finally { java.util.Arrays.fill(password, '\0'); }
+            }
+            LibraryTaskRunner.checkCancelled();
+            pendingPrivateExport = new PendingPrivateExport(call.getCallbackId(), envelope);
+            getActivity().runOnUiThread(() -> {
+                try { pickBackupDestination(call); }
+                catch (RuntimeException unavailable) {
+                    pendingPrivateExport = null;
+                    call.reject("无法打开备份保存位置");
+                }
+            });
+        });
+    }
+
+    private void pickBackupDestination(PluginCall call) {
+        boolean archive = Boolean.TRUE.equals(call.getBoolean("includeCache", false));
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT).setType(archive ? "application/zip" : "application/json").addCategory(Intent.CATEGORY_OPENABLE)
+                .putExtra(Intent.EXTRA_TITLE, "VutronMusic-backup-" + new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(new java.util.Date()) + (archive ? ".zip" : ".json"));
         startActivityForResult(call, intent, "backupExportPicked");
     }
 
     @ActivityCallback
     private void backupExportPicked(PluginCall call, ActivityResult result) {
+        PendingPrivateExport pending = pendingPrivateExport;
+        pendingPrivateExport = null;
         if (call == null) return;
         if (result == null || result.getResultCode() != Activity.RESULT_OK || result.getData() == null || result.getData().getData() == null) {
             call.resolve(new JSObject().put("cancelled", true)); return;
         }
         Uri uri = result.getData().getData();
-        worker.execute(() -> {
+        libraryTasks.execute("backupExport", call, () -> {
+            boolean complete = false;
             try {
-                JSONObject backup = LibraryBackup.snapshot(getContext(), call.getObject("frontend", new JSObject()), call.getObject("orders", new JSObject()));
-                byte[] bytes = LibraryBackup.exportBytes(backup);
-                try (java.io.OutputStream output = getContext().getContentResolver().openOutputStream(uri, "wt")) {
-                    if (output == null) throw new java.io.IOException("无法写入备份位置"); output.write(bytes); output.flush();
+                Context context = getContext();
+                boolean archive = Boolean.TRUE.equals(call.getBoolean("includeCache", false));
+                boolean privacy = Boolean.TRUE.equals(call.getBoolean("includePrivacy", false));
+                if (privacy && (pending == null || !pending.callId().equals(call.getCallbackId())))
+                    throw new java.io.IOException("备份操作已中断，请重新导出");
+                JSONObject backup = LibraryBackup.snapshot(context, call.getObject("frontend", new JSObject()), call.getObject("orders", new JSObject()), privacy);
+                if (privacy && pending.envelope() != null) backup.put(LibraryBackup.ACCOUNT_ENVELOPE, pending.envelope());
+                JSObject response = new JSObject().put("collectionCount", backup.getJSONArray("collections").length());
+                byte[] json = archive ? null : LibraryBackup.exportBytes(backup);
+                try (java.io.OutputStream output = context.getContentResolver().openOutputStream(uri, "wt")) {
+                    if (output == null) throw new java.io.IOException("无法写入备份位置");
+                    if (archive) response.put("cacheItems", BackupCacheArchive.write(context, backup, output));
+                    else { output.write(json); output.flush(); }
                 }
-                call.resolve(new JSObject().put("collectionCount", backup.getJSONArray("collections").length()));
-            } catch (Exception error) { call.reject(message(error, "导出 JSON 备份失败")); }
+                complete = true;
+                call.resolve(response);
+            } finally {
+                if (!complete) try { android.provider.DocumentsContract.deleteDocument(getContext().getContentResolver(), uri); }
+                catch (Exception ignored) { android.util.Log.w("VutronBackup", "Unable to remove the incomplete newly created backup"); }
+            }
         });
     }
 
     @PluginMethod
-    public void importUserBackup(PluginCall call) {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE)
-                .putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "text/plain", "application/octet-stream"});
-        startActivityForResult(call, intent, "backupImportPicked");
+    public void inspectUserBackup(PluginCall call) {
+        clearPendingBackupImports(getContext());
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                .putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"application/json", "application/zip", "application/x-zip-compressed", "text/plain", "application/octet-stream"});
+        startActivityForResult(call, intent, "backupImportInspected");
     }
 
     @ActivityCallback
-    private void backupImportPicked(PluginCall call, ActivityResult result) {
+    private void backupImportInspected(PluginCall call, ActivityResult result) {
         if (call == null) return;
         if (result == null || result.getResultCode() != Activity.RESULT_OK || result.getData() == null || result.getData().getData() == null) {
             call.resolve(new JSObject().put("cancelled", true)); return;
         }
         Uri uri = result.getData().getData();
-        worker.execute(() -> {
-            try {
-                JSONObject backup = LibraryBackup.read(getContext().getContentResolver().openInputStream(uri));
-                JSONObject restored = LibraryBackup.restore(getContext(), backup);
-                call.resolve(new JSObject(restored.toString()));
-            } catch (Exception error) { call.reject(message(error, "导入 JSON 备份失败")); }
+        libraryTasks.execute("backupInspect", call, () -> {
+            Context context = getContext();
+            java.io.InputStream document = context.getContentResolver().openInputStream(uri);
+            if (document == null) throw new java.io.IOException("无法打开备份文件");
+            JSONObject backup; boolean archive;
+            try (java.io.BufferedInputStream input = new java.io.BufferedInputStream(document)) {
+                archive = BackupCacheArchive.isZip(input);
+                backup = archive ? BackupCacheArchive.inspectManifest(input) : LibraryBackup.read(input);
+            }
+            LibraryBackup.validate(backup);
+            int caches = archive ? backup.optInt("cacheItemCount", -1) : 0;
+            if (caches < 0) throw new java.io.IOException("缓存备份条目数量无效");
+            JSONArray audioEntries = archive ? backup.optJSONArray("audioEntries") : null;
+            if (archive && audioEntries == null) throw new java.io.IOException("缓存备份清单无效");
+            int audio = audioEntries == null ? 0 : audioEntries.length();
+            String id = java.util.UUID.randomUUID().toString();
+            String hash = digestBackupManifest(backup);
+            if (archive) {
+                int flags = result.getData().getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION;
+                try { if (flags != 0) context.getContentResolver().takePersistableUriPermission(uri, flags); }
+                catch (SecurityException ignored) { }
+            }
+            synchronized (pendingBackupImports) {
+                pendingBackupImports.put(id, new PendingBackupImport(id, archive ? uri : null, backup, archive,
+                        caches, audio, hash, System.currentTimeMillis()));
+            }
+            JSObject summary = new JSObject().put("requestId", id).put("archive", archive)
+                    .put("collectionCount", backup.getJSONArray("collections").length())
+                    .put("trackCount", countBackupTracks(backup)).put("cacheItems", caches)
+                    .put("audioItems", audio).put("hasAccounts", backup.optJSONObject(LibraryBackup.ACCOUNT_ENVELOPE) != null);
+            call.resolve(summary);
         });
+    }
+
+    @PluginMethod
+    public void cancelUserBackupImport(PluginCall call) {
+        String id = call.getString("requestId", "");
+        synchronized (pendingBackupImports) { releasePendingBackupImport(getContext(), pendingBackupImports.remove(id)); }
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void completeUserBackupImport(PluginCall call) {
+        String id = call.getString("requestId", "");
+        PendingBackupImport pending;
+        synchronized (pendingBackupImports) { expirePendingBackupImports(getContext()); pending = pendingBackupImports.get(id); }
+        if (pending == null) { call.reject("備份檔案已失效，請重新選擇"); return; }
+        boolean includeCache = Boolean.TRUE.equals(call.getBoolean("includeCache", false));
+        libraryTasks.execute("backupImport", call, () -> {
+            JSONObject manifest = new JSONObject(pending.document().toString());
+            PortableAccounts.RestorePlan accounts = prepareBackupAccounts(call, manifest);
+            LibraryTaskRunner.checkCancelled();
+            JSONObject restored;
+            if (pending.archive() && includeCache) {
+                try (java.io.InputStream stream = getContext().getContentResolver().openInputStream(pending.uri());
+                     java.io.BufferedInputStream input = stream == null ? null : new java.io.BufferedInputStream(stream)) {
+                    if (input == null) throw new java.io.IOException("无法重新读取备份文件");
+                    try (BackupCacheArchive.Staged staged = BackupCacheArchive.stage(getContext(), input)) {
+                        if (!pending.manifestHash().equals(digestBackupManifest(staged.backup))) throw new java.io.IOException("备份文件已改变，请重新选择");
+                        LibraryBackup.takeAccountEnvelope(staged.backup, Boolean.TRUE.equals(call.getBoolean("includePrivacy", false)));
+                        restored = restoreBackupDocument(call, staged.backup, accounts);
+                        try {
+                            BackupCacheArchive.Count counts = staged.restore(getContext());
+                            restored.put("cacheItems", counts.restored()).put("cacheSkipped", counts.skipped());
+                        } catch (Exception cacheFailure) { restored.put("cacheIncomplete", true); }
+                    }
+                }
+            } else restored = restoreBackupDocument(call, manifest, accounts);
+            synchronized (pendingBackupImports) { releasePendingBackupImport(getContext(), pendingBackupImports.remove(id)); }
+            call.resolve(new JSObject(restored.toString()));
+        });
+    }
+
+    private PortableAccounts.RestorePlan prepareBackupAccounts(PluginCall call, JSONObject document) throws Exception {
+        boolean privacy = Boolean.TRUE.equals(call.getBoolean("includePrivacy", false));
+        JSONObject envelope = LibraryBackup.takeAccountEnvelope(document, privacy);
+        if (envelope == null) return null;
+        char[] password = BackupPasswordPrompt.request(getActivity(), false, call.getString("language", ""));
+        try { return PortableAccounts.prepare(getContext(), BackupAccountCipher.open(envelope, password)); }
+        finally { java.util.Arrays.fill(password, '\0'); }
+    }
+
+    private JSONObject restoreBackupDocument(PluginCall call, JSONObject document, PortableAccounts.RestorePlan accounts) throws Exception {
+        LibraryTaskRunner.beginCommit();
+        JSONObject receipt = LibraryBackup.restore(getContext(), document);
+        if (accounts != null) {
+            JSONObject applied;
+            synchronized (qrSessions) {
+                applied = accounts.apply();
+                if (applied.optBoolean("neteaseRestored")) invalidateQrSessions();
+            }
+            receipt.put("neteaseRestored", applied.optBoolean("neteaseRestored"))
+                    .put("pluginAccountsRestored", applied.optInt("pluginAccountsRestored"))
+                    .put("pluginAccountsSkipped", applied.optInt("pluginAccountsSkipped"));
+            if (applied.optBoolean("neteaseRestored")) {
+                synchronized (onlineCacheLock) { onlineCacheEpoch++; }
+                networkChanged();
+            }
+        }
+        return receipt;
+    }
+
+    private static int countBackupTracks(JSONObject backup) throws Exception {
+        int count = 0; JSONArray collections = backup.getJSONArray("collections");
+        for (int i = 0; i < collections.length(); i++) count += collections.getJSONObject(i).getJSONArray("tracks").length();
+        return count;
+    }
+
+    private static String digestBackupManifest(JSONObject backup) throws Exception {
+        byte[] bytes = backup.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] hash = java.security.MessageDigest.getInstance("SHA-256").digest(bytes);
+        StringBuilder result = new StringBuilder(64);
+        for (byte value : hash) result.append(String.format(Locale.ROOT, "%02x", value & 255));
+        return result.toString();
+    }
+
+    private void clearPendingBackupImports(Context context) {
+        synchronized (pendingBackupImports) {
+            for (PendingBackupImport item : pendingBackupImports.values()) releasePendingBackupImport(context, item);
+            pendingBackupImports.clear();
+        }
+    }
+
+    private void expirePendingBackupImports(Context context) {
+        long now = System.currentTimeMillis();
+        java.util.Iterator<Map.Entry<String, PendingBackupImport>> iterator = pendingBackupImports.entrySet().iterator();
+        while (iterator.hasNext()) {
+            PendingBackupImport item = iterator.next().getValue();
+            if (now - item.createdAt() > 10 * 60 * 1000L) { releasePendingBackupImport(context, item); iterator.remove(); }
+        }
+    }
+
+    private static void releasePendingBackupImport(Context context, PendingBackupImport item) {
+        if (item == null || item.uri() == null) return;
+        try { context.getContentResolver().releasePersistableUriPermission(item.uri(), Intent.FLAG_GRANT_READ_URI_PERMISSION); }
+        catch (SecurityException ignored) { }
     }
 
     @PluginMethod
@@ -1314,6 +1637,12 @@ public final class VutronMusicPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void setLibraryAutoCache(PluginCall call) {
+        ArtworkCache.setAutomatic(getContext(), call.getBoolean("enabled", true));
+        call.resolve(cacheStatus(AudioCache.stats(getContext())));
+    }
+
+    @PluginMethod
     public void setPlaybackMode(PluginCall call) {
         int mode = (int) longArg(call, "mode", -1);
         if (mode < 0 || mode > 2) { call.reject("播放模式无效"); return; }
@@ -1405,7 +1734,13 @@ public final class VutronMusicPlugin extends Plugin {
     @PluginMethod
     public void clearCache(PluginCall call) {
         worker.execute(() -> {
-            try { AudioCache.clear(getContext()); PlaylistCache.clear(getContext()); call.resolve(); }
+            try {
+                synchronized (onlineCacheLock) {
+                    onlineCacheEpoch++;
+                    AudioCache.clear(getContext()); PlaylistCache.clear(getContext()); PluginPlaylistCache.clear(getContext());
+                }
+                call.resolve();
+            }
             catch (Exception error) { call.reject(message(error, "缓存清理失败")); }
         });
     }
@@ -1512,8 +1847,10 @@ public final class VutronMusicPlugin extends Plugin {
         long artworkBytes = ArtworkCache.bytes(getContext());
         return new JSObject().put("capacityMb", stats.maxBytes / (1024L * 1024L))
                 .put("enabled", stats.enabled)
+                .put("libraryAutoCache", ArtworkCache.automatic(getContext()))
+                .put("artworkFull", !ArtworkCache.hasRoom(getContext()))
                 .put("usedBytes", stats.bytes).put("trackCount", stats.count)
-                .put("libraryBytes", PlaylistCache.bytes(getContext()) + artworkBytes)
+                .put("libraryBytes", PlaylistCache.bytes(getContext()) + PluginPlaylistCache.bytes(getContext()) + artworkBytes)
                 .put("artworkCapacityMb", ArtworkCache.capacityMiB(getContext()))
                 .put("artworkBytes", artworkBytes)
                 .put("queued", stats.queued).put("downloading", stats.downloading)
@@ -1837,9 +2174,10 @@ public final class VutronMusicPlugin extends Plugin {
         if (value.has("cacheLossless")) result.put("cacheLossless", value.optBoolean("cacheLossless"));
         if (value.has("neteaseId")) result.put("neteaseId", value.optLong("neteaseId"));
         if (value.has("cached")) result.put("cached", value.optBoolean("cached"));
+        if (value.has("offlineOnly")) result.put("offlineOnly", value.optBoolean("offlineOnly"));
         if (value.has("onlineOnly")) result.put("onlineOnly", value.optBoolean("onlineOnly"));
         if (value.has("missingLocal")) result.put("missingLocal", value.optBoolean("missingLocal"));
-        for (String field : new String[]{"pluginId", "pluginTrackId", "pluginAccountScope", "pluginSourceMethod", "pluginPlaylistOwner"}) if (value.has(field)) result.put(field,value.optString(field));
+        for (String field : new String[]{"pluginId", "pluginTrackId", "pluginAccountScope", "pluginSourceMethod", "pluginPlaylistOwner", "trackFingerprint"}) if (value.has(field)) result.put(field,value.optString(field));
         for (String field : new String[]{"pluginSourceContext", "pluginTrack", "pluginPlaylistContext"}) if (value.optJSONObject(field)!=null) result.put(field,value.optJSONObject(field));
         return result;
     }
@@ -1866,7 +2204,12 @@ public final class VutronMusicPlugin extends Plugin {
 
     @Override protected void handleOnDestroy() {
         if (connectivity != null) try { connectivity.close(); } catch (RuntimeException ignored) { }
+        synchronized (pendingBackupImports) {
+            for (PendingBackupImport item : pendingBackupImports.values()) releasePendingBackupImport(getContext(), item);
+            pendingBackupImports.clear();
+        }
         connectivity = null;
+        pendingPrivateExport = null;
         libraryTasks.close();
         if (playlistImports != null) playlistImports.clearPending();
         synchronized (this) { if (appUpdates != null) appUpdates.close(); }

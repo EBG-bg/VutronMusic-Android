@@ -21,8 +21,9 @@ useSheetDrag(sheet, { close: () => emit('close') })
   </div>
 </template>
 <style scoped>
-.tuning-layer { position: fixed; inset: 0; z-index: 200; display: flex; align-items: flex-end; justify-content: center; background: rgb(0 0 0 / 35%); }
-.tuning-sheet { width: min(100%, 560px); max-height: 90dvh; padding: 16px 16px max(18px, env(safe-area-inset-bottom)); overflow: auto; overscroll-behavior: contain; border-radius: 22px 22px 0 0; background: var(--color-body-bg); color: var(--ink); box-shadow: 0 -8px 32px rgb(0 0 0 / 18%); }
-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
-h2 { margin: 0; font-size: calc(18px * var(--ui-font-scale, 1)); } header p { margin: 6px 0 0; color: var(--muted); font-size: calc(12px * var(--ui-font-scale, 1)); line-height: 1.5; }
+.tuning-layer { position: fixed; inset: 0; z-index: 200; display: flex; align-items: flex-end; justify-content: center; background: var(--scrim); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); }
+.tuning-sheet { width: min(100%, 560px); max-height: 90dvh; padding: 16px 16px max(18px, env(safe-area-inset-bottom)); overflow: auto; overscroll-behavior: contain; border: 1px solid var(--line); border-bottom: 0; border-radius: var(--radius-sheet) var(--radius-sheet) 0 0; background: var(--color-body-bg); color: var(--ink); box-shadow: var(--shadow-sheet); }
+header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+h2 { margin: 0; font-size: calc(18px * var(--ui-font-scale, 1)); font-weight: 700; }
+header p { margin: 4px 0 0; color: var(--muted); font-size: calc(12px * var(--ui-font-scale, 1)); line-height: 1.5; }
 </style>

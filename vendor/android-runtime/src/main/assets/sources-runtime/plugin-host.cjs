@@ -140,7 +140,18 @@ function createPluginHost({ root, builtins = path.join(__dirname, 'plugins'), wo
       status: value.status || 'logout', baseUrl: typeof stored.store?.baseUrl === 'string' ? stored.store.baseUrl : '',
       accountScope: accountScope(value.id, value.type === 'local', stored.store?.baseUrl || '', stored.db?.PluginData || {}, stored.accountGeneration || 0) };
   }
-  function list() { return { format:3, plugins: Object.values(registry.plugins).map(publicEntry), catalog: manifest().map(item => ({ ...item, baseId:item.id, builtIn:true, installed:true })) }; }
+  let restoreMarker = null, restoreTargets = new Set(), activeRequests = 0, drain = null;
+  function restoreInProgress() {
+    if (restoreMarker && !fs.existsSync(restoreMarker)) {
+      registry = read(registryFile, registry);
+      restoreMarker = null; restoreTargets.clear();
+    }
+    return restoreMarker !== null;
+  }
+  function requireAvailable() {
+    if (restoreInProgress()) throw problem('Restoring plugin accounts', 'PLUGIN_BUSY');
+  }
+  function list() { requireAvailable(); return { format:3, plugins: Object.values(registry.plugins).map(publicEntry), catalog: manifest().map(item => ({ ...item, baseId:item.id, builtIn:true, installed:true })) }; }
   function log(id, message, event = 'log') {
     const rows = logs.get(id) || [];
     rows.push({ time: now(), event, message: redact(message) });
@@ -350,15 +361,23 @@ function createPluginHost({ root, builtins = path.join(__dirname, 'plugins'), wo
       if (method === 'register_dev' && result.body?.status === 1 && typeof result.body?.data?.dfid === 'string') {
         const latest = state(live.id); latest.kugouDevice = { ...device, dfid: result.body.data.dfid }; saveState(live.id, latest);
       }
+      if (method === 'playlist_track_all' && result.body?.status === 1 && Array.isArray(result.body.data?.songs))
+        live.kugouSkippedPlaylistTracks = result.body.data.songs.filter(row => row.shield || !row.hash).length;
       return message.raw ? { data: result.body, status: result.status || 200, headers: { 'content-type': 'application/json' } } : result.body;
     } catch (cause) {
       // This API rejects { status, body, cookie } rather than always an Error.
       // Keep a bounded, credential-free diagnostic and preserve QR transport
       // failures instead of the original plugin's catch => "expired" fallback.
       const detail = cause?.body || {};
-      const message = redact(cause?.message || detail.msg || detail.message || detail.errmsg || 'Kugou API request failed');
+      // KuGouMusicApi wraps an Axios error in body.msg. Keep its transport
+      // code but do not carry the error, response body, or config across IPC.
+      const transport = detail.msg instanceof Error ? detail.msg : undefined;
+      const providerCode = Number(detail.error_code);
+      const code = method === 'song_url' && providerCode === 20018 ? 'PLUGIN_AUTH'
+        : cause?.code || transport?.code || 'PLUGIN_HTTP';
+      const message = redact(cause?.message || transport?.message || detail.msg || detail.message || detail.errmsg || 'Kugou API request failed');
       const status = Number.isInteger(cause?.status) ? cause.status : undefined;
-      const error = problem(message + (status ? ' (HTTP ' + status + ')' : ''), cause?.code || 'PLUGIN_HTTP');
+      const error = problem(message + (status ? ' (HTTP ' + status + ')' : ''), code);
       error.response = { status, error_code: detail.error_code, message };
       (live.kugouFailures ||= new Map()).set(method, error);
       log(live.id, method + ': ' + error.message, 'request-error');
@@ -405,20 +424,27 @@ function createPluginHost({ root, builtins = path.join(__dirname, 'plugins'), wo
       }
       live.active++; live.allowed = allowNetwork; live.allowMatchSources = allowMatchSources; clearTimeout(live.idle);
       live.kugouSongContext = selected.baseId === 'kugou' && method === 'songUrl' ? clone(params) : undefined;
+      live.kugouSkippedPlaylistTracks = 0;
+      const initialRank = defaultApi(selected) && method === 'getPlaylistDetail' && params?.type === 'rank'
+        && (!Number.isSafeInteger(Number(params.page)) || Number(params.page) < 1);
+      const input = initialRank ? { ...params, page: 1 } : params;
       live.kugouFailures?.clear();
       try {
         const result = await new Promise((resolve, reject) => {
           const callId = ++serial;
           const timer = setTimeout(() => { reject(problem('Plugin call timed out', 'PLUGIN_TIMEOUT')); stop(id, 'Plugin call timed out'); }, callTimeoutMs);
           live.pending.set(callId, { resolve, reject, timer });
-          live.worker.postMessage({ type: 'CALL', callId, method, params: clone(params) });
+          live.worker.postMessage({ type: 'CALL', callId, method, params: clone(input) });
         });
         if (Buffer.byteLength(JSON.stringify(result) || '') > MAX_RESULT_BYTES) throw problem('Plugin result exceeds its size limit', 'PLUGIN_RESULT_LIMIT');
         const validated = validateResult ? validateResult(method, result) : require('./plugin-contract.cjs').validateResult(method, result);
-        const qrMethod = method === 'loginQrKey' && !validated.data?.qrcode ? 'login_qr_key'
-          : method === 'loginQrCodeCheck' && validated.code === 800 ? 'login_qr_check' : '';
-        if (qrMethod && live.kugouFailures?.has(qrMethod)) throw live.kugouFailures.get(qrMethod);
+        const failedRoute = method === 'loginQrKey' && !validated.data?.qrcode ? 'login_qr_key'
+          : method === 'loginQrCodeCheck' && validated.code === 800 ? 'login_qr_check'
+          : method === 'songUrl' && !validated.data?.url?.length ? 'song_url' : '';
+        if (failedRoute && live.kugouFailures?.has(failedRoute)) throw live.kugouFailures.get(failedRoute);
         if (method === 'getAccount' && defaultApi(selected)) validated.baseUrl = state(id).store?.baseUrl || '';
+        if (method === 'getPlaylistTracks' && validated?.code === 200 && live.kugouSkippedPlaylistTracks > 0)
+          validated.skippedUnavailableTracks = live.kugouSkippedPlaylistTracks;
         if (method === 'systemPing' && validated?.status) { selected.status = validated.status; write(registryFile, registry); }
         if (method === 'doLogout' && validated?.code === 200) { selected.status = 'logout'; write(registryFile, registry); }
         if (method === 'loginQrCodeCheck' && validated?.code === 803) { selected.status = 'login'; write(registryFile, registry); }
@@ -534,11 +560,39 @@ function createPluginHost({ root, builtins = path.join(__dirname, 'plugins'), wo
     throw problem('Unknown plugin management action', 'PLUGIN_ACTION');
   }
   async function handle(request) {
-    if (request.action === 'call') { policy(request.allowNetwork === true); return { result: await call(request.id, request.method, request.params || {}, request.allowNetwork === true, request.allowMatchSources !== false, request.expectedAccountScope || '') }; }
-    return manage(request);
+    requireAvailable();
+    if (request.action === 'beginAccountRestore') {
+      const marker = request.marker;
+      if (drain || typeof marker !== 'string' || !/^\.account-restore-[A-Za-z0-9_-]+\.lock$/.test(marker)) throw problem('Invalid account restore', 'PLUGIN_BUSY');
+      const file = path.join(root, marker);
+      if (!fs.existsSync(file)) throw problem('Missing native restore marker', 'PLUGIN_BUSY');
+      if (!Array.isArray(request.ids) || request.ids.length > MAX_PLUGINS) throw problem('Invalid backup sources', 'PLUGIN_ID');
+      const ids = request.ids.map(validId);
+      if (activeRequests) {
+        let timer;
+        try { await new Promise((resolve, reject) => {
+          drain = resolve;
+          timer = setTimeout(() => reject(problem('Plugin store is busy', 'PLUGIN_BUSY')), 25000);
+        }); } finally { clearTimeout(timer); drain = null; }
+      }
+      if (!fs.existsSync(file)) throw problem('Account restore cancelled', 'PLUGIN_CANCELLED');
+      for (const id of ids) stop(id, 'Plugin account restored');
+      restoreMarker = file; restoreTargets = new Set(ids);
+      return {};
+    }
+    if (drain) throw problem('Waiting for account restore', 'PLUGIN_BUSY');
+    activeRequests++;
+    try {
+      if (request.action === 'call') { policy(request.allowNetwork === true); return { result: await call(request.id, request.method, request.params || {}, request.allowNetwork === true, request.allowMatchSources !== false, request.expectedAccountScope || '') }; }
+      return await manage(request);
+    } finally { if (--activeRequests === 0 && drain) drain(); }
   }
   function close() { for (const id of [...workers.keys()]) stop(id); }
-  return { handle, list, manage, call, policy, close, canNetwork: id => networkAllowed && !!registry.plugins[id] && registry.plugins[id].enabled !== false };
+  function canNetwork(id) { return !(restoreInProgress() && restoreTargets.has(id)) && networkAllowed && !!registry.plugins[id] && registry.plugins[id].enabled !== false; }
+  function canRecoverKugouDns(id) {
+    return canNetwork(id) && !!defaultApi(registry.plugins[id]) && !state(id).store?.baseUrl;
+  }
+  return { handle, list, manage, call, policy, close, canNetwork, canRecoverKugouDns };
 }
 
 module.exports = { createPluginHost, validId, redact, brandResult, accountScope };

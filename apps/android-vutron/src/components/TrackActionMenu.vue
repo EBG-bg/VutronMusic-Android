@@ -15,12 +15,14 @@ import { actionDialog } from '../platform/actionDialog'
 import { useSheetDrag } from '../composables/sheetDrag'
 import SheetDragHandle from './SheetDragHandle.vue'
 import PluginTrackActions from './PluginTrackActions.vue'
+import TrackSourceCorrectionSheet from './TrackSourceCorrectionSheet.vue'
 import type { PluginItem, PluginPlayback } from '../plugins/protocol'
 
 const props = defineProps<{ track: VutronTrack; suspended?: boolean }>()
 const emit = defineEmits<{ close: []; comments: [track: VutronTrack] }>()
 const store = useAndroidShellStore()
 const pluginActions=ref<{handleBack():boolean}>(),pluginModal=ref(false)
+const sourceCorrectionOpen = ref(false)
 const pluginItem=computed(()=>props.track.pluginTrack as PluginItem|undefined)
 const pluginScope=computed(()=>props.track.pluginAccountScope)
 const management = useLibraryManagement()
@@ -70,11 +72,11 @@ function volumeLane() {
   return lane
 }
 
-function handleBack(){return pluginActions.value?.handleBack()||false}
+function handleBack(){if(sourceCorrectionOpen.value){sourceCorrectionOpen.value=false;return true}return pluginActions.value?.handleBack()||false}
 defineExpose({handleBack})
 function close() { if(!handleBack())emit('close') }
-useModalFocus(dialog, { close, enabled: () => !props.suspended && !actionDialog.value && !pluginModal.value, restore: false })
-useSheetDrag(dialog, { close, enabled: () => !props.suspended && !actionDialog.value && !pluginModal.value })
+useModalFocus(dialog, { close, enabled: () => !props.suspended && !actionDialog.value && !pluginModal.value && !sourceCorrectionOpen.value, restore: false })
+useSheetDrag(dialog, { close, enabled: () => !props.suspended && !actionDialog.value && !pluginModal.value && !sourceCorrectionOpen.value })
 async function playPlugin(value:PluginPlayback){
   if(busy.value)return
   busy.value=true
@@ -133,12 +135,13 @@ onUnmounted(() => { mounted = false; volumeRead++; for (const lane of volumeLane
 
 <template>
     <div class="track-action-layer" @click.self="close">
-      <section ref="dialog" class="track-action-menu" :inert="suspended || Boolean(actionDialog)" role="dialog" aria-modal="true" :aria-label="$t('mobile.trackActions.title')">
+      <section ref="dialog" class="track-action-menu" :inert="suspended || Boolean(actionDialog) || sourceCorrectionOpen" role="dialog" aria-modal="true" :aria-label="$t('mobile.trackActions.title')">
         <SheetDragHandle @close="close" />
         <header data-sheet-drag-handle><div><h2>{{ track.name }}</h2><p>{{ track.artists?.join(' / ') || track.album || $t('mobile.trackActions.title') }}</p></div><button class="icon-button" type="button" :aria-label="$t('mobile.trackActions.close')" @click="close"><OriginalIcon name="close" /></button></header>
         <div class="track-action-options">
           <PluginTrackActions v-if="pluginItem&&track.pluginId" ref="pluginActions" :track="pluginItem" :plugin-id="track.pluginId" :account-scope="pluginScope" :local-only="store.manualLocalOnly||!store.networkConnected" :disabled="busy" @modal="pluginModal=$event" @play="playPlugin" />
-          <button v-if="canUseOnline" type="button" :disabled="busy" @click="emit('comments', track); close()"><OriginalIcon name="list" /><span>{{ $t('mobile.comments.title') }}</span></button>
+          <button v-if="canUseOnline" type="button" :disabled="busy" @click="emit('comments', track); close()"><OriginalIcon name="lyrics" /><span>{{ $t('mobile.comments.title') }}</span></button>
+          <button v-if="canUseOnline" type="button" :disabled="busy" @click="sourceCorrectionOpen = true"><OriginalIcon name="search" /><span>{{ $t('mobile.trackSource.action') }}<small>{{ $t('mobile.trackSource.actionHint') }}</small></span></button>
           <button v-if="canUseOnline" type="button" :disabled="busy || store.onlineMutationBusy || store.onlineNeedsRefresh || !store.likedLoaded" @click="toggleLike"><OriginalIcon :name="store.isTrackLiked(track) ? 'heartSolid' : 'heart'" /><span>{{ store.likedLoaded ? $t(store.isTrackLiked(track) ? 'mobile.netease.unlike' : 'mobile.netease.like') : $t('mobile.netease.likeLoading') }}</span></button>
           <button v-if="canUseOnline" type="button" :disabled="busy || store.onlineMutationBusy || store.onlineNeedsRefresh" @click="addToPlaylist"><OriginalIcon name="plus" /><span>{{ $t('mobile.netease.addTo') }}</span></button>
           <button v-if="store.removableOnlinePlaylist(track)" type="button" :disabled="busy || store.onlineMutationBusy || store.onlineNeedsRefresh" @click="removeFromOnlinePlaylist"><OriginalIcon name="close" /><span>{{ $t('mobile.netease.remove') }}</span></button>
@@ -156,30 +159,31 @@ onUnmounted(() => { mounted = false; volumeRead++; for (const lane of volumeLane
         </CollapsibleSettingsCard>
         <Transition name="track-feedback" mode="out-in"><p v-if="notice" :key="notice" class="track-action-notice" role="status">{{ notice }}</p></Transition>
       </section>
+      <TrackSourceCorrectionSheet v-if="sourceCorrectionOpen" :track="track" @close="sourceCorrectionOpen = false" @saved="notice = $event" />
     </div>
 </template>
 
 <style scoped>
-.track-action-layer { position: fixed; inset: 0; z-index: 120; display: flex; align-items: flex-end; justify-content: center; background: rgb(0 0 0 / 38%); }
-.track-action-menu { width: min(100%, 640px); max-height: 88dvh; overflow-y: auto; overscroll-behavior: contain; padding: 18px 16px max(16px, env(safe-area-inset-bottom)); border-radius: 18px 18px 0 0; color: var(--color-text); background: var(--color-body-bg); box-shadow: 0 -8px 36px rgb(0 0 0 / 18%); }
+.track-action-layer { position: fixed; inset: 0; z-index: 120; display: flex; align-items: flex-end; justify-content: center; background: var(--scrim); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); }
+.track-action-menu { width: min(100%, 640px); max-height: 88dvh; overflow-y: auto; overscroll-behavior: contain; padding: 18px 16px max(16px, env(safe-area-inset-bottom)); border: 1px solid var(--line); border-bottom: 0; border-radius: var(--radius-sheet) var(--radius-sheet) 0 0; color: var(--color-text); background: var(--color-body-bg); box-shadow: var(--shadow-sheet); }
 header { display: flex; align-items: center; gap: 12px; padding: 0 2px 12px; border-bottom: 1px solid var(--line); }
 header > div { min-width: 0; flex: 1; }
-h2 { margin: 0; font-size: calc(17px * var(--ui-font-scale, 1)); line-height: 1.4; overflow-wrap: anywhere; }
-header p { margin: 5px 0 0; color: var(--muted); font-size: calc(12px * var(--ui-font-scale, 1)); overflow-wrap: anywhere; }
-.track-action-options { display: grid; gap: 5px; margin-top: 9px; }
-.track-action-options > button { display: flex; align-items: center; gap: 14px; min-height: 52px; width: 100%; padding: 10px 12px; border: 0; border-radius: 10px; text-align: left; color: inherit; background: transparent; font: inherit; font-size: calc(14px * var(--ui-font-scale, 1)); transition: background-color 125ms ease-out, color 125ms ease-out, opacity 125ms ease-out, transform .2s ease; }
+h2 { margin: 0; font-size: calc(17px * var(--ui-font-scale, 1)); font-weight: 700; line-height: 1.38; overflow-wrap: anywhere; }
+header p { margin: 4px 0 0; color: var(--muted); font-size: calc(12px * var(--ui-font-scale, 1)); overflow-wrap: anywhere; }
+.track-action-options { display: grid; gap: 4px; margin-top: 10px; }
+.track-action-options > button { display: flex; align-items: center; gap: 14px; min-height: 50px; width: 100%; padding: 10px 12px; border: 0; border-radius: 12px; text-align: left; color: inherit; background: transparent; font: inherit; font-size: calc(14px * var(--ui-font-scale, 1)); transition: background-color 125ms ease-out, color 125ms ease-out, opacity 125ms ease-out, transform .2s ease; }
 .track-action-options > button:disabled { opacity: .45; }
 .track-action-options > button:is([data-original-feedback], :focus-visible) { background-color: var(--accent-soft); }
 @media (hover: hover) and (pointer: fine) { .track-action-options > button:hover { background-color: var(--accent-soft); } }
-.track-action-options .original-icon { font-size: 20px; }
+.track-action-options .original-icon { font-size: 20px; color: var(--muted); flex-shrink: 0; }
 .track-action-options span { min-width: 0; overflow-wrap: anywhere; }
-.track-action-options small { display: block; margin-top: 4px; color: var(--muted); font-size: calc(11px * var(--ui-font-scale, 1)); }
-.track-menu-volume-card { margin-top: 8px; padding: 10px 12px; box-shadow: none; background: var(--color-secondary-bg); }
+.track-action-options small { display: block; margin-top: 3px; color: var(--muted); font-size: calc(11px * var(--ui-font-scale, 1)); }
+.track-menu-volume-card { margin-top: 10px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-card); box-shadow: none; background: var(--surface-card); }
 .track-action-volume { padding: 0; font-size: calc(13px * var(--ui-font-scale, 1)); }
 .track-action-volume label { display: block; width: 100%; }
 .track-action-volume .thumb-range { margin-top: 4px; }
-.track-action-volume > div { display: flex; align-items: center; gap: 7px; margin-top: 10px; }
-.track-action-volume input[type=number] { min-width: 0; width: 72px; }
+.track-action-volume > div { display: flex; align-items: center; gap: 7px; margin-top: 10px; font-variant-numeric: tabular-nums; }
+.track-action-volume input[type=number] { min-width: 0; width: 74px; font-variant-numeric: tabular-nums; }
 .track-action-notice { margin: 10px 4px 0; color: var(--muted); font-size: calc(12px * var(--ui-font-scale, 1)); }
 .track-feedback-enter-active, .track-feedback-leave-active { transition: opacity 125ms ease-out, transform 125ms ease-out; }
 .track-feedback-enter-from, .track-feedback-leave-to { opacity: 0; transform: translateY(5px); }

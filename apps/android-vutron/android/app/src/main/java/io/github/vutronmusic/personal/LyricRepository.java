@@ -15,12 +15,21 @@ import java.io.ByteArrayOutputStream;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.function.BooleanSupplier;
 
 /** Private, durable lyric text cache. Audio URLs and account data are never persisted here. */
 final class LyricRepository {
@@ -32,6 +41,9 @@ final class LyricRepository {
     private static final long VALIDATION_AGE_MS = 24 * 60 * 60 * 1000L;
     private static final Set<Long> VALIDATING = new HashSet<>();
     private static final Map<Long, Long> LAST_ATTEMPT = new HashMap<>();
+    private record Request(long id, String session) { }
+    private record Pending(FutureTask<Lyrics> work, BooleanSupplier allowed, boolean prewarm) { }
+    private static final Map<Request, Pending> PENDING = new ConcurrentHashMap<>();
 
     static final class Lyrics {
         final LyricTimeline original;
@@ -76,7 +88,76 @@ final class LyricRepository {
         JSONObject cached = readCache(context, id);
         if (cached != null) return new Lyrics(cached);
         if (LocalOnlyMode.enabled(context)) return new Lyrics(new JSONObject());
-        return fetch(context, id, null);
+        String session = SessionStore.load(context);
+        BooleanSupplier allowed = () -> !LocalOnlyMode.enabled(context);
+        Lyrics result = shareLoad(id, session, allowed, false, () -> loadMissing(context, id, session, allowed));
+        if (!session.equals(SessionStore.load(context))) throw new IOException("Lyric session changed");
+        return result;
+    }
+
+    /** Worker-only cache warming; never changes the normal stale-cache validation policy. */
+    static void prewarm(Context context, long id, BooleanSupplier stillWanted) {
+        BooleanSupplier allowed = () -> !LocalOnlyMode.enabled(context) && stillWanted.getAsBoolean();
+        if (id <= 0 || Thread.currentThread().isInterrupted() || !allowed.getAsBoolean()
+                || readCache(context, id) != null) return;
+        String session = SessionStore.load(context);
+        try {
+            shareLoad(id, session, allowed, true, () -> loadMissing(context, id, session, allowed));
+        } catch (IOException unavailable) { /* Current playback can do its own lookup. */ }
+    }
+
+    private static Lyrics loadMissing(Context context, long id, String session, BooleanSupplier allowed) throws IOException {
+        // A previous owner can finish writing between the caller's cache miss and acquiring its slot.
+        JSONObject cached = readCache(context, id);
+        if (cached != null) return new Lyrics(cached);
+        if (LocalOnlyMode.enabled(context)) return new Lyrics(new JSONObject());
+        return fetch(context, id, null, session, allowed);
+    }
+
+    static Lyrics shareLoad(long id, String session, BooleanSupplier allowed, boolean prewarm,
+                            Callable<Lyrics> load) throws IOException {
+        Request key = new Request(id, session);
+        Pending candidate = new Pending(new FutureTask<>(load), allowed, prewarm);
+        while (true) {
+            Pending active = PENDING.putIfAbsent(key, candidate);
+            if (active == null) {
+                try {
+                    candidate.work.run();
+                    return await(candidate);
+                } finally { PENDING.remove(key, candidate); }
+            }
+            if (prewarm) return null; // A speculative caller never joins or retries another load.
+            try {
+                return await(active);
+            } catch (IOException unavailable) {
+                if (!active.prewarm || Thread.currentThread().isInterrupted()) throw unavailable;
+                // The speculative owner may be blocked in transport after cancel. Let the
+                // normal foreground load take over without waiting for that transport to return.
+                PENDING.remove(key, active);
+            }
+        }
+    }
+
+    private static Lyrics await(Pending active) throws IOException {
+        try {
+            if (!active.prewarm) return active.work.get();
+            while (true) {
+                if (!active.work.isDone() && !active.allowed.getAsBoolean()) active.work.cancel(true);
+                try { return active.work.get(125, TimeUnit.MILLISECONDS); }
+                catch (TimeoutException waiting) { /* The queue or network may change while waiting. */ }
+            }
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            throw new InterruptedIOException("Lyric lookup interrupted");
+        } catch (CancellationException cancelled) {
+            throw new InterruptedIOException("Lyric prewarm cancelled");
+        } catch (ExecutionException failed) {
+            Throwable cause = failed.getCause();
+            if (cause instanceof IOException io) throw io;
+            if (cause instanceof RuntimeException runtime) throw runtime;
+            if (cause instanceof Error error) throw error;
+            throw new IOException("Lyric lookup failed", cause);
+        }
     }
 
     static Lyrics loadForTrack(Context context, JSONObject song) throws IOException {
@@ -126,7 +207,7 @@ final class LyricRepository {
         }
         try {
             if (!hasValidationWifi(context)) return null;
-            return fetch(context, id, cached);
+            return fetch(context, id, cached, SessionStore.load(context), () -> !LocalOnlyMode.enabled(context));
         } finally {
             synchronized (CACHE_LOCK) { VALIDATING.remove(id); }
         }
@@ -155,10 +236,11 @@ final class LyricRepository {
         return null;
     }
 
-    private static Lyrics fetch(Context context, long id, JSONObject previous) throws IOException {
-        LocalOnlyMode.requireOnline(context);
-        JSONObject response = new NeteaseApi(SessionStore.load(context),
-                () -> !LocalOnlyMode.enabled(context)).lyricData(id);
+    private static Lyrics fetch(Context context, long id, JSONObject previous, String session,
+                                BooleanSupplier allowed) throws IOException {
+        requireActive(allowed);
+        JSONObject response = new NeteaseApi(session, allowed).lyricData(id);
+        requireActive(allowed);
         JSONObject texts = new JSONObject();
         try {
             int size = 0;
@@ -182,6 +264,7 @@ final class LyricRepository {
         }
         Lyrics result = new Lyrics(texts);
         Lyrics enriched = TtmlLyricSource.enrich(context, id, result);
+        requireActive(allowed);
         if (enriched != result) try {
             JSONObject timed = LyricPayload.encode(enriched);
             for (String key : new String[]{"lrc", "tlyric", "yrc", "ytlrc"}) texts.put(key, timed.optString(key));
@@ -208,13 +291,23 @@ final class LyricRepository {
             try {
                 out = cache.startWrite();
                 out.write(raw);
+                requireActive(allowed);
+                if (!session.equals(SessionStore.load(context))) throw new InterruptedIOException("Lyric session changed");
                 cache.finishWrite(out);
+            } catch (InterruptedIOException cancelled) {
+                if (out != null) cache.failWrite(out);
+                throw cancelled;
             } catch (IOException unavailable) {
                 if (out != null) cache.failWrite(out);
                 Log.w(TAG, "Lyrics are usable but could not be saved for offline use", unavailable);
             }
         }
         return result;
+    }
+
+    private static void requireActive(BooleanSupplier allowed) throws InterruptedIOException {
+        if (Thread.currentThread().isInterrupted() || !allowed.getAsBoolean())
+            throw new InterruptedIOException("Lyric lookup cancelled");
     }
 
     private static boolean hasTranslation(Lyrics lyrics) {

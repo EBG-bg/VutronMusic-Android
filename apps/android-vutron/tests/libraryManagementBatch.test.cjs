@@ -6,7 +6,7 @@ function fixture() {
     async manageLocalLibrary(options) { calls.push(options); return options.action.startsWith('restore') ? { changed: true } : { changed: true, undoToken: 'exact-group', removedCount: options.tracks.length } },
     async deleteCachedTracks(options) { calls.push(options); return { removed: options.trackIds.length, skipped: 0, failed: 0 } }
   }
-  const store = { error: '', async reloadManagedLibrary(options) { reloads.push(options) }, async loadCacheStatus() { reloads.push('cache') } }
+  const store = { error: '', async reloadManagedLibrary(options) { reloads.push(options) }, async refreshCacheAfterMutation() { reloads.push('cache') } }
   const module = { exports: {} }, source = fs.readFileSync(path.join(__dirname, '../src/composables/libraryManagement.ts'), 'utf8')
   const deps = { '../stores/androidShell': { useAndroidShellStore: () => store }, '../platform/vutronPlugin': { vutronPlugin: plugin },
     '../platform/i18n': { translate: key => key }, '../platform/actionDialog': { askAction: async options => { confirmations.push(options); return 'confirm' } },

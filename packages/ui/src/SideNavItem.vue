@@ -10,7 +10,7 @@ const emit = defineEmits<{ click: [event: MouseEvent] }>()
 </script>
 
 <template>
-  <ButtonIcon :prevent-blur="preventBlur" class="side-nav-item" :class="[{ active }, 'side-nav-item-' + variant]" @click="emit('click', $event)"><slot /></ButtonIcon>
+  <ButtonIcon :prevent-blur="preventBlur" :aria-current="variant === 'mobile' && active ? 'page' : undefined" class="side-nav-item" :class="[{ active }, 'side-nav-item-' + variant]" @click="emit('click', $event)"><slot /></ButtonIcon>
 </template>
 
 <style scoped>

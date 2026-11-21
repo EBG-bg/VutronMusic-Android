@@ -40,6 +40,9 @@ public final class EmbeddedSources {
     private static final String START_SYMBOL = "_ZN4node5StartEiPPc";
     private static final int MAX_RESPONSE = 1024 * 1024;
     private static final long REQUEST_TIMEOUT_MS = 40000;
+    private static final java.util.Set<String> RELAY_PHASES = java.util.Set.of("registered", "connecting", "headers", "streaming", "complete", "failed");
+    private static final java.util.Set<String> RELAY_REASONS = java.util.Set.of("headers_timeout", "first_byte_timeout", "idle_timeout",
+            "address", "address_recovery", "dns", "connection", "redirect", "http", "range", "truncated", "empty", "not_audio");
     private static final Object LOG_LOCK = new Object();
     private static final ScheduledExecutorService DEADLINES = Executors.newSingleThreadScheduledExecutor(task -> {
         Thread thread = new Thread(task, "Vutron-source-deadlines");
@@ -56,31 +59,98 @@ public final class EmbeddedSources {
 
     private EmbeddedSources() { }
 
+    static final class NoMatch extends IOException {
+        NoMatch(String message) { super(message); }
+    }
+
     /** Returns the upstream matcher's entire audio object, including source and request headers. */
     public static JSONObject songUrl(Context context, long id) throws IOException {
         return songUrl(context, id, ignored -> { });
     }
 
     public static JSONObject songUrl(Context context, long id, Consumer<String> status) throws IOException {
+        return songUrl(context, id, status, "");
+    }
+
+    static JSONObject songUrl(Context context, long id, Consumer<String> status, String excluded) throws IOException {
+        return songUrl(context,id,status,excluded,"");
+    }
+
+    static JSONObject songUrlForSource(Context context,long id,Consumer<String> status,String source) throws IOException {
+        return songUrl(context,id,status,"",source);
+    }
+
+    private static JSONObject songUrl(Context context,long id,Consumer<String> status,String excluded,String forcedSource) throws IOException {
         if (id <= 0) throw new IOException("歌曲 ID 无效");
+        if (!excluded.isEmpty() && !isMatcherSource(excluded)) throw new IOException("不可用的匹配音源");
+        if (!forcedSource.isEmpty() && (!isMatcherSource(forcedSource) || !excluded.isEmpty())) throw new IOException("不可用的指定音源");
         long deadline = SystemClock.elapsedRealtime() + REQUEST_TIMEOUT_MS;
         status.accept("正在启动内置音源引擎…");
         ensureStarted(context.getApplicationContext());
         awaitReady(deadline);
         status.accept("正在比较其它音源音质…");
         record("match-start", null);
-        JSONObject response = get("/song?id=" + id, deadline, false);
+        JSONObject response = get("/song?id=" + id + (excluded.isEmpty() ? "" : "&exclude=" + excluded)
+                + (forcedSource.isEmpty() ? "" : "&source=" + forcedSource), deadline, false);
         JSONObject item = response.optJSONObject("data");
-        if (response.optInt("code") != 200 || item == null) {
-            record("match-failed-" + response.optInt("code"), null);
-            throw new IOException(response.optString("message", "暂未找到这首歌的可用音源"));
+        int code = response.optInt("code");
+        if (code != 200 || item == null) {
+            record("match-failed-" + code, null);
+            String message = response.optString("message", "暂未找到这首歌的可用音源");
+            if (code == 404) throw new NoMatch(message);
+            throw new IOException(message);
         }
         String address = item.optString("url");
         if (!address.startsWith("https://") && !address.startsWith("http://")) {
             throw new IOException("音源查找未返回有效播放地址");
         }
+        // Only this internal, authenticated /song exchange marks a retryable match.
+        String source = item.optString("source");
+        if (!isMatcherSource(source) || excluded.equals(source)) throw new IOException("匹配结果的音源无效");
+        try { item.put("matcherSource", source); }
+        catch (JSONException invalid) { throw new IOException("匹配结果无效", invalid); }
         record("match-ready", null);
         return item;
+    }
+
+    static JSONObject matchCandidates(Context context,long id) throws IOException {
+        if (id <= 0) throw new IOException("歌曲 ID 无效");
+        long deadline = SystemClock.elapsedRealtime() + REQUEST_TIMEOUT_MS;
+        ensureStarted(context.getApplicationContext());
+        awaitReady(deadline);
+        JSONObject response = get("/song/matches?id=" + id, deadline, false);
+        JSONObject data = response.optJSONObject("data");
+        org.json.JSONArray candidates = data == null ? null : data.optJSONArray("matches");
+        if (response.optInt("code") != 200 || candidates == null) throw new IOException(response.optString("message", "没有可用的音源候选"));
+        org.json.JSONArray checked = new org.json.JSONArray();
+        try {
+            for (int i = 0; i < candidates.length(); i++) {
+                JSONObject row = candidates.optJSONObject(i);
+                org.json.JSONArray artists = row == null ? null : row.optJSONArray("artists");
+                String source = row == null ? "" : row.optString("source");
+                String name = row == null ? "" : row.optString("name");
+                if (!isMatcherSource(source) || name.isBlank() || name.length() > 512 || artists == null || artists.length() > 32) continue;
+                org.json.JSONArray names = new org.json.JSONArray();
+                for (int j = 0; j < artists.length(); j++) {
+                    String artist = artists.optString(j, "");
+                    if (!artist.isBlank() && artist.length() <= 512) names.put(artist);
+                }
+                if (names.length() == 0) continue;
+                String album = row.optString("album", "");
+                checked.put(new JSONObject().put("source",source).put("name",name)
+                        .put("album",album.substring(0,Math.min(512,album.length())))
+                        .put("artists",names).put("duration",Math.max(0,Math.min(86_400_000L,row.optLong("duration"))))
+                        .put("identityRank",Math.max(1,Math.min(3,row.optInt("identityRank"))))
+                        .put("bitrate",Math.max(0,row.optLong("bitrate"))).put("audioType",row.optString("audioType","unknown"))
+                        .put("lossless",row.optBoolean("lossless")));
+            }
+            return new JSONObject().put("matches", checked);
+        }
+        catch (JSONException invalid) { throw new IOException("音源候选资料无效", invalid); }
+    }
+
+    private static boolean isMatcherSource(String source) {
+        return java.util.Set.of("bodian", "kuwo", "kugou", "qq", "bilibili", "pyncmd", "migu").contains(source);
     }
 
     /** Android permits cleartext only on loopback; Node streams registered media bytes unchanged. */
@@ -108,6 +178,24 @@ public final class EmbeddedSources {
         return postPlugin(payload, deadline);
     }
 
+    /** Publish native account files without waking an idle runtime. A live host stops its old workers first. */
+    static JSONObject withPluginStoreAccess(Context context, File directory, org.json.JSONArray rows,
+            java.util.concurrent.Callable<JSONObject> change) throws Exception {
+        synchronized (LOCK) {
+            if (!runtimeStarted()) return change.call();
+        }
+        org.json.JSONArray ids = new org.json.JSONArray();
+        for (int i = 0; i < rows.length(); i++) ids.put(rows.getJSONObject(i).getString("id"));
+        File marker = File.createTempFile(".account-restore-", ".lock", directory);
+        try {
+            JSONObject ready = pluginRequest(context, new JSONObject().put("action", "beginAccountRestore").put("ids", ids).put("marker", marker.getName()));
+            if (ready.optInt("code") != 200) throw new IOException("插件仍在处理请求，请稍后重新导入");
+            return change.call();
+        } finally {
+            java.nio.file.Files.deleteIfExists(marker.toPath());
+        }
+    }
+
     public static boolean runtimeStarted() { return started && startupFailure == null; }
 
     public static JSONObject pluginMedia(Context context, String pluginId, String url, JSONObject headers, boolean allowNetwork) throws IOException {
@@ -122,8 +210,108 @@ public final class EmbeddedSources {
             if (result.optInt("code") != 200) return result;
             String mediaPath = result.optString("path");
             if (!mediaPath.matches("/(?:plugin-media|media)/[a-f0-9]{48}")) throw new IOException("插件媒体地址无效");
-            return new JSONObject().put("url", "http://127.0.0.1:" + port + mediaPath).put("headers", new JSONObject());
+            JSONObject location = new JSONObject().put("url", "http://127.0.0.1:" + port + mediaPath).put("headers", new JSONObject());
+            if (result.optBoolean("watchStartFailure") && mediaPath.startsWith("/media/")) location.put("watchStartFailure", true);
+            return location;
         } catch (JSONException | java.net.URISyntaxException invalid) { throw new IOException("插件媒体请求无效", invalid); }
+    }
+
+    private static String loopbackMediaPath(String source) {
+        if (!ready || source == null) return null;
+        try {
+            java.net.URI address = new java.net.URI(source);
+            String path = address.getRawPath();
+            if (!"http".equals(address.getScheme()) || !"127.0.0.1".equals(address.getHost()) || address.getPort() != port
+                    || address.getRawUserInfo() != null || address.getRawQuery() != null || address.getRawFragment() != null
+                    || path == null || !path.matches("/(?:media|plugin-media)/[a-f0-9]{48}")) return null;
+            return path;
+        } catch (java.net.URISyntaxException invalid) { return null; }
+    }
+
+    private static String describeMedia(JSONObject response) {
+        if (response.optInt("code") != 200) return "relay=unknown";
+        String phase = response.optString("phase"), reason = response.optString("reason");
+        if (!RELAY_PHASES.contains(phase)) return "relay=unknown";
+        int status = response.optInt("status");
+        return "relay=" + phase + (status >= 100 && status <= 599 ? ", HTTP " + status : "")
+                + (response.optBoolean("range") ? ", range" : "")
+                + (response.optBoolean("bytes") ? ", received bytes" : "")
+                + (response.optBoolean("recoveredDns") ? ", public DNS fallback" : "")
+                + (RELAY_REASONS.contains(reason) ? ", " + reason : "");
+    }
+
+    /** A short snapshot of the already running loopback relay. Call only off the player thread. */
+    static String mediaStatus(String source) {
+        if (Thread.currentThread().isInterrupted()) return "";
+        String path = loopbackMediaPath(source);
+        if (path == null) return "";
+        try { return describeMedia(get("/media-status?path=" + path, SystemClock.elapsedRealtime() + 600, false)); }
+        catch (IOException unavailable) { return "relay=unknown"; }
+    }
+
+    static MediaStartWatch openMediaStartWatch(String source) {
+        String path = loopbackMediaPath(source);
+        return path != null && path.startsWith("/media/") ? new MediaStartWatch(port, token, path) : null;
+    }
+
+    /** One optional notification from the local relay. No event leaves MediaPlayer in charge. */
+    static final class MediaStartWatch implements AutoCloseable {
+        private final int port;
+        private final String bearer, path;
+        private volatile boolean closed;
+        private HttpURLConnection active;
+
+        MediaStartWatch(int port, String bearer, String path) {
+            this.port = port; this.bearer = bearer; this.path = path;
+        }
+
+        String awaitFailure() {
+            if (closed || Thread.currentThread().isInterrupted()) return "";
+            HttpURLConnection connection = null;
+            try {
+                connection = openRelayGet(port, bearer, "/media-start-failure?path=" + path, 13_500);
+                synchronized (this) {
+                    if (closed) return "";
+                    active = connection;
+                }
+                if (closed || Thread.currentThread().isInterrupted() || connection.getResponseCode() != 200) return "";
+                ByteArrayOutputStream body = new ByteArrayOutputStream();
+                try (InputStream input = connection.getInputStream()) {
+                    byte[] chunk = new byte[256];
+                    int count;
+                    while ((count = input.read(chunk)) != -1) {
+                        if (closed || Thread.currentThread().isInterrupted() || body.size() + count > 1024) return "";
+                        body.write(chunk, 0, count);
+                    }
+                }
+                JSONObject response = new JSONObject(new String(body.toByteArray(), StandardCharsets.UTF_8));
+                return !closed && !Thread.currentThread().isInterrupted() && definitiveMediaStartFailure(response)
+                        ? describeMedia(response) : "";
+            } catch (IOException | JSONException unavailable) { return ""; }
+            finally {
+                synchronized (this) { active = null; }
+                if (connection != null) connection.disconnect();
+            }
+        }
+
+        @Override public void close() {
+            HttpURLConnection connection;
+            synchronized (this) {
+                if (closed) return;
+                closed = true;
+                connection = active;
+            }
+            // Closing a socket must not block the player thread.
+            if (connection != null) DEADLINES.execute(connection::disconnect);
+        }
+    }
+
+    private static boolean definitiveMediaStartFailure(JSONObject response) {
+        if (response.optInt("code") != 200 || !"failed".equals(response.optString("phase")) || response.optBoolean("bytes")) return false;
+        String reason = response.optString("reason");
+        if (java.util.Set.of("address", "address_recovery", "dns", "connection").contains(reason)) return true;
+        int status = response.optInt("status");
+        return "http".equals(reason) && (status == 401 || status == 403 || status == 404 || status == 410);
     }
 
     /** App-private diagnostic text, excluding account credentials and signed media URLs. */
@@ -208,7 +396,7 @@ public final class EmbeddedSources {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             digest.update(BUNDLE.getBytes(StandardCharsets.UTF_8));
-            for (String source : new String[]{"server.js", "quality-selection.cjs", "strict-identity.cjs", "dependency-lock.json",
+            for (String source : new String[]{"server.js", "media-gateway.cjs", "media-dns.cjs", "quality-selection.cjs", "strict-identity.cjs", "dependency-lock.json",
                     "runtime-compat-contracts.json", "runtime-compat-dependencies.json",
                     "plugin-host.cjs", "plugin-worker.cjs", "plugin-kugou-api.cjs", "plugin-media-gateway.cjs", "plugin-contract.cjs", "plugin-schemas.cjs", "plugin-defaults.cjs", "plugin-lyrics.cjs", "plugin-core-lyrics.cjs",
                     "plugins/builtin-index.json", "plugins/local.js", "plugins/netease.js", "plugins/kugou.js", "plugins/emby.js", "plugins/jellyfin.js", "plugins/navidrome.js", "plugins/demo.js"}) {
@@ -351,6 +539,17 @@ public final class EmbeddedSources {
         throw new IOException("手机内置音源服务启动超时（" + stage + "），可在菜单导出播放诊断", lastFailure);
     }
 
+    private static HttpURLConnection openRelayGet(int port, String bearer, String path, int timeoutMs) throws IOException {
+        HttpURLConnection connection = (HttpURLConnection) new URL("http://127.0.0.1:" + port + path).openConnection(java.net.Proxy.NO_PROXY);
+        connection.setConnectTimeout(Math.min(1000, timeoutMs));
+        connection.setReadTimeout(timeoutMs);
+        connection.setInstanceFollowRedirects(false);
+        connection.setRequestProperty("Authorization", "Bearer " + bearer);
+        connection.setRequestProperty("Accept", "application/json");
+        connection.setRequestProperty("Connection", "close");
+        return connection;
+    }
+
     private static JSONObject get(String path, long deadline, boolean health) throws IOException {
         checkInterrupted();
         int remaining = (int) Math.min(Integer.MAX_VALUE, deadline - SystemClock.elapsedRealtime());
@@ -358,13 +557,7 @@ public final class EmbeddedSources {
         HttpURLConnection connection = null;
         ScheduledFuture<?> timeout = null;
         try {
-            connection = (HttpURLConnection) new URL("http://127.0.0.1:" + port + path).openConnection();
-            connection.setConnectTimeout(Math.min(1000, remaining));
-            connection.setReadTimeout(remaining);
-            connection.setInstanceFollowRedirects(false);
-            connection.setRequestProperty("Authorization", "Bearer " + token);
-            connection.setRequestProperty("Accept", "application/json");
-            connection.setRequestProperty("Connection", "close");
+            connection = openRelayGet(port, token, path, remaining);
             HttpURLConnection active = connection;
             timeout = DEADLINES.schedule(active::disconnect, remaining, TimeUnit.MILLISECONDS);
             int status = connection.getResponseCode();
@@ -397,7 +590,7 @@ public final class EmbeddedSources {
         byte[] data = payload.toString().getBytes(StandardCharsets.UTF_8);
         if (data.length > 8 * 1024 * 1024) throw new IOException("插件请求超过大小限制");
         int remaining = (int) Math.max(1, Math.min(Integer.MAX_VALUE, deadline - SystemClock.elapsedRealtime()));
-        HttpURLConnection connection = (HttpURLConnection) new URL("http://127.0.0.1:" + port + "/plugins").openConnection();
+        HttpURLConnection connection = (HttpURLConnection) new URL("http://127.0.0.1:" + port + "/plugins").openConnection(java.net.Proxy.NO_PROXY);
         connection.setConnectTimeout(Math.min(1000, remaining));
         connection.setReadTimeout(remaining);
         connection.setInstanceFollowRedirects(false);

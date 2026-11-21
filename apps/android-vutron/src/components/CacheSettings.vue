@@ -6,6 +6,7 @@ import CollapsibleSettingsCard from './CollapsibleSettingsCard.vue'
 import PlaybackPrefetchSettings from './PlaybackPrefetchSettings.vue'
 import OriginalIcon from './OriginalIcon.vue'
 import ThumbRange from './ThumbRange.vue'
+import SettingsSwitchRow from './SettingsSwitchRow.vue'
 const store = useAndroidShellStore()
 const emit = defineEmits<{ openOffline: [] }>()
 const cacheUsedPercent = computed(() => store.cacheStatus.capacityMb > 0
@@ -18,8 +19,9 @@ function updateArtworkCacheCapacity(event: Event) { store.artworkCacheCapacityMb
 <template>
 <CollapsibleSettingsCard section-id="cache" :title="$t('mobile.library.cache')">
           <template #heading><span class="settings-icon blue"><OriginalIcon name="storage" /></span><div><h3>{{ $t('mobile.library.cache') }}</h3><p>{{ $t('mobile.settingsUi.audioUsage', { used: formatBytes(store.cacheStatus.usedBytes), capacity: store.cacheStatus.capacityMb, count: store.cacheStatus.trackCount }) }}</p><p>{{ $t('mobile.settingsUi.artworkUsage', { size: formatBytes(store.cacheStatus.libraryBytes ?? 0) }) }}</p></div></template>
-          <label class="settings-detail"><span>{{ $t('mobile.settingsUi.autoCache') }}</span><input type="checkbox" :checked="store.cacheStatus.enabled !== false" @change="store.setAutomaticCache(($event.target as HTMLInputElement).checked)" /></label>
-          <p class="setting-note">{{ $t('mobile.settingsUi.autoCacheHint') }}</p>
+          <SettingsSwitchRow class="cache-toggle" :label="$t('mobile.settingsUi.autoCache')" :checked="store.cacheStatus.enabled !== false" @change="store.setAutomaticCache" />
+          <SettingsSwitchRow class="cache-toggle" :label="$t('mobile.playlistCache.automatic')" :checked="store.cacheStatus.libraryAutoCache !== false" @change="store.setLibraryAutomaticCache" />
+          <p v-if="store.cacheStatus.artworkFull && store.cacheStatus.libraryAutoCache !== false" class="setting-note" role="status">{{ $t('mobile.playlistCache.full') }}</p>
           <PlaybackPrefetchSettings />
           <p v-if="store.cacheStatus.downloading || store.cacheStatus.queued" class="setting-note">{{ store.cacheStatus.downloading ? $t('mobile.settingsUi.downloading', { done: formatBytes(store.cacheStatus.downloadedBytes ?? 0), total: formatBytes(store.cacheStatus.downloadTotalBytes ?? 0) }) + ' · ' : '' }}{{ $t('mobile.settingsUi.queued', { count: store.cacheStatus.queued ?? 0 }) }}</p>
           <p v-if="store.cacheStatus.error" class="inline-error">{{ store.cacheStatus.error }}</p>

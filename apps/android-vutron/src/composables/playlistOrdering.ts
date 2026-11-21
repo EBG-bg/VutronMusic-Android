@@ -1,6 +1,6 @@
 import { computed, ref, watch, type Ref } from 'vue'
 export type PlaylistSort = 'original' | 'name' | 'created' | 'recent' | 'custom'
-export interface PlaylistEntry { key: string; name: string; count: number; cover?: string; remoteCover?: string; createTime?: number }
+export interface PlaylistEntry { key: string; name: string; count: number; subtitle?: string; cover?: string; remoteCover?: string; createTime?: number }
 export interface PlaylistOrder { mode: PlaylistSort; keys: string[]; recent: Record<string, number> }
 export const PLAYLIST_ORDER_KEY = 'vutron:playlist-orders:v1'
 const modes = ['original', 'name', 'created', 'recent', 'custom']

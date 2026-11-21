@@ -50,10 +50,10 @@ onBeforeUnmount(() => { clearTick(); document.removeEventListener('visibilitycha
 
 <style scoped>
 .undo-toast-portal { position: fixed; z-index: 600; inset: 0; display: flex; align-items: flex-end; justify-content: center; padding: 12px 12px max(18px, env(safe-area-inset-bottom)); pointer-events: none; }
-.undo-toast { pointer-events: auto; position: relative; display: flex; align-items: center; gap: 4px; width: min(100%, 520px); overflow: hidden; padding: 6px 6px 8px 16px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--color-body-bg); color: var(--ink); box-shadow: 0 8px 32px rgb(0 0 0 / 22%); }
+.undo-toast { pointer-events: auto; position: relative; display: flex; align-items: center; gap: 4px; width: min(100%, 520px); overflow: hidden; padding: 6px 6px 8px 16px; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--surface-elevated); color: var(--ink); box-shadow: var(--shadow-float); }
 .undo-toast p { flex: 1; min-width: 0; margin: 0; overflow-wrap: anywhere; font-size: calc(13px * var(--ui-font-scale, 1)); line-height: 1.45; }
-.undo-action { display: flex; flex: none; align-items: center; justify-content: center; gap: 5px; min-height: 44px; padding: 8px 10px; border: 0; border-radius: var(--radius-control, 12px); color: var(--accent); background: transparent; font-weight: 650; }
-.undo-action small { font-size: calc(11px * var(--ui-font-scale, 1)); font-weight: 400; white-space: nowrap; color: var(--muted); }
+.undo-action { display: flex; flex: none; align-items: center; justify-content: center; gap: 5px; min-height: 44px; padding: 8px 10px; border: 0; border-radius: var(--radius-control, 12px); color: var(--accent-ink); background: transparent; font-weight: 650; }
+.undo-action small { font-size: calc(11px * var(--ui-font-scale, 1)); font-weight: 500; white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; }
 .undo-dismiss { flex: none; width: 44px; height: 44px; }
 .undo-countdown { position: absolute; bottom: 0; inset-inline: 0; height: 3px; background: var(--accent); transform-origin: left center; transform: scaleX(var(--undo-ratio)); animation: undo-countdown var(--undo-time) linear forwards; }
 .undo-toast-enter-active { transition: opacity var(--motion-panel) ease, transform var(--motion-panel) ease; }

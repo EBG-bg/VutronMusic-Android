@@ -313,6 +313,52 @@ public final class AudioCache {
         }
     }
 
+    static List<Entry> backupEntries(Context context) {
+        synchronized (LOCK) {
+            if (!initialize(context)) return java.util.Collections.emptyList();
+            List<Entry> result = new ArrayList<>();
+            for (Entry entry : entries.values()) if (entry.file.isFile() && entry.file.length() == entry.bytes) result.add(entry);
+            result.sort(Comparator.comparingLong((Entry entry) -> entry.cachedAt).reversed());
+            return result;
+        }
+    }
+
+    static String backupChecksum(Entry entry) { return entry.sha256; }
+
+    /** Publish a verified cache batch without replacing existing audio or evicting anything. */
+    static int restoreBackup(Context context, List<BackupCacheArchive.Audio> saved) throws Exception {
+        if (saved.isEmpty()) return 0;
+        synchronized (LOCK) {
+            if (!initialize(context)) throw new IOException("无法打开音频缓存");
+            long remaining = Math.max(0, capacityBytes - totalCachedBytesLocked());
+            List<Entry> added = new ArrayList<>();
+            try {
+                for (BackupCacheArchive.Audio audio : saved) {
+                    if (entries.containsKey(audio.id()) || audio.file().length() > remaining) continue;
+                    String name = "track-" + audio.id() + "-" + UUID.randomUUID().toString().replace("-", "") + ".audio";
+                    File destination = owned(name);
+                    if (!audio.file().renameTo(destination)) throw new IOException("无法恢复音频缓存文件");
+                    long now = System.currentTimeMillis();
+                    Entry entry = new Entry(audio.id(), destination, audio.song(), audio.source(), audio.info().bitrate,
+                            audio.info().format, destination.length(), audio.info().durationMs, audio.info().lossless,
+                            now, now, audio.checksum(), QUALITY_POLICY);
+                    entries.put(entry.songId, entry); added.add(entry); remaining -= entry.bytes;
+                }
+                if (!added.isEmpty()) saveIndex();
+            } catch (Exception failure) {
+                for (Entry entry : added) { entries.remove(entry.songId); deleteOwned(entry.file); }
+                throw failure;
+            }
+            return added.size();
+        }
+    }
+
+    static AudioInfo inspectBackup(File file, JSONObject song) throws IOException {
+        AudioInfo info = inspect(file, expectedSourceDuration(song), null, Long.MAX_VALUE);
+        validateCueSource(song, info.durationMs);
+        return info;
+    }
+
     /** Metadata and paths only, newest first. Integrity is checked for the selected track at playback. */
     public static List<JSONObject> list(Context context) {
         synchronized (LOCK) {
@@ -538,7 +584,7 @@ public final class AudioCache {
         throw new IOException("Too many audio redirects");
     }
 
-    private static final class AudioInfo {
+    static final class AudioInfo {
         long durationMs;
         long bitrate;
         String format;
@@ -846,6 +892,8 @@ public final class AudioCache {
             else if (song.opt(key) instanceof String) saved.put(key, text(song.optString(key), 500));
         }
         for (String key : new String[]{"pluginId", "pluginTrackId", "pluginAccountScope", "pluginSourceMethod", "pluginPlaylistOwner", "playlistVolumeKey", "playlistVolumeName", "playlistOrderScope", "playlistOrderKey"}) if (song.has(key)) saved.put(key,text(song.optString(key),2048));
+        String fingerprint = song.optString("trackFingerprint");
+        if (fingerprint.matches("[a-f0-9]{64}")) saved.put("trackFingerprint", fingerprint);
         for (String key : new String[]{"pluginSourceContext", "pluginTrack", "pluginPlaylistContext"}) if (song.optJSONObject(key)!=null) saved.put(key,new JSONObject(song.getJSONObject(key).toString()));
         return saved;
     }

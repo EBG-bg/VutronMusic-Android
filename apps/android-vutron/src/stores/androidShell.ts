@@ -6,7 +6,7 @@ import { offerUndo } from '../platform/undo'
 import { undoText } from '../platform/undoMessages'
 import { askAction } from '../platform/actionDialog'
 import { defineStore } from 'pinia'
-import type { PluginPlayback } from '../plugins/protocol'
+import type { MusicPlugin, PluginItem, PluginPlayback } from '../plugins/protocol'
 import { createAuthSession } from './domains/authSession'
 import { createLocalLibrary } from './domains/localLibrary'
 import { createNeteaseLibrary } from './domains/neteaseLibrary'
@@ -19,13 +19,14 @@ import { createShellOverlay } from './domains/shellOverlay'
 import { sharePlaybackSnapshot } from './domains/playbackSnapshot'
 import type { ShellEntity } from './domains/shellTypes'
 import { libraryMutationBusy } from '../platform/libraryActivity'
-import { selectLyricFamily, type LyricFamily } from '@vutronmusic/core/lyrics'
+import { createPlaybackLyrics } from './domains/playbackLyrics'
 import {
   vutronPlugin,
   type VutronHomeData, type VutronLocalCollection, type VutronPlaybackState,
   type VutronPlaylist, type VutronOnlineLibrary, type VutronTrack, type VutronQueue,
 } from '../platform/vutronPlugin'
 
+const emptyHomeData = (): VutronHomeData => ({ banners: [], playlists: [], artists: [], albums: [], charts: [], dailyTracks: [] })
 const emptyPlaybackState: VutronPlaybackState = {
   playing: false, trackId: 0, title: '', artist: '', duration: 0, position: 0, error: '',
 }
@@ -67,21 +68,22 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
   const queueOpen = ref(false)
   const queueNotice = ref('')
   const cachedPlaylists = ref<VutronPlaylist[]>([])
-  const homeData = ref<VutronHomeData>({ banners: [], playlists: [], artists: [], albums: [], charts: [], dailyTracks: [] })
+  const cachedPlaylistsLoading = ref(false)
+  const homeData = ref(emptyHomeData())
+  let homeReadVersion = 0
   const homeLoading = ref(false)
   const cacheAllPlaylistsLoading = ref(false)
   const cacheAllPlaylistsResult = ref('')
+  const cachingPlaylistId = ref<number>()
   const autoMatchSources = ref(true)
-  const lyrics = ref<LyricFamily>({ original: [], translation: [], pairedTranslations: [], source: 'empty' })
-  const lyricsLoading = ref(false)
+  const { lyrics, lyricsLoading, updateLyrics, clearLyrics } = createPlaybackLyrics(() => hasAccess.value)
   let offlineReadVersion = 0
   let playbackTimer: ReturnType<typeof setInterval> | undefined
   let playbackRequestPending = false
+  let confirmedPlaybackKey: string | undefined
   let queueReadKey = ''
-  let lyricTrackId = 0
   let trackListRequestId = 0
-  let lyricsRequestId = 0
-  const playbackPlaylistCache = new Set<number>()
+  const playbackPlaylistCache = new Map<string, symbol | true>()
 
   const authSession = createAuthSession({
     loading, error, formatError: errorMessage, restoreLocalState, resetToLocalLibrary: () => navigation.resetToLocalLibrary(), startPlaybackPolling,
@@ -89,7 +91,7 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     resetToOnlineHome: () => { navigationHistory.value = []; activeMusicSourceId.value = ''; activeTab.value = 'home' },
     beforeLogout: async () => {
       await flushLiveSettings()
-      ++trackListRequestId; search.incrementSearchRequest(); ++lyricsRequestId
+      ++trackListRequestId; search.incrementSearchRequest(); clearLyrics()
       cache.bumpCacheReadRevision(); playbackPlaylistCache.clear()
     },
     clearOnlineState: () => { playlistReadVersion++; playlistsLoading.value = false; playlists.value = [] },
@@ -105,7 +107,7 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     restore, enterLocalOnly, useAutomaticMode, refreshConnectivity, disposeNetworkMonitoring, requestLogin, login, createQrLogin, checkQrLogin, cancelQrLogin, logout
   } = authSession
 
-  const search = createShellSearch({ onlineAvailable, error, t, formatError: errorMessage })
+  const search = createShellSearch({ onlineAvailable, error, t, formatError: errorMessage, getAccountId: () => profile.value?.userId })
   const { searchCategory, searchKeywords, submittedSearch, searchResults, searchCount,
     searchNextPage, searchLoading, runSearch, loadMoreSearch } = search
   const navigation = createShellNavigation({
@@ -114,8 +116,8 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     incrementTrackListRequest: () => { ++trackListRequestId },
     incrementSearchRequest: search.incrementSearchRequest,
   })
-  const { activeTab, activePluginId, activeMusicSourceId, navigationHistory,
-    navigationDirection, navigationScrollY, canNavigateBack,
+  const { activeTab, activePluginId, activeMusicSourceId, playlistOrigin, navigationHistory,
+    navigationDirection, navigationScrollY, tabScrollFor, canNavigateBack,
     rememberPage, navigateTo, navigateBack, openPlugins, selectMusicSource,
     discardMusicSource, retainMusicSources, resetToLocalLibrary } = navigation
   const { localLibrary, libraryLoading, localScanLoading, localTracks, folderName,
@@ -135,7 +137,7 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     loadOfflinePlaylists,
   })
   const { cacheStatus, cacheCapacityMb, artworkCacheCapacityMb, cachedTracks,
-    loadCacheStatus, setAutomaticCache, setCacheCapacity, setArtworkCacheCapacity,
+    loadCacheStatus, refreshCacheAfterMutation, setAutomaticCache, setLibraryAutomaticCache, setCacheCapacity, setArtworkCacheCapacity,
     cacheCurrent, clearCache, sleepTimerBusy, sleepTimerMinutes, sleepTimerActive, sleepTimerMode, sleepTimerRemainingTracks, sleepTimerFadeSeconds,
     sleepTimerRemainingMs, sleepTimerLabel, stopSleepClock, startSleepClock,
     setSleepTimer, setSleepTimerSeconds, setSleepTimerSettings, clearSleepTimer } = cache
@@ -151,7 +153,8 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
 
   async function restoreLocalState() {
     try { await vutronPlugin.restorePlayback() } catch { /* No saved playback cursor. */ }
-    await Promise.all([loadOfflinePlaylists(), loadPlaybackQueue(), refreshPlaybackState(), loadCacheStatus(), loadLocalMusic(), loadOverlaySettings(), loadSourceSettings()])
+    void loadOfflinePlaylists()
+    await Promise.all([loadPlaybackQueue(), refreshPlaybackState(), loadCacheStatus(), loadLocalMusic(), loadOverlaySettings(), loadSourceSettings()])
   }
 
   const onlineLibrary = createNeteaseLibrary({ profile, onlineAvailable, playlists, tracks, selectedPlaylist, error,
@@ -168,6 +171,7 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     })
     if (deleted && selectedPlaylist.value?.id === deleted) {
       selectedPlaylist.value = undefined; tracks.value = []; trackListRequestId++; loading.value = false
+      if (activeTab.value === 'playlist') navigateBack()
     } else if (snapshot.playlist && selectedPlaylist.value?.id === snapshot.playlist.id) {
       selectedPlaylist.value = snapshot.playlist
       if (snapshot.tracks) { tracks.value = snapshot.tracks; trackListRequestId++; loading.value = false }
@@ -190,40 +194,80 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     finally { if (request === playlistReadVersion) playlistsLoading.value = false }
   }
 
+  let snapshotScopes: Map<string, string> | undefined
+  function visiblePlaylistSnapshot(playlist: VutronPlaylist) {
+    if (!playlist.pluginCacheKey || !snapshotScopes) return true
+    return Boolean(playlist.pluginId && playlist.pluginAccountScope && snapshotScopes.get(playlist.pluginId) === playlist.pluginAccountScope)
+  }
+  function syncOfflinePlaylistSources(plugins: MusicPlugin[]) {
+    const scopes = new Map(plugins.filter(plugin => plugin.enabled && plugin.installed !== false && plugin.accountScope)
+      .map(plugin => [plugin.id, plugin.accountScope!]))
+    if (snapshotScopes && scopes.size === snapshotScopes.size && [...scopes].every(([id, scope]) => snapshotScopes?.get(id) === scope)) return
+    const initialized = Boolean(snapshotScopes)
+    snapshotScopes = scopes
+    if (cachedPlaylists.value.some(item => !visiblePlaylistSnapshot(item))) cachedPlaylists.value = cachedPlaylists.value.filter(visiblePlaylistSnapshot)
+    const trackVisible = (track: VutronTrack) => track.source !== 'plugin-snapshot'
+      || Boolean(track.pluginId && snapshotScopes?.get(track.pluginId) === track.pluginAccountScope)
+    navigationHistory.value = navigationHistory.value.filter(entry => !entry.playlist || visiblePlaylistSnapshot(entry.playlist)).map(entry =>
+      entry.playlist?.pluginCacheKey && entry.tracks.some(track => !trackVisible(track)) ? { ...entry, tracks: entry.tracks.filter(trackVisible) } : entry)
+    if (selectedPlaylist.value?.pluginCacheKey && tracks.value.some(track => !trackVisible(track))) tracks.value = tracks.value.filter(trackVisible)
+    if (selectedPlaylist.value && !visiblePlaylistSnapshot(selectedPlaylist.value)) {
+      if (activeTab.value === 'playlist') navigateBack()
+      else { selectedPlaylist.value = undefined; tracks.value = []; ++trackListRequestId }
+    }
+    if (initialized) void loadOfflinePlaylists()
+  }
   async function loadOfflinePlaylists() {
     if (!vutronPlugin.getCachedPlaylists) return
     const request = ++offlineReadVersion
-    try { const result = await vutronPlugin.getCachedPlaylists(); if (request === offlineReadVersion) cachedPlaylists.value = result.playlists ?? [] }
+    cachedPlaylistsLoading.value = true
+    try { const result = await vutronPlugin.getCachedPlaylists(); if (request === offlineReadVersion) cachedPlaylists.value = (result.playlists ?? []).filter(visiblePlaylistSnapshot) }
     catch { /* Offline snapshots are optional on older builds. */ }
+    finally { if (request === offlineReadVersion) cachedPlaylistsLoading.value = false }
+  }
+
+  async function refreshRestoredAccount() {
+    // The backup can switch accounts while this WebView and its pending requests stay alive.
+    ++homeReadVersion; homeLoading.value = false; homeData.value = emptyHomeData()
+    ++playlistReadVersion; playlistsLoading.value = false; playlists.value = []
+    ++offlineReadVersion; cachedPlaylistsLoading.value = false; cachedPlaylists.value = []
+    ++trackListRequestId; tracks.value = []; selectedPlaylist.value = undefined; selectedEntity.value = undefined
+    search.resetSearch(); navigationHistory.value = []; playbackPlaylistCache.clear()
+    loading.value = false; error.value = ''
+    await authSession.restore(true)
   }
 
   async function loadHomeData() {
     if (!onlineAvailable.value || !vutronPlugin.getHomeData || homeLoading.value) return
+    const version = ++homeReadVersion, owner = profile.value?.userId
+    const current = () => version === homeReadVersion && onlineAvailable.value && profile.value?.userId === owner
     homeLoading.value = true
     try {
       const result = await vutronPlugin.getHomeData()
-      if (onlineAvailable.value) {
+      if (current()) {
         const hasContent = Object.values(homeData.value).some(value => Array.isArray(value) && value.length > 0)
         if (!result.cached || !hasContent) homeData.value = result
         return result.cached ? 'cached' : 'updated'
       }
     }
     catch (cause) {
+      if (!current()) return
       error.value = errorMessage(cause, t('mobile.runtimeText.homeLoadFailed'))
-      if (!homeData.value.playlists.length) homeData.value.playlists = cachedPlaylists.value.slice(0, 10)
+      if (!homeData.value.playlists.length) homeData.value.playlists = cachedPlaylists.value.filter(item => !item.pluginCacheKey).slice(0, 10)
     }
-    finally { homeLoading.value = false }
+    finally { if (version === homeReadVersion) homeLoading.value = false }
   }
 
   async function openPlaylist(playlist: VutronPlaylist) {
-    if (!onlineAvailable.value) { await openCachedPlaylist(playlist); return }
-    rememberPage()
+    if (playlist.pluginCacheKey || !onlineAvailable.value) { await openCachedPlaylist(playlist); return }
+    // Retry refreshes the current detail without pushing an identical back entry.
+    if (activeTab.value !== 'playlist' || selectedPlaylist.value?.id !== playlist.id) rememberPage()
     const requestId = ++trackListRequestId
     const accountId = profile.value?.userId
     const isCurrent = () => requestId === trackListRequestId && onlineAvailable.value && profile.value?.userId === accountId
     const requestToken = `playlist:${accountId || 0}:${playlist.id}:${requestId}:${Date.now()}`
     selectedPlaylist.value = { ...playlist, tracksIncomplete: true, tracksLoadError: '' }; selectedEntity.value = undefined; tracks.value = []
-    activeTab.value = 'library'; loading.value = true; error.value = ''
+    activeTab.value = 'playlist'; loading.value = true; error.value = ''
     try {
       const result = await loadPlaylistTrackBatches({ playlist, userId: accountId || 0, requestToken, isCurrent,
         publish: (rows, metadata) => { if (isCurrent()) { tracks.value = rows; if (metadata) selectedPlaylist.value = { ...metadata, tracksIncomplete: true, tracksLoadError: '' } } } })
@@ -234,7 +278,8 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
         error.value = result.message || message
       } else {
         selectedPlaylist.value = { ...(result.playlist || selectedPlaylist.value!), trackCount: result.tracks.length, tracksIncomplete: false, tracksLoadError: '' }
-        playbackPlaylistCache.add(playlist.id); void loadOfflinePlaylists()
+        if (result.cacheSaved) playbackPlaylistCache.set(`${accountId}:${playlist.id}`, true)
+        void loadOfflinePlaylists()
       }
     } catch (cause) { if (isCurrent()) { const message = errorMessage(cause, t('mobile.runtimeText.tracksReadFailed')); selectedPlaylist.value = { ...selectedPlaylist.value!, tracksIncomplete: true, tracksLoadError: message }; error.value = message } }
     finally { if (requestId === trackListRequestId) loading.value = false }
@@ -273,15 +318,41 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
   }
 
   async function cachePlaylist(playlist: VutronPlaylist) {
-    if (!onlineAvailable.value || !vutronPlugin.cachePlaylist) return
-    loading.value = true
+    if (!onlineAvailable.value || !vutronPlugin.cachePlaylist || cachingPlaylistId.value !== undefined || cachingPluginPlaylist.value || libraryMutationBusy.value) return false
+    const owner = profile.value?.userId
+    cachingPlaylistId.value = playlist.id
     try {
-      await vutronPlugin.cachePlaylist({ playlistId: playlist.id })
-      const cached = await vutronPlugin.getCachedPlaylistTracks?.({ playlistId: playlist.id })
-      if (cached && activeTab.value === 'library' && selectedPlaylist.value?.id === playlist.id) tracks.value = cached.tracks
-      await loadOfflinePlaylists()
-    } catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.playlistCacheFailed')) }
-    finally { loading.value = false }
+      const result = await vutronPlugin.cachePlaylist({ playlistId: playlist.id })
+      if (result.cancelled || profile.value?.userId !== owner) return false
+      playbackPlaylistCache.set(`${owner}:${playlist.id}`, true)
+      await Promise.all([loadOfflinePlaylists(), refreshCacheAfterMutation(false)])
+      if (profile.value?.userId !== owner) return false
+      queueNotice.value = t('mobile.playlistCache.saved', { count: result.count ?? 0 })
+      return true
+    } catch (cause) {
+      if (profile.value?.userId === owner) error.value = errorMessage(cause, t('mobile.runtimeText.playlistCacheFailed'))
+      return false
+    } finally { cachingPlaylistId.value = undefined }
+  }
+
+  const cachingPluginPlaylist = ref(false)
+  async function cachePluginPlaylist(pluginId: string, accountScope: string, playlist: PluginItem) {
+    const sameOwner = () => !snapshotScopes || snapshotScopes.get(pluginId) === accountScope
+    if (!vutronPlugin.cachePluginPlaylist || !networkConnected.value || manualLocalOnly.value || !sameOwner()
+      || cachingPluginPlaylist.value || cachingPlaylistId.value !== undefined || libraryMutationBusy.value) return false
+    const { id, name, picUrl, trackCount, sourceContext } = playlist
+    cachingPluginPlaylist.value = true
+    try {
+      const result = await vutronPlugin.cachePluginPlaylist({ pluginId, accountScope, playlist: { id, name, picUrl, trackCount, sourceContext } })
+      if (result.cancelled || !sameOwner()) return false
+      await Promise.all([loadOfflinePlaylists(), refreshCacheAfterMutation(false)])
+      if (!sameOwner()) return false
+      queueNotice.value = t('mobile.playlistCache.saved', { count: result.count })
+      return true
+    } catch (cause) {
+      if (sameOwner()) error.value = errorMessage(cause, t('mobile.runtimeText.playlistCacheFailed'))
+      return false
+    } finally { cachingPluginPlaylist.value = false }
   }
 
   async function cacheAllPlaylists() {
@@ -292,26 +363,28 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
       const result = await vutronPlugin.cacheAllPlaylists()
       if (result.cancelled) {
         cacheAllPlaylistsResult.value = t('mobile.runtimeText.batchCacheCancelled')
-        await Promise.all([loadOfflinePlaylists(), loadCacheStatus()])
+        await Promise.all([loadOfflinePlaylists(), refreshCacheAfterMutation()])
         return
       }
       cacheAllPlaylistsResult.value = t('mobile.runtimeText.batchCached', { playlists: result.cachedPlaylists, tracks: result.cachedTracks }) + (result.failedPlaylists ? t('mobile.runtimeText.batchIncomplete', { count: result.failedPlaylists }) : '') + (result.pendingCovers ? t('mobile.runtimeText.batchCoversPending', { count: result.pendingCovers }) : '')
-      await Promise.all([loadOfflinePlaylists(), loadCacheStatus()])
+      await Promise.all([loadOfflinePlaylists(), refreshCacheAfterMutation()])
     } catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.batchCacheFailed')) }
     finally { cacheAllPlaylistsLoading.value = false }
   }
 
   async function openCachedPlaylist(playlist: VutronPlaylist) {
-    rememberPage()
+    if (!visiblePlaylistSnapshot(playlist)) return
+    if (activeTab.value !== 'playlist' || selectedPlaylist.value?.id !== playlist.id
+      || selectedPlaylist.value?.pluginCacheKey !== playlist.pluginCacheKey) rememberPage()
     const requestId = ++trackListRequestId
     selectedPlaylist.value = { ...playlist, offlineSnapshot: true }
     selectedEntity.value = undefined
     tracks.value = []
-    activeTab.value = 'library'
+    activeTab.value = 'playlist'
     loading.value = true
     try {
-      const result = await vutronPlugin.getCachedPlaylistTracks?.({ playlistId: playlist.id })
-      if (requestId === trackListRequestId) tracks.value = result?.tracks ?? []
+      const result = await vutronPlugin.getCachedPlaylistTracks?.({ playlistId: playlist.id, pluginCacheKey: playlist.pluginCacheKey })
+      if (requestId === trackListRequestId && visiblePlaylistSnapshot(playlist)) tracks.value = result?.tracks ?? []
     } catch (cause) { if (requestId === trackListRequestId) error.value = errorMessage(cause, t('mobile.runtimeText.offlinePlaylistReadFailed')) }
     finally { if (requestId === trackListRequestId) loading.value = false }
   }
@@ -332,13 +405,15 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     finally { if (requestId === trackListRequestId) loading.value = false }
   }
 
-  function removeCachedPlaylistView(id: number) {
+  function removeCachedPlaylistView(playlist: VutronPlaylist) {
+    const same = (row?: VutronPlaylist) => Boolean(row && row.id === playlist.id && row.pluginCacheKey === playlist.pluginCacheKey)
     offlineReadVersion++
-    cachedPlaylists.value = cachedPlaylists.value.filter(row => row.id !== id)
-    navigationHistory.value = navigationHistory.value.filter(entry => !(entry.playlist?.offlineSnapshot && entry.playlist.id === id))
-    if (selectedPlaylist.value?.offlineSnapshot && selectedPlaylist.value.id === id) {
+    cachedPlaylistsLoading.value = false
+    cachedPlaylists.value = cachedPlaylists.value.filter(row => !same(row))
+    navigationHistory.value = navigationHistory.value.filter(entry => !(entry.playlist?.offlineSnapshot && same(entry.playlist)))
+    if (selectedPlaylist.value?.offlineSnapshot && same(selectedPlaylist.value)) {
       ++trackListRequestId; selectedPlaylist.value = undefined; tracks.value = []; loading.value = false
-      activeTab.value = 'library'
+      if (activeTab.value === 'playlist') navigateBack()
     }
   }
 
@@ -348,12 +423,18 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.openMvFailed')) }
   }
 
+  function snapshotPlaybackContext(playlist?: VutronPlaylist) {
+    if (!playlist?.pluginCacheKey) return
+    const key = 'plugin:' + playlist.pluginCacheKey
+    return { playlistVolumeKey: key, playlistVolumeName: playlist.name, playlistOrderScope: key, playlistOrderKey: key }
+  }
+
   async function play(track: VutronTrack, playlistKey?: string, suppliedQueue?: VutronTrack[], position?: number) {
     if (libraryMutationBusy.value) return
-    const fromPlaylist = activeTab.value === 'library' && selectedPlaylist.value
+    const fromPlaylist = activeTab.value === 'playlist' && selectedPlaylist.value
       && tracks.value.some(item => item.id === track.id)
     const fromLocalCollection = activeTab.value === 'localCollection' ? selectedLocalCollection.value : undefined
-    const context = {
+    const context = snapshotPlaybackContext(fromPlaylist ? selectedPlaylist.value : undefined) ?? {
       playlistVolumeKey: playlistKey ?? (fromPlaylist ? `netease:${selectedPlaylist.value!.id}` : fromLocalCollection?.id ?? ''),
       playlistOrderScope: fromPlaylist ? 'netease:' + (selectedPlaylist.value!.cacheOwnerId || profile.value?.userId || 0) : fromLocalCollection ? 'local:device' : playlistKey ? undefined : track.playlistOrderScope,
       playlistOrderKey: fromPlaylist ? String(selectedPlaylist.value!.cacheOwnerId || profile.value?.userId || 0) + ':' + selectedPlaylist.value!.id : fromLocalCollection?.id || (playlistKey ? undefined : track.playlistOrderKey),
@@ -364,21 +445,13 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
       : activeTab.value === 'search' && searchCategory.value === 'tracks' ? searchResults.value as VutronTrack[]
       : homeData.value.dailyTracks.some(item => item.id === track.id) ? homeData.value.dailyTracks : [track])
     const queue = sourceQueue.map(item => ({ ...item, ...context }))
-    const selectedIndex = queue.findIndex(item => item.id === track.id && item.localUri === track.localUri)
+    const selectedIndex = queue.findIndex(item => track.source === 'plugin-snapshot' && track.localEntryKey
+      ? item.localEntryKey === track.localEntryKey : item.id === track.id && item.localUri === track.localUri)
     const index = Math.max(0, selectedIndex)
     if (selectedIndex < 0) queue.splice(0, queue.length, { ...track, ...context })
     const contextual = queue[index]
-    // Browsing already persists metadata; playing also ensures the current
-    // playlist is saved when invoked from a saved queue or another page.
-    const playlistId = Number(context.playlistVolumeKey.replace(/^netease:/, ''))
-    if (onlineAvailable.value && context.playlistVolumeKey.startsWith('netease:') && playlistId > 0 && !playbackPlaylistCache.has(playlistId)) {
-      playbackPlaylistCache.add(playlistId)
-      void vutronPlugin.getPlaylistTracks({ playlistId, playlist: {
-        id: playlistId, name: context.playlistVolumeName || t('mobile.runtimeText.playlistName', { id: playlistId }),
-        coverImgUrl: contextual.picUrl, trackCount: queue.length
-      } }).then(() => loadOfflinePlaylists()).catch(() => { playbackPlaylistCache.delete(playlistId) })
-    }
     error.value = ''; navigateTo('player')
+    clearLyrics()
     playback.value = { ...emptyPlaybackState, trackId: track.id, title: track.name, artist: track.artists?.join(' / ') ?? '', track: contextual }
     overlay.invalidateOverlayTrack()
     overlay.setOffsetForTrack(playbackTrackKey())
@@ -406,7 +479,7 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
       navigateTo('player')
       playback.value = { ...emptyPlaybackState, trackId: accepted.track.id, title: accepted.track.name,
         artist: accepted.track.artists?.join(' / ') || '', track: accepted.track, loading: true }
-      overlay.invalidateOverlayTrack(); lyricTrackId = 0
+      overlay.invalidateOverlayTrack(); clearLyrics()
       await refreshPlaybackState()
     } catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.pluginPlayFailed')) }
   }
@@ -464,6 +537,22 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.seekFailed')) }
   }
 
+  function cachePlayingPlaylist(track: VutronTrack) {
+    const userId = profile.value?.userId
+    if (!onlineAvailable.value || !userId || cacheStatus.value.libraryAutoCache === false || cacheStatus.value.artworkFull
+      || track.playlistOrderScope !== `netease:${userId}` || !track.playlistVolumeKey?.startsWith('netease:')) return
+    const playlistId = Number(track.playlistVolumeKey.slice('netease:'.length))
+    const key = `${userId}:${playlistId}`
+    if (!Number.isSafeInteger(playlistId) || playlistId <= 0 || track.playlistOrderKey !== key || playbackPlaylistCache.has(key)) return
+    const request = Symbol()
+    playbackPlaylistCache.set(key, request)
+    void vutronPlugin.getPlaylistTracks({ playlistId, userId, cacheOnly: true }).then(result => {
+      if (playbackPlaylistCache.get(key) !== request) return
+      if (!result.cacheSaved || profile.value?.userId !== userId) playbackPlaylistCache.delete(key)
+      else { playbackPlaylistCache.set(key, true); void loadOfflinePlaylists() }
+    }).catch(() => { if (playbackPlaylistCache.get(key) === request) playbackPlaylistCache.delete(key) })
+  }
+
   async function refreshPlaybackState() {
     if (playbackRequestPending) return
     playbackRequestPending = true
@@ -486,9 +575,15 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
         next.abLoop = playback.value.abLoop
         next.abLoopEnabled = playback.value.abLoopEnabled
       }
-      const startedPlaying = next.playing && (!playback.value.playing || previousTrackKey !== nextKey)
+      // A remote player can claim it started before the native clock moves.
+      // Remember the last confirmed start separately so rebuffering doesn't record it again.
+      if (!next.playing || previousTrackKey !== nextKey) confirmedPlaybackKey = undefined
+      const startedPlaying = next.playing && !next.loading && !next.buffering && confirmedPlaybackKey !== nextKey
+      if (startedPlaying) confirmedPlaybackKey = nextKey
       playback.value = sharePlaybackSnapshot(playback.value, next)
+      updateLyrics(next)
       if (startedPlaying && next.track?.playlistOrderScope && next.track.playlistOrderKey) {
+        cachePlayingPlaylist(next.track)
         try { recordPlaylistPlayback(next.track.playlistOrderScope, next.track.playlistOrderKey) }
         catch (cause) { console.warn('Playlist history save failed', cause) }
       }
@@ -497,7 +592,6 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
       if (next.trackId && overlay.needsOverlayReload(nextTrackKey)) await loadOverlaySettings()
       if (queueOpen.value && queueStateKey(next) !== queueReadKey) await loadPlaybackQueue()
       await refreshVisibleSleepTimer()
-      if (next.trackId && next.trackId !== lyricTrackId) await loadLyrics(next.trackId)
     } catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.playbackReadFailed')) }
     finally { playbackRequestPending = false }
   }
@@ -513,18 +607,6 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
   }
   watch(activeTab, tab => { if (tab === 'settings') void refreshVisibleSleepTimer() })
 
-  async function loadLyrics(trackId: number) {
-    if (!hasAccess.value || !vutronPlugin.getLyrics || !trackId) return
-    const requestId = ++lyricsRequestId
-    lyricsLoading.value = true
-    try {
-      const payload = await vutronPlugin.getLyrics({ trackId })
-      if (requestId !== lyricsRequestId || playback.value.trackId !== trackId) return
-      lyrics.value = selectLyricFamily(payload); lyricTrackId = trackId
-    } catch { if (requestId === lyricsRequestId) lyrics.value = { original: [], translation: [], pairedTranslations: [], source: 'empty' } }
-    finally { if (requestId === lyricsRequestId) lyricsLoading.value = false }
-  }
-
   async function loadSourceSettings() {
     try { autoMatchSources.value = (await vutronPlugin.getSourceSettings()).autoMatch }
     catch (cause) { error.value = errorMessage(cause, t('mobile.runtimeText.sourcesReadFailed')) }
@@ -537,8 +619,10 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
   }
   async function showPlaybackQueue() { queueOpen.value = true; await loadPlaybackQueue() }
   function trackWithContext(track: VutronTrack, playlistKey?: string): VutronTrack {
-    const fromPlaylist = activeTab.value === 'library' && selectedPlaylist.value
+    const fromPlaylist = activeTab.value === 'playlist' && selectedPlaylist.value
       && tracks.value.some(item => item.id === track.id && item.localUri === track.localUri) ? selectedPlaylist.value : undefined
+    const snapshot = snapshotPlaybackContext(fromPlaylist)
+    if (snapshot) return { ...track, artists: track.artists?.slice(), ...snapshot }
     const fromLocal = activeTab.value === 'localCollection' ? selectedLocalCollection.value : undefined
     const key = playlistKey ?? track.playlistVolumeKey ?? (fromPlaylist ? `netease:${fromPlaylist.id}` : fromLocal?.id ?? '')
     const name = track.playlistVolumeName || (fromPlaylist && key === `netease:${fromPlaylist.id}` ? fromPlaylist.name
@@ -631,18 +715,18 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
   function stopPlaybackPolling() { if (playbackTimer !== undefined) clearInterval(playbackTimer); playbackTimer = undefined; stopSleepClock() }
   return {
     ...onlineLibrary,
-    profile, playlists, playlistsLoading, cachedPlaylists, removeCachedPlaylistView, tracks, playlistLoadIncomplete, playlistLoadError, selectedPlaylist, selectedEntity, localTracks, cachedTracks, folderName, cacheStatus, cacheCapacityMb,
+    profile, playlists, playlistsLoading, cachedPlaylists, cachedPlaylistsLoading, removeCachedPlaylistView, tracks, playlistLoadIncomplete, playlistLoadError, selectedPlaylist, selectedEntity, localTracks, cachedTracks, folderName, cacheStatus, cacheCapacityMb,
     localLibrary, selectedLocalCollection, libraryLoading, localScanLoading, loadLocalLibrary, importLocalPlaylist, openLocalCollection, reloadManagedLibrary,
     homeData, homeLoading, searchCategory, searchKeywords, submittedSearch, searchResults, searchCount, searchNextPage, searchLoading,
     sleepTimerRemainingMs, sleepTimerMinutes, sleepTimerLabel, sleepTimerActive, sleepTimerMode, sleepTimerRemainingTracks, sleepTimerFadeSeconds, cacheAllPlaylistsLoading, cacheAllPlaylistsResult,
     lyrics, lyricsLoading, activeTab, loading, error, playback, abLoopEnabled, applyAbLoopState, loggedIn, localOnly, manualLocalOnly, networkConnected, hasAccess, onlineAvailable, loginVisible, localModeLoading, enterLocalOnly, useAutomaticMode, refreshConnectivity, disposeNetworkMonitoring, requestLogin,
     playbackQueue, queueOpen, queueNotice, queueMutationBusy, showPlaybackQueue, loadPlaybackQueue, trackWithContext, queueTrackNext, appendTrackToQueue, queueTracks, playQueueIndex, removeQueueTrack, clearPlayNext,
-    canNavigateBack, navigationDirection, navigationScrollY, navigateTo, navigateBack, activePluginId, openPlugins, activeMusicSourceId, selectMusicSource, discardMusicSource, retainMusicSources,
+    canNavigateBack, playlistOrigin, navigationDirection, navigationScrollY, tabScrollFor, navigateTo, navigateBack, activePluginId, openPlugins, activeMusicSourceId, selectMusicSource, discardMusicSource, retainMusicSources,
     qrLoginKey, qrLoginImage, qrLoginStatus, qrLoginLoading,
-    restore, login, createQrLogin, checkQrLogin, cancelQrLogin, loadPlaylists, loadOfflinePlaylists, loadHomeData, openPlaylist, cachePlaylist, cacheAllPlaylists, openCachedPlaylist, openEntityTracks,
-    runSearch, loadMoreSearch, openMv, play, playPlugin, queuePlugin, queuePluginBatch, pluginRadioTrash, reorderLocalPlayback, playAdjacent, pause, resume, stop, seek, cyclePlaybackMode, setPlaybackMode, playbackModeBusy, refreshPlaybackState, loadLyrics,
-    pickMusicFolder, loadLocalMusic, loadCacheStatus, setCacheCapacity, setArtworkCacheCapacity, artworkCacheCapacityMb, cacheCurrent, clearCache,
-    setSleepTimer, setSleepTimerSeconds, setSleepTimerSettings, sleepTimerBusy, clearSleepTimer, setAutomaticCache, temporarilyHideOverlay, restoreOverlay,
+    restore, refreshRestoredAccount, login, createQrLogin, checkQrLogin, cancelQrLogin, loadPlaylists, loadOfflinePlaylists, loadHomeData, openPlaylist, cachePlaylist, cachingPlaylistId, cachePluginPlaylist, cachingPluginPlaylist, cacheAllPlaylists, syncOfflinePlaylistSources, openCachedPlaylist, openEntityTracks,
+    runSearch, loadMoreSearch, warmSearchCategory: search.warmSearchCategory, adjacentSearch: search.adjacentSearch, openMv, play, playPlugin, queuePlugin, queuePluginBatch, pluginRadioTrash, reorderLocalPlayback, playAdjacent, pause, resume, stop, seek, cyclePlaybackMode, setPlaybackMode, playbackModeBusy, refreshPlaybackState,
+    pickMusicFolder, loadLocalMusic, loadCacheStatus, refreshCacheAfterMutation, setCacheCapacity, setArtworkCacheCapacity, artworkCacheCapacityMb, cacheCurrent, clearCache,
+    setSleepTimer, setSleepTimerSeconds, setSleepTimerSettings, sleepTimerBusy, clearSleepTimer, setAutomaticCache, setLibraryAutomaticCache, temporarilyHideOverlay, restoreOverlay,
     autoMatchSources, loadSourceSettings, setAutoMatchSources, setCurrentTrackVolume, setCurrentPlaylistVolume,
     overlaySettings, overlayEnabled, overlayPlayedColor, overlayUnplayedColor, overlayShadowColor, overlayBackgroundOpacity,
     loadOverlaySettings, toggleLyricOverlay, updateOverlayField, updateOverlayColor,

@@ -38,6 +38,28 @@ public class NeteaseTrackProgressTest {
         try{api.tracks(playlist(1003),(rows,total)->{for(JSONObject row:rows)published.add(row.optLong("id"));});fail("Failure must remain visible to the cache-owning caller");}catch(IOException expected){assertEquals("network interrupted",expected.getMessage());}
         assertEquals(502,published.size());assertEquals(502L,(long)published.get(501));
     }
+    @Test public void backgroundAdmissionIsRecheckedBeforeTheFirstAndLaterTrackRequests() throws Exception {
+        JSONObject detail = playlist(1003);
+        for (int allowedPages : new int[]{0, 1}) {
+            var admitted = new java.util.concurrent.atomic.AtomicBoolean(true);
+            List<String> requests = new ArrayList<>();
+            NeteaseApi api = new NeteaseApi("", admitted::get, (path, data, weapi) -> {
+                requests.add(path);
+                try {
+                    if (path.equals("/api/v6/playlist/detail")) {
+                        if (allowedPages == 0) admitted.set(false);
+                        return new JSONObject().put("code", 200).put("playlist", detail);
+                    }
+                    assertEquals("/api/v3/song/detail", path);
+                    if (requests.size() == allowedPages + 1) admitted.set(false);
+                    return new JSONObject().put("code", 200).put("songs", new JSONArray(data.getString("c")));
+                } catch (JSONException error) { throw new AssertionError(error); }
+            });
+            JSONObject fetchedDetail = api.playlistDetail(1);
+            assertThrows(IOException.class, () -> api.tracks(fetchedDetail));
+            assertEquals(1 + allowedPages, requests.size());
+        }
+    }
     @Test public void missingUnavailableSongsAndRepeatedTrackIdsKeepTheExistingPlayableOrderWithNoDuplicatePublication() throws Exception {
         JSONObject data=playlist(6);data.getJSONArray("trackIds").put(new JSONObject().put("id",2));List<Long> published=new ArrayList<>();
         NeteaseApi api=new NeteaseApi("",()->true,(path,payload,weapi)->{

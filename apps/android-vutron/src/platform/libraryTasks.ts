@@ -17,6 +17,6 @@ export async function initializeLibraryTasks() {
 }
 export function disposeLibraryTasks() { ++generation; void listener?.remove(); listener = undefined }
 export async function cancelLibraryTask() {
-  if (!libraryTask.running || !vutronPlugin.cancelLibraryTask) return
+  if (!libraryTask.running || libraryTask.cancellable === false || !vutronPlugin.cancelLibraryTask) return
   Object.assign(libraryTask, await vutronPlugin.cancelLibraryTask())
 }

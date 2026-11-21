@@ -19,6 +19,22 @@ public class PlaylistProgressTest {
         assertEquals(12000, saved.getLong("position"));
         assertFalse(saved.has("localUri")); assertFalse(saved.has("cookie"));
     }
+    @Test public void offlinePluginBookmarksKeepOnlyTheGeneratedRowIdentity() throws Exception {
+        String hash = "1".repeat(64);
+        JSONObject track = new JSONObject().put("id", 123).put("source", "plugin-snapshot");
+        for (int row : new int[]{0, 2}) {
+            String key = PluginPlaylistCache.rowKey(hash, row);
+            track.put("localEntryKey", key);
+            JSONObject point = PlaylistProgress.bookmark(track, 32000, 60000, 9);
+            assertEquals(123, point.getLong("trackId"));
+            assertEquals(key, point.getString("localEntryKey"));
+        }
+        track.put("localEntryKey", "content://private/audio");
+        assertFalse(PlaylistProgress.bookmark(track, 12000, 60000, 9).has("localEntryKey"));
+        track.put("source", "local").put("localEntryKey", PluginPlaylistCache.rowKey(hash, 2));
+        assertFalse(PlaylistProgress.bookmark(track, 12000, 60000, 9).has("localEntryKey"));
+    }
+
     @Test public void cueTracksRetainSegmentIdentityAndClampPosition() throws Exception {
         JSONObject track = new JSONObject().put("id", 123).put("cueTrackNo", 2);
         JSONObject saved = PlaylistProgress.bookmark(track, 90000, 60000, 9);

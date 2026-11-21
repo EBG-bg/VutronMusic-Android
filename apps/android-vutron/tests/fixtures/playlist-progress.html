@@ -8,15 +8,27 @@ import LocalTrackList from '/src/components/LocalTrackList.vue'
 import '/src/style.css'
 const rows=Array.from({length:1003},(_,index)=>({id:index+1,name:'Track '+String(index+1).padStart(4,'0'),artists:['Artist '+(index%40)],album:'Album '+(index%20),duration:180000}))
 let progress,resolve,pending,offset=0,removed=0,requests=0,progressReads=0
+let nativeTrack, nativePlaying=false, nativeBuffering=false, cacheSaved=false
+const playedEvents=[]
+vutronPlugin.play=async({track})=>{nativeTrack=track;nativePlaying=false;playedEvents.push('play')}
+vutronPlugin.getPlaybackState=async()=>({track:nativeTrack,trackId:nativeTrack?.id,playing:nativePlaying,buffering:nativeBuffering,position:0,duration:180000})
+vutronPlugin.getLyrics=async()=>({})
 const addListener=vutronPlugin.addListener.bind(vutronPlugin)
 vutronPlugin.addListener=async(name,callback)=>name==='playlistTracksProgress'?(progress=callback,{async remove(){removed++;if(progress===callback)progress=undefined}}):addListener(name,callback)
-vutronPlugin.getPlaylistTracks=async options=>{requests++;pending=options;offset=0;return new Promise(done=>{resolve=done})}
+vutronPlugin.getPlaylistTracks=async options=>{
+ if(options.cacheOnly){playedEvents.push(`cache:${options.userId}:${options.playlistId}`);return {tracks:[],cacheSaved,cacheSkipped:!cacheSaved}}
+ requests++;pending=options;offset=0;return new Promise(done=>{resolve=done})
+}
 vutronPlugin.getPlaylistProgress=async()=>{progressReads++;return{trackId:1,position:1000}}
 localStorage.setItem('vutron:collection-orders:v1',JSON.stringify({'netease:7:playlist:42':{mode:'custom',keys:rows.map(row=>'netease:'+row.id).reverse()}}))
 const app=createApp({setup(){
  const store=useAndroidShellStore(),plays=ref(0),menus=ref(0),syncs=ref(0),playlist={id:42,name:'A thousand tracks',creatorUserId:7,trackCount:1003}
  store.profile={userId:7,nickname:'Fixture'};store.localOnly=false
  window.playlistProgressHarness={store,plays,menus,syncs,rows,get requests(){return requests},get removed(){return removed},get progressReads(){return progressReads},
+  playedEvents,
+  playFirst(){return store.play(store.tracks[0],undefined,store.tracks.slice(0,2))},
+  updatePlaying(playing,buffering=false){nativePlaying=playing;nativeBuffering=buffering;return store.refreshPlaybackState()},
+  setCache(full,saved){store.cacheStatus={...store.cacheStatus,artworkFull:full,libraryAutoCache:true};cacheSaved=saved},
   start(){return store.openPlaylist(playlist)},append(count){const batch=rows.slice(offset,offset+count);progress?.({requestToken:pending.requestToken,userId:7,playlistId:42,offset,total:rows.length,tracks:batch,playlist});offset+=batch.length},
   finish(kind='complete'){resolve(kind==='incomplete'?{tracks:rows.slice(0,offset),incomplete:true,message:'Fixture interrupted network'}:kind==='cached'?{tracks:rows.slice().reverse(),cached:true}:{tracks:rows,playlist})}}
  return()=>h('main',{class:'fixture-playlist'},[h('h1',playlist.name),h('p',{id:'load-count'},`${store.tracks.length}/1003`),store.selectedPlaylist?h(LocalTrackList,{tracks:store.tracks,collectionKey:'netease:42',orderKey:'netease:7:playlist:42',continueScope:'netease:7',loading:store.loading,incomplete:store.playlistLoadIncomplete,loadError:store.playlistLoadError,

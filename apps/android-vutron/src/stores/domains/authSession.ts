@@ -92,9 +92,10 @@ export function createAuthSession(options: AuthSessionOptions) {
     }
   }
 
-  async function restore() {
+  async function restore(afterBackup = false) {
     const generation = ++loginGeneration
     restored = false; networkRequest++
+    if (afterBackup) loginRequested.value = false
     await initializeNetworkMonitoring()
     try {
       const mode = await vutronPlugin.getLocalOnly()
@@ -104,24 +105,28 @@ export function createAuthSession(options: AuthSessionOptions) {
       const session = await vutronPlugin.getSession()
       if (generation !== loginGeneration) return
       if (session.loggedIn && session.profile) profile.value = session.profile
-      else if (!session.restorePending) profile.value = undefined
+      else if (afterBackup || !session.restorePending) profile.value = undefined
       applyMode(true)
       await vutronPlugin.setLocalOnly({ enabled: localOnly.value, manual: manualLocalOnly.value })
       if (generation !== loginGeneration) return
-      if (localOnly.value) options.resetToLocalLibrary()
+      if (!afterBackup && localOnly.value) options.resetToLocalLibrary()
     } catch (cause) {
       if (generation !== loginGeneration) return
       setLocalOnlyPreference(true, false)
-      options.resetToLocalLibrary()
+      if (afterBackup) profile.value = undefined
+      if (!afterBackup) options.resetToLocalLibrary()
       options.error.value = options.formatError(cause, t('mobile.runtimeText.nativeBridgeUnavailable'))
       try { await vutronPlugin.setLocalOnly({ enabled: true, manual: manualLocalOnly.value }) }
       catch { /* Keep the original bridge/session failure visible. */ }
     }
     if (generation !== loginGeneration) return
-    await options.restoreLocalState()
+    if (!afterBackup) await options.restoreLocalState()
     if (generation === loginGeneration) {
       restored = true
-      if (onlineAvailable.value) await options.loadOnlineState()
+      if (onlineAvailable.value) {
+        if (afterBackup) void options.loadOnlineState()
+        else await options.loadOnlineState()
+      }
     }
   }
 

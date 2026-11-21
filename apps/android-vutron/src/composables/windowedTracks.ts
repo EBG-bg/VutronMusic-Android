@@ -1,14 +1,16 @@
 export interface WindowedScrollPosition { key: string | number; index: number; offset: number }
-type WindowedViewState = { measured: Map<string | number, number>; position?: WindowedScrollPosition }
+type WindowedPreview = { start: number; padding: number; scroll: number }
+type WindowedViewState = { measured: Map<string | number, number>; position?: WindowedScrollPosition; preview?: WindowedPreview }
 const viewStates = new Map<string, WindowedViewState>()
 export function readWindowedViewState(key: string) {
   const state = viewStates.get(key)
   if (state) { viewStates.delete(key); viewStates.set(key, state) }
   return state
 }
-export function saveWindowedViewState(key: string, measured: ReadonlyMap<string | number, number>, position?: WindowedScrollPosition) {
+export function peekWindowedPreview(key: string) { return viewStates.get(key)?.preview }
+export function saveWindowedViewState(key: string, measured: ReadonlyMap<string | number, number>, position?: WindowedScrollPosition, preview?: WindowedPreview) {
   const values = [...measured].slice(-20_000)
-  viewStates.delete(key); viewStates.set(key, { measured: new Map(values), position })
+  viewStates.delete(key); viewStates.set(key, { measured: new Map(values), position, preview })
   let count = [...viewStates.values()].reduce((total, state) => total + state.measured.size, 0)
   while (viewStates.size > 24 || count > 20_000 && viewStates.size > 1) {
     const first = viewStates.keys().next().value!

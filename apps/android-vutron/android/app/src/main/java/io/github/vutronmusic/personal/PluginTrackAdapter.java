@@ -31,6 +31,12 @@ final class PluginTrackAdapter {
 
     static JSONObject track(String pluginId, JSONObject original, String accountScope) throws Exception {
         if (original == null || original.optJSONObject("sourceContext") == null) throw new IllegalArgumentException("插件歌曲缺少上下文");
+        return displayTrack(pluginId, original, accountScope).put("picUrl", original.optString("picUrl"))
+                .put("pluginSourceContext", new JSONObject(original.getJSONObject("sourceContext").toString()))
+                .put("pluginTrack", new JSONObject(original.toString()));
+    }
+
+    static JSONObject displayTrack(String pluginId, JSONObject original, String accountScope) throws Exception {
         String rawId = String.valueOf(original.get("id"));
         if (rawId.isEmpty() || rawId.length()>512) throw new IllegalArgumentException("插件歌曲标识过长");
         long id = id(pluginId, accountScope.isEmpty() ? rawId : accountScope + "\0" + rawId);
@@ -44,9 +50,8 @@ final class PluginTrackAdapter {
         return new JSONObject().put("id", id).put("name", original.optString("name"))
                 .put("duration", Math.max(0, original.optLong("duration"))).put("artists", names)
                 .put("album", album == null ? "" : album.optString("name"))
-                .put("picUrl", original.optString("picUrl")).put("pluginId", pluginId).put("pluginAccountScope", accountScope)
-                .put("pluginTrackId", rawId).put("pluginSourceContext", new JSONObject(original.getJSONObject("sourceContext").toString()))
-                .put("pluginTrack", new JSONObject(original.toString())).put("source", "plugin")
+                .put("pluginId", pluginId).put("pluginAccountScope", accountScope)
+                .put("pluginTrackId", rawId).put("source", "plugin")
                 .put("trackVolumeKey", "plugin:" + id).put("playlistVolumeKey", "plugin:" + pluginId + ":" + accountScope)
                 .put("playlistVolumeName", pluginId).put("playlistOrderScope", "plugin:" + pluginId + ":" + accountScope)
                 .put("playlistOrderKey", pluginId);

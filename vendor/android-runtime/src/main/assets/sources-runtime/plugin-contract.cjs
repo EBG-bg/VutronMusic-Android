@@ -41,6 +41,13 @@ function validateResult(method, result) {
     if (parsed.success) return parsed.data
     return schema.parse(defaultMap[method])
   }
-  return schema.parse(result)
+  const validated = schema.parse(result)
+  // The original KuGou ranking attaches its next cursor to the response,
+  // outside PlaylistDetailSchema. Retain it in the existing nested context.
+  if (method === 'getPlaylistDetail' && validated.data && result.sourceContext &&
+      typeof result.sourceContext === 'object' && !Array.isArray(result.sourceContext)) {
+    validated.data.sourceContext = { ...validated.data.sourceContext, ...result.sourceContext }
+  }
+  return validated
 }
 module.exports = { ...schemas, PluginResultSchema, defaultMap, PluginMetaSchema, validateMeta, validateResult }

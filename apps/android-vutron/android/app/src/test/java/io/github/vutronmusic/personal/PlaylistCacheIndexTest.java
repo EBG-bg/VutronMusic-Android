@@ -69,6 +69,28 @@ public class PlaylistCacheIndexTest {
         PlaylistCache.exclude(restarted,1,false);
         assertEquals(2,PlaylistCache.visiblePlaylists(new JSONObject(restarted.toString())).length());
     }
+    @Test public void archiveIndexOverLimitIsSkippedWithoutDroppingCurrentPlaylists() throws Exception {
+        JSONObject target = new JSONObject().put("playlists", new JSONArray().put(playlist(1, "当前歌单")))
+                .put("visitedPlaylists", new JSONArray().put(playlist(2, "以前打开的歌单")))
+                .put("unrelated", "必须保留的内容");
+        PlaylistCache.exclude(target, 3, true);
+        JSONObject source = new JSONObject().put("playlists", new JSONArray()
+                .put(playlist(1, "不能覆盖原歌单")).put(playlist(3, "已移除")).put(playlist(4, "新增歌单")));
+        String original = target.toString();
+        byte[] fittingMerge = PlaylistCache.mergedArchiveIndex(target, source, 4096);
+        assertNotNull(fittingMerge);
+        JSONObject merged = new JSONObject(new String(fittingMerge, java.nio.charset.StandardCharsets.UTF_8));
+        JSONArray visible = PlaylistCache.visiblePlaylists(merged);
+        assertEquals(3, visible.length());
+        assertEquals("当前歌单", visible.getJSONObject(0).getString("name"));
+        assertEquals(4, visible.getJSONObject(2).getLong("id"));
+        assertTrue(PlaylistCache.excluded(merged, 3));
+        assertEquals("必须保留的内容", merged.getString("unrelated"));
+        assertArrayEquals(fittingMerge, PlaylistCache.mergedArchiveIndex(target, source, fittingMerge.length));
+        assertNull(PlaylistCache.mergedArchiveIndex(target, source, fittingMerge.length - 1));
+        assertEquals(original, target.toString());
+    }
+
     @Test public void exclusionIsIdempotentAndDoesNotRemoveAnotherPlaylistOrItsTrackReferences() throws Exception {
         JSONObject document = new JSONObject().put("tracks",new JSONObject().put("7",new JSONArray().put(91)));
         PlaylistCache.exclude(document,7,true); PlaylistCache.exclude(document,7,true); PlaylistCache.exclude(document,8,true);

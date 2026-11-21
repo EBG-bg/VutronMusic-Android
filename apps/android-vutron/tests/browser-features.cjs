@@ -6,8 +6,8 @@ async function main(){
   fs.mkdirSync(root,{recursive:true});
  const profile=fs.mkdtempSync(path.join(root,'ui-features-'));
  const {createServer}=await import('vite');
-  const bridgeFixture=process.env.VUTRON_TEST_SCENARIO==='sleep-ab'?'sleep-ab-native.mock.js':process.env.VUTRON_TEST_SCENARIO==='playback-polling'?'playback-poll-native.mock.js':['personal-ui','polish','timer-wheel','sheet-gestures'].includes(process.env.VUTRON_TEST_SCENARIO)?'personal-ui-native.mock.js':['sliders','playback-ui','refinements','landscape'].includes(process.env.VUTRON_TEST_SCENARIO)?'sliders-native.mock.js':'features-native.mock.js';
- const server=await createServer({root:app,optimizeDeps:{entries:['tests/fixtures/features.html']},plugins:[{name:'feature-fixture',enforce:'pre',transform(code,id){if(process.env.VUTRON_TEST_SCENARIO==='playback-polling'&&id.replaceAll('\\','/').endsWith('/src/plugins/bridge.ts'))return "export { musicPluginBridge } from '/tests/fixtures/playback-poll-native.mock.js'";if(process.env.VUTRON_TEST_SCENARIO==='priority-leave'&&id.replaceAll('\\','/').endsWith('/src/plugins/bridge.ts'))return "export { musicPluginBridge } from '/tests/fixtures/music-plugin-native.mock.js'";if(id.replaceAll('\\','/').endsWith('/src/platform/vutronPlugin.ts'))return "export { vutronPlugin } from '/tests/fixtures/"+bridgeFixture+"'"}}],server:{host:'127.0.0.1',port:0},logLevel:'error'});
+  const bridgeFixture=process.env.VUTRON_TEST_SCENARIO==='sleep-ab'?'sleep-ab-native.mock.js':process.env.VUTRON_TEST_SCENARIO==='playback-polling'?'playback-poll-native.mock.js':['backup-accounts','personal-ui','polish','timer-wheel','sheet-gestures'].includes(process.env.VUTRON_TEST_SCENARIO)?'personal-ui-native.mock.js':['sliders','playback-ui','refinements','landscape'].includes(process.env.VUTRON_TEST_SCENARIO)?'sliders-native.mock.js':'features-native.mock.js';
+ const server=await createServer({root:app,optimizeDeps:{entries:['tests/fixtures/features.html']},plugins:[{name:'feature-fixture',enforce:'pre',transform(code,id){if(process.env.VUTRON_TEST_SCENARIO==='playback-polling'&&id.replaceAll('\\','/').endsWith('/src/plugins/bridge.ts'))return "export { musicPluginBridge } from '/tests/fixtures/playback-poll-native.mock.js'";if(['priority-leave','refinements','backup-accounts'].includes(process.env.VUTRON_TEST_SCENARIO)&&id.replaceAll('\\','/').endsWith('/src/plugins/bridge.ts'))return "export { musicPluginBridge } from '/tests/fixtures/music-plugin-native.mock.js'";if(id.replaceAll('\\','/').endsWith('/src/platform/vutronPlugin.ts'))return "export { vutronPlugin } from '/tests/fixtures/"+bridgeFixture+"'"}}],server:{host:'127.0.0.1',port:0},logLevel:'error'});
  await server.listen();
  const child=spawn(process.env.EDGE_PATH||'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',['--headless=new','--disable-gpu','--no-first-run','--no-default-browser-check','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'],{windowsHide:true,stdio:'ignore'});
  let page,browser;
@@ -44,6 +44,9 @@ async function main(){
   if(process.env.VUTRON_TEST_SCENARIO==='playback-review'){
     await require('./browser-playback-review.cjs')({page,evaluate,wait,delay,root});return;
   }
+  if(process.env.VUTRON_TEST_SCENARIO==='cache-switch'){
+    await require('./browser-cache-switch.cjs')({page,evaluate,wait});return;
+  }
   if(process.env.VUTRON_TEST_SCENARIO==='playback-polling'){
     await require('./browser-playback-polling.cjs')({page,evaluate,wait,delay,root});return;
   }
@@ -64,6 +67,15 @@ async function main(){
   }
   if(process.env.VUTRON_TEST_SCENARIO==='polish'){
     await require('./browser-polish.cjs')({page,evaluate,wait,delay,root});return;
+  }
+  if(process.env.VUTRON_TEST_SCENARIO==='range-select'){
+    await require('./browser-range-select.cjs')({page,evaluate,wait,delay});return;
+  }
+  if(process.env.VUTRON_TEST_SCENARIO==='track-source-correction'){
+    await require('./browser-track-source-correction.cjs')({page,evaluate,wait,delay});return;
+  }
+  if(process.env.VUTRON_TEST_SCENARIO==='backup-accounts'){
+    await require('./browser-backup-accounts.cjs')({page,evaluate,wait,delay,root});return;
   }
   if(process.env.VUTRON_TEST_SCENARIO==='personal-ui'){
     await require('./browser-personal-ui.cjs')({page,evaluate,wait,delay,root});return;

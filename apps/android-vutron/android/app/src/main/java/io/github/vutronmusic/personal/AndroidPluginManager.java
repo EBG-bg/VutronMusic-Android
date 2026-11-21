@@ -118,7 +118,7 @@ final class AndroidPluginManager {
         if (identity.isEmpty()) identity = "private-account-generation:" + unknownAccountGeneration;
         return digest("plugin-account-v1\n" + id + "\n" + server + "\n" + identity);
     }
-    private static synchronized void invalidateArtwork(Context context, String id) {
+    static synchronized void invalidateArtwork(Context context, String id) {
         android.content.SharedPreferences prefs = context.getSharedPreferences("plugin_artwork_revisions", Context.MODE_PRIVATE);
         prefs.edit().putLong(id, prefs.getLong(id, 0) + 1).apply();
     }
@@ -142,6 +142,7 @@ final class AndroidPluginManager {
 
     static synchronized JSONObject manage(Context context, JSONObject request) throws Exception {
         String action = request.optString("action");
+        if (action.equals("beginAccountRestore")) throw new PluginFailure("PLUGIN_ACTION", "此操作仅供应用内备份恢复使用");
         if (action.equals("list")) return list(context);
         if (action.equals("import") || action.equals("inspect")) {
             String source = request.optString("source");
@@ -344,12 +345,12 @@ final class AndroidPluginManager {
         if (value == null || !value.matches("[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}(?::[a-zA-Z0-9_-]{1,48})?")) throw new PluginFailure("PLUGIN_ID", "插件标识无效");
         return value;
     }
-    private static File root(Context context) throws IOException {
+    static File root(Context context) throws IOException {
         File directory = new File(context.getFilesDir(), DIRECTORY);
         if (!directory.isDirectory() && !directory.mkdirs() && !directory.isDirectory()) throw new IOException("无法创建插件私有目录");
         return directory;
     }
-    private static synchronized JSONObject registry(Context context) throws Exception {
+    static synchronized JSONObject registry(Context context) throws Exception {
         File directory=root(context),file = new File(directory, "registry.json");
         JSONObject previous = readJson(file, new JSONObject().put("format", 3).put("plugins", new JSONObject()));
         JSONArray catalog = catalog(context);
@@ -449,7 +450,7 @@ final class AndroidPluginManager {
             throw failure;
         }
     }
-    private static JSONObject readJson(File file, JSONObject fallback) throws Exception {
+    static JSONObject readJson(File file, JSONObject fallback) throws Exception {
         if (!file.isFile()) return fallback;
         if (file.length() > MAX_BYTES) throw new IOException("插件私有资料超过容量限制");
         return new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));

@@ -27,6 +27,136 @@ test('unchanged cache settings skip native calls, identical in-flight writes sha
  await cache.setCacheCapacity();assert.equal(writes,3);assert.equal(cache.cacheStatus.value.capacityMb,4096)
  scope.stop()
 })
+function cacheFixture(plugin) {
+ const scope = vue.effectScope(), error = vue.ref('')
+ const cache = scope.run(() => loader(plugin)('stores/domains/shellCache.ts').createShellCache({
+  activeTab: vue.ref('settings'), playback: vue.ref({}), onlineAvailable: vue.ref(false), error,
+  t: key => key, formatError: error => error.message, resolveCacheTrack() {}, loadOfflinePlaylists() {},
+ }))
+ return { cache, error, dispose: () => scope.stop() }
+}
+
+for (const first of ['capacity', 'enable']) {
+ test(`concurrent cache settings keep both confirmed results when ${first} is delayed`, async () => {
+  const native = { capacityMb: 2048, artworkCapacityMb: 128, enabled: true, artworkFull: true, usedBytes: 0, trackCount: 0 }
+  let release
+  const held = new Promise(resolve => { release = resolve })
+  const writes = []
+  const bridge = (field, save) => async options => {
+   writes.push(field)
+   if (field === first) await held
+   save(options)
+   return { ...native }
+  }
+  const { cache, dispose } = cacheFixture({
+   getCacheStatus: async () => ({ ...native }),
+   setArtworkCacheCapacity: bridge('capacity', ({ capacityMb }) => { native.artworkCapacityMb = capacityMb; native.artworkFull = false }),
+   setCacheEnabled: bridge('enable', ({ enabled }) => { native.enabled = enabled }),
+  })
+  try {
+   await cache.loadCacheStatus(true, false)
+   cache.artworkCacheCapacityMb.value = 256
+   const save = { capacity: () => cache.setArtworkCacheCapacity(), enable: () => cache.setAutomaticCache(false) }
+   const second = first === 'capacity' ? 'enable' : 'capacity'
+   const one = save[first](), two = save[second](), duplicate = save[second]()
+   await Promise.resolve(); await Promise.resolve()
+   const startedBeforeRelease = writes.slice()
+   cache.artworkCacheCapacityMb.value = 288 // A newer preview, not yet submitted.
+   release(); await Promise.all([one, two, duplicate])
+   assert.equal(cache.cacheStatus.value.artworkCapacityMb, 256)
+   assert.equal(cache.cacheStatus.value.artworkFull, false)
+   assert.equal(cache.cacheStatus.value.enabled, false)
+   assert.equal(cache.artworkCacheCapacityMb.value, 288)
+   assert.deepEqual(startedBeforeRelease, [first], 'The next write cannot observe a partial status')
+   assert.deepEqual(writes, [first, second], 'Repeated in-flight values still need only one native write')
+  } finally { release(); dispose() }
+ })
+}
+
+test('an explicit cache read during a write keeps the confirmed capacity and the newer slider preview', async () => {
+ const native = { capacityMb: 2048, artworkCapacityMb: 128, usedBytes: 0, trackCount: 0 }
+ let allowWrite, allowRead, holdRead = false, reads = 0
+ const writing = new Promise(resolve => { allowWrite = resolve }), reading = new Promise(resolve => { allowRead = resolve })
+ const { cache, dispose } = cacheFixture({
+  getCacheStatus: async () => { reads++; const snapshot = { ...native }; if (holdRead) await reading; return snapshot },
+  setArtworkCacheCapacity: async ({ capacityMb }) => { await writing; native.artworkCapacityMb = capacityMb; return { ...native } },
+ })
+ try {
+  await cache.loadCacheStatus(true, false)
+  cache.artworkCacheCapacityMb.value = 256
+  const save = cache.setArtworkCacheCapacity()
+  holdRead = true
+  const refresh = cache.loadCacheStatus(true, false)
+  cache.artworkCacheCapacityMb.value = 288
+  allowWrite(); await save
+  assert.equal(cache.cacheStatus.value.artworkCapacityMb, 256, 'The confirmed status is available before a cache read completes')
+  allowRead(); await refresh
+  assert.equal(reads, 2)
+  assert.equal(cache.cacheStatus.value.artworkCapacityMb, 256)
+  assert.equal(cache.artworkCacheCapacityMb.value, 288)
+ } finally { allowWrite(); allowRead(); dispose() }
+})
+
+test('a stale cache poll cannot undo a second change to the same slider', async () => {
+ const native = { capacityMb: 2048, artworkCapacityMb: 128, usedBytes: 0, trackCount: 0 }
+ const writes = []
+ let allowWrite, returnPoll, holdPoll = false
+ const writing = new Promise(resolve => { allowWrite = resolve })
+ const reading = new Promise(resolve => { returnPoll = resolve })
+ const { cache, dispose } = cacheFixture({
+  getCacheStatus: async () => holdPoll ? reading : { ...native },
+  setArtworkCacheCapacity: async ({ capacityMb }) => {
+   writes.push(capacityMb)
+   if (capacityMb === 256) await writing
+   native.artworkCapacityMb = capacityMb
+   return { ...native }
+  },
+ })
+ try {
+  await cache.loadCacheStatus(true, false)
+  holdPoll = true
+  const latePoll = cache.loadCacheStatus(false, false)
+  const stale = { ...native }
+  cache.artworkCacheCapacityMb.value = 256
+  const first = cache.setArtworkCacheCapacity()
+  cache.artworkCacheCapacityMb.value = 128 // Return to the old value while the first edit is still saving.
+  const second = cache.setArtworkCacheCapacity()
+  allowWrite(); await first
+  assert.equal(cache.cacheStatus.value.artworkCapacityMb, 256)
+  await second
+  returnPoll({ ...stale, artworkCapacityMb: 64 })
+  await latePoll
+  assert.deepEqual(writes, [256, 128])
+  assert.equal(native.artworkCapacityMb, 128)
+  assert.equal(cache.cacheStatus.value.artworkCapacityMb, 128)
+  assert.equal(cache.artworkCacheCapacityMb.value, 128)
+ } finally { allowWrite(); returnPoll({ ...native }); dispose() }
+})
+
+test('invalidated cache reads leave the current state alone and clearing still refreshes usage', async () => {
+ const native = { capacityMb: 2048, artworkCapacityMb: 128, artworkBytes: 128 * 1024 * 1024, artworkFull: true, usedBytes: 42, trackCount: 1 }
+ let deliverStale, holdRead = false
+ const stale = new Promise(resolve => { deliverStale = resolve })
+ const { cache, dispose } = cacheFixture({
+  getCacheStatus: async () => holdRead ? stale : { ...native },
+  clearCache: async () => Object.assign(native, { usedBytes: 0, trackCount: 0, artworkBytes: 0, artworkFull: false }),
+ })
+ try {
+  await cache.loadCacheStatus(true, false)
+  holdRead = true
+  const oldRead = cache.loadCacheStatus(true, false)
+  cache.bumpCacheReadRevision() // The shell invalidates pending reads at logout.
+  deliverStale({ ...native, artworkCapacityMb: 32, usedBytes: 99 })
+  await oldRead
+  assert.equal(cache.cacheStatus.value.artworkCapacityMb, 128)
+  assert.equal(cache.cacheStatus.value.usedBytes, 42)
+  holdRead = false
+  await cache.clearCache()
+  assert.equal(cache.cacheStatus.value.usedBytes, 0)
+  assert.equal(cache.cacheStatus.value.artworkFull, false)
+ } finally { dispose() }
+})
+
 test('same overlay, volume and delay values do not write again, while a failed draft remains retryable',async()=>{
  let writes=0,fail=false
  const write=async()=>{writes++;if(fail){fail=false;throw new Error('disk')}}

@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, inject, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useAndroidShellStore } from '../stores/androidShell'
 import { timerPreset, sleepMode, sleepTrackCount, sleepFadeSeconds } from '../platform/interfacePreferences'
+import { navigationPreviewKey } from '../composables/navigationPreview'
 import { vutronPlugin } from '../platform/vutronPlugin'
 import { useI18n } from 'vue-i18n'
 import ArcWheel from './ArcWheel.vue'
@@ -18,6 +19,7 @@ const editing = ref(false)
 const running = computed(() => store.sleepTimerActive)
 const preparedTrack = computed(() => Boolean(store.playback.trackId && store.playback.duration > 0))
 const following = computed(() => running.value && store.sleepTimerMode === 'duration' && sleepMode.value === 'duration' && !editing.value)
+const preview = inject(navigationPreviewKey, false)
 const abConflict = ref(false), localError = ref(''), abBusy = ref(false)
 const modeBody = ref<HTMLElement>()
 let modeAnimation: Animation | undefined, modeRevision = 0
@@ -69,7 +71,7 @@ function edit(part: 'minutes' | 'seconds', value: number) {
 }
 function editSeconds(value: number) { beginEdit(); timerPreset.value = clampTimerSeconds(value) }
 async function refreshAbConflict() {
-  if (sleepMode.value === 'duration' || !vutronPlugin.getAbLoop) { abConflict.value = false; return }
+  if (preview || sleepMode.value === 'duration' || !vutronPlugin.getAbLoop) { abConflict.value = false; return }
   try { abConflict.value = (await vutronPlugin.getAbLoop()).enabled } catch { /* The native start operation still validates conflicts. */ }
 }
 async function disableAb() {

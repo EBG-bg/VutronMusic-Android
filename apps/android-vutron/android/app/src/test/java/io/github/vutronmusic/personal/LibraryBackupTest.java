@@ -41,7 +41,10 @@ public class LibraryBackupTest {
         assertEquals(3456,restored.getJSONObject("netease:7").getJSONObject("recent").getLong("7:99"));
         assertEquals(1234,plan.added.get(0).getLong("createTime"));
         LibraryBackup.RestorePlan repeated=LibraryBackup.planRestore(plan.document,source);
-        assertEquals(0,repeated.added.size());
+        assertEquals(1, plan.receipt().getInt("collectionCount"));
+        assertEquals(0, plan.receipt().getInt("collectionSkipped"));
+        assertEquals(0, repeated.receipt().getInt("collectionCount"));
+        assertEquals(1, repeated.receipt().getInt("collectionSkipped"));
         assertEquals(id,new JSONObject(repeated.safe.getJSONObject("frontend").getString("vutron:playlist-orders:v1")).getJSONObject("local:device").getJSONArray("keys").getString(0));
     }
     @Test public void interfacePreferencesAndOwnerOrdersRoundTripWithoutAccountSecrets() throws Exception {

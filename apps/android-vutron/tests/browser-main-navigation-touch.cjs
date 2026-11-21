@@ -13,7 +13,7 @@ async function settle(page, tab) {
   })
 }
 async function point(page, selector, fraction = .7) {
-  const element = page.locator(selector).first()
+  const element = page.locator(selector).filter({ visible: true }).first()
   await element.evaluate(element => element.scrollIntoView({ block: 'center', behavior: 'instant' }))
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)))
   const box = await element.boundingBox()
@@ -73,6 +73,23 @@ async function assertReleaseContinuity(page, label) {
   assert.ok(frames.every(frame => frame.start < -70 && frame.transformX + frame.translateX < -70), label + ': release continues from the dragged position: ' + JSON.stringify(frames))
   assert.equal(await page.locator('.page-stage:not([class*="leave-active"]), .swipe-surface:not([class*="leave-active"])').evaluateAll(surfaces => surfaces.some(surface => surface.style.getPropertyValue('--page-leave-start'))), false, label + ': the entered surface has no stale leave offset')
 }
+async function paneGeometry(pane, selectors) {
+  return pane.evaluate((element, selectors) => selectors.map(selector => {
+    const target = element.querySelector(selector)
+    if (!target) throw new Error('Missing transition element: ' + selector)
+    const { y, width, height } = target.getBoundingClientRect()
+    return { selector, y, width, height, text: target.textContent.trim() }
+  }), selectors)
+}
+function assertPaneHandoff(before, after, tolerance = 1) {
+  assert.equal(before.length, after.length)
+  for (let index = 0; index < before.length; index++) {
+    const a = before[index], b = after[index]
+    assert.equal(a.text, b.text, a.selector + ': same content before and after release')
+    assert.ok(['y', 'width', 'height'].every(key => Math.abs(a[key] - b[key]) < tolerance),
+      a.selector + ': no vertical or size jump on entering the page: ' + JSON.stringify([a, b]))
+  }
+}
 async function run(page, session, out) {
   const touch = touchDriver(page, session), results = []
   const go = async tab => { await page.evaluate(tab => window.featureHarness.store.navigateTo(tab), tab); await settle(page, tab) }
@@ -86,10 +103,12 @@ async function run(page, session, out) {
     const { vutronPlugin: native } = await import('/src/platform/vutronPlugin.ts'), store = window.featureHarness.store
     store.stopPlaybackPolling()
     const plain = value => JSON.parse(JSON.stringify(value))
-    window.navigationTouch = { plays: 0, pluginPlays: 0, seeks: 0, intents: [], clicks: [], playback: plain(store.playback) }
+    window.navigationTouch = { plays: 0, pluginPlays: 0, seeks: 0, progressReads: 0, intents: [], clicks: [], playback: plain(store.playback) }
     const navigate = store.navigateTo
     store.navigateTo = tab => { window.navigationTouch.intents.push(tab); return navigate(tab) }
     native.getPlaybackState = async () => plain(window.navigationTouch.playback)
+    native.getPlaylistProgress = async () => { window.navigationTouch.progressReads++; return {} }
+    native.getPlaylistTracks = async ({ playlistId }) => ({ tracks: [{ id: playlistId + 2000, name: 'Shelf detail song', artists: ['Fixture'] }] })
     native.seek = async ({ position }) => { window.navigationTouch.seeks++; window.navigationTouch.playback.position = position }
     native.play = async ({ track }) => { window.navigationTouch.plays++; window.navigationTouch.playback = plain({ ...store.playback, trackId: track.id, title: track.name, track, duration: 180000, position: 0, playing: false }) }
     native.playMusicPlugin = async ({ track, pluginId, accountScope }) => {
@@ -105,6 +124,11 @@ async function run(page, session, out) {
       if (event.target.closest?.('.bottom-nav')) window.navigationTouch.clicks.push({ trusted: event.isTrusted, detail: event.detail })
     }, true)
     store.homeData = { banners: [], playlists: [], artists: [], albums: [], charts: [], dailyTracks: [] }
+    store.playlists = Array.from({ length: 10 }, (_, index) => ({ id: 2600 + index, name: 'Navigation playlist ' + index, trackCount: 3 }))
+    store.cachedPlaylists = [{ id: 2700, name: 'Offline navigation playlist', trackCount: 3, cacheOwnerId: 7, offlineSnapshot: true }]
+    store.localLibrary.playlists = [{ id: 'navigation-local', name: 'Local navigation playlist', trackCount: 4, isLocalBundle: true }]
+    store.localTracks = Array.from({ length: 2000 }, (_, index) => ({ id: 2800 + index, name: 'Navigation device track ' + index, artists: ['Local fixture'] }))
+    store.cachedTracks = Array.from({ length: 100 }, (_, index) => ({ id: 5000 + index, name: 'Navigation cache track ' + index, artists: ['Offline fixture'], cached: true }))
     store.searchKeywords = 'Touch navigation'; store.submittedSearch = { category: 'tracks', keywords: 'Touch navigation' }; store.searchCategory = 'tracks'
     store.searchResults = structuredClone(window.navigationSearchTracks)
     store.searchCount = 60; store.searchNextPage = 0
@@ -116,9 +140,45 @@ async function run(page, session, out) {
   await touch.start(home); await touch.move({ x: home.x - 58, y: home.y + 2 })
   assert.equal(await current(page), 'home'); assert.ok(await offset(page) < -8)
   assert.ok((await indicator(page)).x > homeIndicator.x + 2, 'Main content movement drives the footer selection before release')
+  const nextLibrary = page.locator('.page-frame > [data-peek-tab="library"]')
+  assert.equal(await nextLibrary.count(), 1, 'The adjacent library is rendered before release')
+  assert.equal(await nextLibrary.evaluate(node => node.inert), true, 'Incoming preview cannot intercept interaction')
+  const [nextBounds, activeBounds] = await Promise.all([nextLibrary.boundingBox(), page.locator('.page-frame > [data-slide-active]').boundingBox()])
+  assert.ok(Math.abs(nextBounds.x - (activeBounds.x + activeBounds.width)) < 1, 'The peek and active page share the same moving seam')
   await screenshot(page, out, 'content-home-drag-edge')
-  await touch.move({ x: home.x - 145, y: home.y + 2 }); await probeRelease(page, '.page-stage.tab-next-leave-active'); await touch.end(); await settle(page, 'library')
+  const mainElements = ['.section-heading h2', '.segmented-control', '.search-box', '.playlist-toolbar', '.playlist-card .playlist-copy b']
+  const activePage = page.locator('.page-frame > [data-slide-active]')
+  await touch.move({ x: home.x - 145, y: home.y + 2 })
+  const mainPreview = await paneGeometry(nextLibrary, mainElements)
+  await probeRelease(page, '.page-stage.tab-next-leave-active'); await touch.end(); await settle(page, 'library')
   await assertReleaseContinuity(page, 'Main page')
+  assertPaneHandoff(mainPreview, await paneGeometry(activePage, mainElements))
+
+  const savedLibraryScroll = await page.evaluate(() => { scrollTo(0, 440); return scrollY })
+  assert.ok(savedLibraryScroll >= 400, 'A longer library can be opened again from a scrolled position')
+  await go('home')
+  const returnFrom = await point(page, '.home-greeting')
+  const homeScroll = await page.evaluate(() => scrollY)
+  await touch.start(returnFrom); await touch.move({ x: returnFrom.x - 150, y: returnFrom.y })
+  assert.equal(await page.evaluate(() => scrollY), homeScroll, 'Preloading a scrolled destination does not scroll the active screen')
+  const previousLibrary = await paneGeometry(nextLibrary, mainElements)
+  await touch.end(); await settle(page, 'library')
+  assertPaneHandoff(previousLibrary, await paneGeometry(activePage, mainElements))
+  assert.ok(Math.abs(await page.evaluate(() => scrollY) - savedLibraryScroll) < 1, 'Library reopens at the remembered scroll position')
+  await page.evaluate(() => scrollTo(0, 0))
+
+  // A follow-up gesture begins while the incoming page is still animated.
+  await go('home')
+  await swipe('.home-greeting', -145)
+  await page.waitForFunction(() => window.featureHarness.store.activeTab === 'library' &&
+    document.querySelector('.page-frame > [data-slide-active][data-swipe-commit]'))
+  const quickFrame = await page.locator('.page-frame').boundingBox()
+  const quickStart = { x: quickFrame.x + 130, y: quickFrame.y + 36 }
+  await touch.start(quickStart)
+  await touch.move({ x: quickStart.x + 145, y: quickStart.y + 1 }, 3)
+  await touch.end(); await settle(page, 'home')
+  assert.equal(await current(page), 'home', 'The second swipe can reverse without an animation cooldown')
+  await go('library')
 
   // Local categories take priority; an outward drag at either local edge hands
   // the same touch to the neighboring primary page.
@@ -126,11 +186,23 @@ async function run(page, session, out) {
   const libraryView = () => page.locator('.library-page .segmented-control > button.selected').textContent()
   const libraryNames = await page.locator('.library-page .segmented-control > button').allTextContents()
   assert.equal(libraryNames.length, 3)
-  for (let index = 1; index < 3; index++) {
-    await swipe('.library-page .section-heading', -145); await page.waitForFunction(index => document.querySelectorAll('.library-page .segmented-control > button')[index]?.classList.contains('selected'), index)
+  const localDeck = page.locator('.page-frame > [data-slide-active] .library-page > .swipe-deck')
+  const activeLibrary = localDeck.locator(':scope > [data-slide-active]')
+  for (const [index, mode] of [[1, 'local'], [2, 'offline']]) {
+    const from = await point(page, '.library-page .section-heading')
+    const progressReads = await page.evaluate(() => window.navigationTouch.progressReads)
+    await touch.start(from); await touch.move({ x: from.x - 145, y: from.y })
+    const peek = localDeck.locator(`:scope > [data-peek-tab="${mode}"]`)
+    const targets = ['.library-mode-description', '.search-box', '.playlist-toolbar', '.playlist-card .playlist-copy b', '.track-row .track-copy b']
+    const before = await paneGeometry(peek, targets)
+    assert.ok(await peek.locator('.windowed-track-item').count() <= 24, 'Only the adjacent track window is rendered while dragging')
+    assert.equal(await page.evaluate(() => window.navigationTouch.progressReads), progressReads, 'A read-only adjacent pane never reads playlist progress from Android')
+    await touch.end(); await page.waitForFunction(index => document.querySelectorAll('.library-page .segmented-control > button')[index]?.classList.contains('selected'), index)
     await settle(page, 'library')
+    assertPaneHandoff(before, await paneGeometry(activeLibrary, targets))
     assert.equal(await current(page), 'library')
   }
+  results.push('native library preview uses the active layout, honors remembered scroll and caps preloaded rows without a native progress request')
   const edgeHeading = await point(page, '.library-page .section-heading'), edgeMain = await indicator(page), edgeLocal = await indicator(page, '.segmented-control .navigation-tab-indicator')
   const edgeIntents = await page.evaluate(() => window.navigationTouch.intents.length)
   await touch.start(edgeHeading); await touch.move({ x: edgeHeading.x - 58, y: edgeHeading.y + 1 })
@@ -153,6 +225,62 @@ async function run(page, session, out) {
   await swipe('.library-page .section-heading', 145); await settle(page, 'home')
   results.push('library local priority and both primary handoff edges; one translated surface and indicator, continuous release and single navigation')
 
+  // A short destination must not inherit the scroll of a long list, or clamp
+  // the document only after the leaving list finishes sliding out.
+  await go('library')
+  await page.evaluate(() => { scrollTo(0, 0); window.featureHarness.store.cachedTracks = window.featureHarness.store.cachedTracks.slice(0, 5) })
+  await page.locator('.library-page .segmented-control > button').nth(1).click(); await settle(page, 'library')
+  await page.evaluate(() => scrollTo(0, 9300))
+  await page.waitForFunction(() => Number(document.querySelector('.library-page [data-slide-active] .windowed-track-item')?.getAttribute('data-windowed-index')) > 100)
+  const visibleRow = '.windowed-track-item'
+  const deep = await activeLibrary.evaluate((pane, selector) => {
+    const row = Array.from(pane.querySelectorAll(selector)).find(row => {
+      const { top } = row.getBoundingClientRect()
+      return top >= 520 && top < 640
+    })
+    return { y: scrollY, top: row?.getBoundingClientRect().top, index: row?.getAttribute('data-windowed-index') }
+  }, visibleRow)
+  assert.ok(deep.y > 9000 && deep.index)
+  const rememberedRow = `${visibleRow}[data-windowed-index="${deep.index}"]`
+  await touch.start({ x: 310, y: 540 }); await touch.move({ x: 135, y: 540 })
+  const offlinePeek = localDeck.locator(':scope > [data-peek-tab="offline"]')
+  const previewTop = await offlinePeek.evaluate(node => node.getBoundingClientRect().top)
+  assert.ok(previewTop >= 0 && previewTop < 700, 'A short destination is in view while dragging from deep in a long list')
+  assert.ok(Math.abs(await page.evaluate(() => scrollY) - deep.y) <= 2, 'Peeking does not move the long source list')
+  await page.evaluate(({ rememberedRow }) => {
+    const entries = window.libraryEntryFrames = {}
+    function sampleEntry() {
+      const active = document.querySelector('.library-page .swipe-deck > [data-slide-active][data-swipe-commit]')
+      if (active) {
+        const tabs = Array.from(document.querySelectorAll('.library-page .segmented-control > button'))
+        const index = tabs.findIndex(tab => tab.getAttribute('aria-selected') === 'true')
+        entries[index] ??= { y: scrollY, height: document.documentElement.scrollHeight, top: active.getBoundingClientRect().top,
+          row: active.querySelector(rememberedRow)?.getBoundingClientRect().top }
+      }
+      if (!entries[1] || !entries[2]) requestAnimationFrame(sampleEntry)
+    }
+    requestAnimationFrame(sampleEntry)
+  }, { rememberedRow })
+  await touch.end()
+  await page.waitForFunction(() => window.libraryEntryFrames[2])
+  const firstOffline = await page.evaluate(() => window.libraryEntryFrames[2])
+  assert.equal(firstOffline.y, 0, 'The short page starts at its own scroll position on the first paint')
+  assert.ok(Math.abs(firstOffline.top - previewTop) <= 2, 'Releasing keeps the preview at the same vertical position')
+  await touch.start({ x: 235, y: 540 }); await touch.move({ x: 365, y: 540 }, 3)
+  const devicePeek = localDeck.locator(':scope > [data-peek-tab="local"]')
+  assert.ok(Math.abs(await devicePeek.locator(rememberedRow).evaluate(row => row.getBoundingClientRect().top) - deep.top) <= 10,
+    'An immediate reverse drag previews the same deep song')
+  assert.deepEqual(await page.evaluate(() => [scrollY, document.documentElement.scrollHeight]), [firstOffline.y, firstOffline.height],
+    'A long preview does not expand the short page or move its scroll position')
+  await touch.end(); await page.waitForFunction(() => window.libraryEntryFrames[1]); await settle(page, 'library')
+  const firstLocal = await page.evaluate(() => window.libraryEntryFrames[1])
+  assert.ok(Math.abs(firstLocal.y - deep.y) <= 10 && Math.abs(firstLocal.row - deep.top) <= 10,
+    'The returning list restores the deep row and scroll position from the first paint')
+  assert.ok(Math.abs(await page.evaluate(() => scrollY) - deep.y) <= 10, 'The return never snaps to the top after settling')
+  assert.equal(await localDeck.locator(':scope > [data-slide-leaving], :scope > .swipe-peek').count(), 0)
+  await page.evaluate(() => scrollTo(0, 0)); await go('home')
+  results.push('deep library subpages preserve per-pane scroll; first-frame and rapid reverse handoff without document growth')
+
   // A real song row may own a tap, while a horizontal drag changes the local search category.
   await go('search')
   const searchIndicator = await indicator(page), searchLocalIndicator = await indicator(page, '.search-categories .navigation-tab-indicator')
@@ -166,10 +294,23 @@ async function run(page, session, out) {
   await touch.move({ x: row.x - 145, y: row.y + 2 }); await touch.end(); await page.waitForFunction(() => window.featureHarness.store.searchCategory === 'albums'); await settle(page, 'search')
   assert.equal(await page.evaluate(() => window.navigationTouch.plays), 0, 'A navigation swipe cannot activate the row click')
   for (const category of ['artists', 'playlists', 'mvs']) {
-    await swipe('.search-page .section-heading', -145); await page.waitForFunction(category => window.featureHarness.store.searchCategory === category, category)
-    await settle(page, 'search')
+    if (category === 'playlists') {
+      const from = await point(page, '.search-page .section-heading')
+      await touch.start(from); await touch.move({ x: from.x - 145, y: from.y })
+      const peek = page.locator('.search-page .swipe-peek[data-peek-tab="playlists"]')
+      await peek.locator('.search-playlist-grid .playlist-card').first().waitFor()
+      const anchors = ['.library-layout-controls', '.search-playlist-grid .playlist-card .playlist-copy b']
+      const before = await paneGeometry(peek, anchors)
+      await screenshot(page, out, 'search-preloaded-playlists')
+      await touch.end(); await page.waitForFunction(() => window.featureHarness.store.searchCategory === 'playlists'); await settle(page, 'search')
+      assertPaneHandoff(before, await paneGeometry(page.locator('.search-page .swipe-deck > [data-slide-active]'), anchors))
+    } else {
+      await swipe('.search-page .section-heading', -145); await page.waitForFunction(category => window.featureHarness.store.searchCategory === category, category)
+      await settle(page, 'search')
+    }
     assert.equal(await current(page), 'search')
   }
+  results.push('preloaded search playlist cards use the same grid and toolbar before and after release')
   await swipe('.search-page .section-heading', -145); await settle(page, 'player')
   await go('search')
   await page.locator('.search-page .search-categories [role="tab"]').first().click(); await page.locator('.search-track-list .track-row').first().waitFor()
@@ -191,11 +332,60 @@ async function run(page, session, out) {
 
   // Native horizontal shelves and value controls keep their own gestures.
   await go('home')
-  await page.evaluate(() => { window.featureHarness.store.homeData.playlists = Array.from({ length: 8 }, (_, index) => ({ id: 8000 + index, name: 'Shelf ' + index, trackCount: 3 })) })
+  await page.evaluate(() => { window.featureHarness.store.homeData.playlists = Array.from({ length: 15 }, (_, index) => ({ id: 8000 + index, name: 'Shelf ' + index, trackCount: 3 })) })
   const shelf = await point(page, '.horizontal-cards')
+  const homeShelf = activePage.locator('.home-page .horizontal-cards').first()
+  await homeShelf.evaluate(rail => {
+    window.homeShelfScrollEnded = false
+    rail.addEventListener('scrollend', () => { window.homeShelfScrollEnded = true }, { once: true })
+  })
   await touch.start(shelf); await touch.move({ x: shelf.x - 145, y: shelf.y + 1 }); await touch.end()
-  await page.waitForFunction(() => document.querySelector('.horizontal-cards').scrollLeft > 20)
+  await page.waitForFunction(() => window.homeShelfScrollEnded && document.querySelector('.horizontal-cards').scrollLeft > 20)
   assert.equal(await current(page), 'home'); assert.equal(await page.evaluate(() => Boolean(window.featureHarness.store.selectedPlaylist)), false)
+  // Pin an actual snap point beyond the first eight preview cards, without
+  // putting the fixture scroll in competition with the earlier touch fling.
+  await homeShelf.evaluate(rail => rail.children[9].scrollIntoView({ inline: 'start', block: 'nearest', behavior: 'instant' }))
+  await homeShelf.evaluate(rail => new Promise((resolve, reject) => {
+    const deadline = performance.now() + 1800
+    function frame(now) {
+      const padding = parseFloat(getComputedStyle(rail).scrollPaddingLeft) || 0
+      const difference = rail.children[9].getBoundingClientRect().left - rail.getBoundingClientRect().left - padding
+      if (Math.abs(difference) < 2) resolve()
+      else if (now >= deadline) reject(new Error(`Home shelf did not settle on the tenth card: ${difference}px`))
+      else requestAnimationFrame(frame)
+    }
+    requestAnimationFrame(frame)
+  }))
+  const visibleShelfCard = await homeShelf.evaluate(rail => {
+    const host = rail.getBoundingClientRect()
+    return [...rail.querySelectorAll('.home-cover-card')].map(card => {
+      const box = card.getBoundingClientRect()
+      return { name: card.querySelector('b').textContent, x: box.x + box.width / 2, y: box.y + box.height / 2 }
+    }).find(card => card.x > host.left + 65 && card.x < host.right - 65)
+  })
+  assert.ok(visibleShelfCard, 'The scrolled shelf has a visible card')
+  const rememberedShelfX = await homeShelf.evaluate(rail => rail.scrollLeft)
+  await page.touchscreen.tap(visibleShelfCard.x, visibleShelfCard.y)
+  await settle(page, 'playlist')
+  assert.equal(await activePage.locator('.playlist-hero h2').textContent(), visibleShelfCard.name)
+  await activePage.getByText('Shelf detail song', { exact: true }).waitFor()
+  assert.equal(await activePage.locator('[data-music-source-switcher]').count(), 0)
+  await page.locator('.header-back').click(); await settle(page, 'home')
+  const restoredShelfX = await homeShelf.evaluate(rail => rail.scrollLeft)
+  assert.ok(Math.abs(restoredShelfX - rememberedShelfX) < 2, `Returning from a home playlist restores its horizontal shelf: ${rememberedShelfX} -> ${restoredShelfX}`)
+  await screenshot(page, out, 'home-shelf-after-detail-return')
+  await go('library')
+  // The deep-scroll scenario leaves Local selected; the first library subpage
+  // is the one that can hand a rightward drag to the primary Home page.
+  await page.locator('.library-page .segmented-control > button').first().click(); await settle(page, 'library')
+  const homeReturnTouch = await point(page, '.library-page .section-heading', .3)
+  await touch.start(homeReturnTouch); await touch.move({ x: homeReturnTouch.x + 145, y: homeReturnTouch.y })
+  const homePeek = page.locator('.page-frame > [data-peek-tab="home"] [data-home-shelf="playlists"]')
+  await homePeek.waitFor()
+  assert.ok(Math.abs(await homePeek.evaluate(rail => rail.scrollLeft) - rememberedShelfX) < 2, 'Home preview includes the same scrolled cards')
+  await touch.end(); await settle(page, 'home')
+  assert.ok(Math.abs(await homeShelf.evaluate(rail => rail.scrollLeft) - rememberedShelfX) < 2, 'Preview hands off to the same live shelf')
+  results.push('opening a scrolled home playlist preserves the shelf; content swipe preview matches the arriving home page')
   await go('player'); await page.evaluate(() => { window.featureHarness.store.playback = { ...window.featureHarness.store.playback, duration: 180000, position: 2000 }; window.navigationTouch.playback = JSON.parse(JSON.stringify(window.featureHarness.store.playback)) })
   const thumb = await point(page, '.progress-control .thumb-range-thumb', .5), beforeSeek = await page.evaluate(() => window.navigationTouch.seeks)
   await touch.start(thumb); await touch.move({ x: Math.min(360, thumb.x + 110), y: thumb.y + 1 }); await touch.end()
@@ -213,11 +403,12 @@ async function run(page, session, out) {
   assert.ok(await page.evaluate(() => scrollY) >= coverScroll)
   const coverHorizontal = await point(page, '.player-artwork'), coverIndicator = await indicator(page, '.player-view-tabs .navigation-tab-indicator'), playerMainIndicator = await indicator(page)
   await touch.start(coverHorizontal); await touch.move({ x: coverHorizontal.x - 58, y: coverHorizontal.y + 1 })
-  assert.ok(await offset(page, '.player-artwork') < -8, 'Cover follows the local horizontal gesture')
+  assert.ok(await offset(page, '.player-viewport > .player-visual-pane[data-slide-active]') < -8, 'Cover follows the local horizontal gesture')
+  assert.equal(await page.locator('.player-viewport > [data-peek-tab="lyrics"] .original-lyrics-view').count(), 1, 'Lyrics are already laid out next to the cover while dragging')
   assert.ok((await indicator(page, '.player-view-tabs .navigation-tab-indicator')).x > coverIndicator.x + 2, 'Cover/lyrics indicator follows the local content drag')
   assert.ok(Math.abs((await indicator(page)).x - playerMainIndicator.x) < 1, 'Player local gesture keeps the main Player tab selected')
   await screenshot(page, out, 'player-cover-view-drag')
-  await touch.move({ x: coverHorizontal.x - 145, y: coverHorizontal.y + 1 }); await probeRelease(page, '.player-artwork.surface-next-leave-active'); await touch.end()
+  await touch.move({ x: coverHorizontal.x - 145, y: coverHorizontal.y + 1 }); await probeRelease(page, '.player-visual-pane.surface-next-leave-active'); await touch.end()
   await page.waitForFunction(() => document.querySelectorAll('.player-view-tabs button')[1]?.getAttribute('aria-pressed') === 'true')
   await settle(page, 'player')
   await assertReleaseContinuity(page, 'Cover/lyrics')
@@ -234,8 +425,48 @@ async function run(page, session, out) {
   assert.equal(await page.evaluate(() => window.navigationTouch.seeks), lyricSeeks)
   await swipe('.player-artwork', 145); await settle(page, 'search')
   await go('player'); await page.locator('.player-view-tabs button').last().click(); await settle(page, 'player')
-  await swipe('.player-title-row', -145); await settle(page, 'settings')
-  await go('player'); await page.locator('.player-view-tabs button').first().click(); await settle(page, 'player')
+  await page.evaluate(async () => {
+    localStorage.setItem('vutron:settings-expanded:appearance', 'true')
+    localStorage.setItem('vutron:settings-expanded:cache', 'true')
+    const { vutronPlugin: native } = await import('/src/platform/vutronPlugin.ts')
+    const original = native.getPlaybackTuning
+    window.navigationTouch.settingsReads = 0
+    window.navigationTouch.libraryCacheWrites = []
+    native.getPlaybackTuning = (...args) => { window.navigationTouch.settingsReads++; return original.apply(native, args) }
+    native.setLibraryAutoCache = async ({ enabled }) => {
+      window.navigationTouch.libraryCacheWrites.push(enabled)
+      return { ...window.featureHarness.store.cacheStatus, libraryAutoCache: enabled }
+    }
+  })
+  const beforeSettingsReads = await page.evaluate(() => window.navigationTouch.settingsReads)
+  const fromSettingsEdge = await point(page, '.player-title-row'), settingsPeek = page.locator('.page-frame > [data-peek-tab="settings"]')
+  await touch.start(fromSettingsEdge); await touch.move({ x: fromSettingsEdge.x - 145, y: fromSettingsEdge.y })
+  await settingsPeek.locator('[data-settings-section="appearance"][open]').waitFor({ state: 'attached' })
+  assert.equal(await page.evaluate(() => window.navigationTouch.settingsReads), beforeSettingsReads, 'Settings preview never reads native playback preferences')
+  const settingsAnchors = ['.account-settings', '.network-settings', '[data-settings-section="appearance"] .settings-collapse-inner', '[data-settings-section="language"] > summary']
+  const preSettings = await paneGeometry(settingsPeek, settingsAnchors)
+  await touch.end(); await settle(page, 'settings'); assertPaneHandoff(preSettings, await paneGeometry(activePage, settingsAnchors))
+  const cacheToggle = activePage.locator('.cache-toggle').last()
+  const cacheInput = cacheToggle.getByRole('switch')
+  await cacheInput.press('Space'); await page.waitForFunction(() => window.navigationTouch.libraryCacheWrites.join() === 'false')
+  await cacheToggle.locator('span').first().click(); await page.waitForFunction(() => window.navigationTouch.libraryCacheWrites.join() === 'false,true')
+  assert.ok((await cacheToggle.boundingBox()).height >= 44, 'The cache control has a full-size tap target')
+  await screenshot(page, out, 'cache-switches')
+  await page.evaluate(() => { localStorage.removeItem('vutron:settings-expanded:appearance'); localStorage.removeItem('vutron:settings-expanded:cache') })
+  results.push('settings peek preserves expanded layout without bridge reads; cache switch supports keyboard and full-row taps')
+  const fromPlayerEdge = await point(page, '.settings-page .section-heading', .35), playerPeek = page.locator('.page-frame > [data-peek-tab="player"]')
+  await touch.start(fromPlayerEdge); await touch.move({ x: fromPlayerEdge.x + 145, y: fromPlayerEdge.y })
+  await playerPeek.locator('.original-lyrics-preview').waitFor({ state: 'attached' })
+  assert.equal(await playerPeek.locator('.player-artwork').count(), 0, 'The peek honors the remembered lyrics view')
+  const playerAnchors = ['.player-overline', '.player-view-tabs', '.player-title-row .player-title']
+  const prePlayer = await paneGeometry(playerPeek, playerAnchors)
+  const previewLyricsRect = await playerPeek.locator('.original-lyrics-preview').boundingBox()
+  await screenshot(page, out, 'player-lyrics-primary-peek')
+  await touch.end(); await settle(page, 'player'); assertPaneHandoff(prePlayer, await paneGeometry(activePage, playerAnchors), 2)
+  const liveLyricsRect = await activePage.locator('.original-lyrics-scroll').boundingBox()
+  assert.ok(previewLyricsRect && liveLyricsRect && Math.abs(previewLyricsRect.y - liveLyricsRect.y) < 2 && Math.abs(previewLyricsRect.height - liveLyricsRect.height) < 2)
+  results.push('primary Player preview follows remembered lyrics and preserves the main layout')
+  await page.locator('.player-view-tabs button').first().click(); await settle(page, 'player')
   results.push('horizontal shelf and thumb priority; cover/lyrics local priority, vertical lyric scroll, and both primary handoff edges')
 
   await page.setViewportSize({ width: 1024, height: 768 }); await page.locator('.player-visual-wide').waitFor(); await settle(page, 'player')
@@ -329,10 +560,9 @@ async function run(page, session, out) {
       window.navigationSortWrites.push(structuredClone(request)); const byId = new Map(window.navigationSortServer.map(row => [row.id, row]))
       window.navigationSortServer = request.trackIds.map(id => byId.get(id)); return { ...snapshot(), committed: true }
     }
-    window.openNavigationDraft = () => { store.navigateTo('library'); store.selectedPlaylist = structuredClone(window.navigationSortPlaylist); store.tracks = structuredClone(window.navigationSortServer) }
-    window.openNavigationDraft()
+    window.openNavigationDraft = () => store.openPlaylist(structuredClone(window.navigationSortPlaylist))
   })
-  const openDraft = async () => { await page.evaluate(() => window.openNavigationDraft()); await page.locator('.local-track-section .track-row').nth(2).waitFor(); await settle(page, 'library') }
+  const openDraft = async () => { await page.evaluate(() => window.openNavigationDraft()); await page.locator('.local-track-section .track-row').nth(2).waitFor(); await settle(page, 'playlist') }
   const edit = async () => {
     if (!await page.locator('.local-track-section .sort-handle').count()) {
       await page.locator('.local-order-select .app-select-trigger').click(); await page.locator('.app-select-options [data-value="custom"]').click()
@@ -346,7 +576,7 @@ async function run(page, session, out) {
     await page.locator('.action-dialog ' + (choice === 'save' ? '[data-default-action]' : choice === 'discard' ? '.secondary-button' : '.text-button')).click()
     await page.locator('.action-dialog').waitFor({ state: 'hidden' })
   }
-  await openDraft(); await edit(); await scrub(1, 4); await chooseDraft('continue'); await settle(page, 'library')
+  await openDraft(); await edit(); await scrub(1, 4); await chooseDraft('continue'); await settle(page, 'playlist')
   assert.equal(await page.locator('.order-draft-actions').count(), 1); assert.equal(await page.evaluate(() => window.navigationSortWrites.length), 0)
   await scrub(1, 0); await chooseDraft('discard'); await settle(page, 'home')
   assert.equal(await page.evaluate(() => window.navigationSortWrites.length), 0)
@@ -378,7 +608,7 @@ async function run(page, session, out) {
   assert.ok(pluginFeatureNames.length > 2)
   const featureIndex = () => page.locator('.plugin-feature-tabs > button').evaluateAll(buttons => buttons.findIndex(button => button.getAttribute('aria-pressed') === 'true'))
   assert.equal(await featureIndex(), 0)
-  const pluginMain = await indicator(page), pluginLocal = await indicator(page, '.plugin-feature-tabs .navigation-tab-indicator'), pluginFrom = await point(page, '.plugin-results-heading')
+  const pluginMain = await indicator(page), pluginLocal = await indicator(page, '.plugin-feature-tabs .navigation-tab-indicator'), pluginFrom = await point(page, '.plugin-swipe-results > .plugin-results-heading')
   await touch.start(pluginFrom); await touch.move({ x: pluginFrom.x - 58, y: pluginFrom.y + 1 })
   assert.ok(await offset(page, '.plugin-swipe-results') < -8)
   assert.ok((await indicator(page, '.plugin-feature-tabs .navigation-tab-indicator')).x > pluginLocal.x + 2)
@@ -388,10 +618,10 @@ async function run(page, session, out) {
   await touch.move({ x: pluginFrom.x - 145, y: pluginFrom.y + 1 }); await touch.end()
   await page.waitForFunction(() => document.querySelectorAll('.plugin-feature-tabs > button')[1]?.getAttribute('aria-pressed') === 'true')
   await page.locator('.plugin-track').first().waitFor(); await settle(page, 'library')
-  await swipe('.plugin-results-heading', 145)
+  await swipe('.plugin-swipe-results > .plugin-results-heading', 145)
   await page.waitForFunction(() => document.querySelectorAll('.plugin-feature-tabs > button')[0]?.getAttribute('aria-pressed') === 'true')
   await page.waitForFunction(() => document.querySelectorAll('.plugin-result-card').length === 8); await settle(page, 'library')
-  await swipe('.plugin-results-heading', 145); await settle(page, 'home')
+  await swipe('.plugin-swipe-results > .plugin-results-heading', 145); await settle(page, 'home')
   await go('library'); await page.waitForFunction(() => document.querySelectorAll('.plugin-result-card').length === 8); await settle(page, 'library')
   assert.equal(await featureIndex(), 0)
   const pluginShelf = await point(page, '.plugin-result-strip')
@@ -414,9 +644,9 @@ async function run(page, session, out) {
   assert.equal(await page.evaluate(() => window.navigationPluginCalls()), pluginSearchCalls, 'A category swipe preserves the original submit-to-search contract')
   assert.equal(await page.evaluate(() => window.navigationTouch.plays), 1, 'A source-local row swipe cannot activate playback')
   assert.equal(await page.evaluate(() => window.navigationTouch.pluginPlays), 0)
-  for (let index = 2; index < 5; index++) { await swipe('.plugin-results-heading', -145); await page.waitForFunction(index => document.querySelectorAll('.plugin-search-tabs > button')[index]?.getAttribute('aria-pressed') === 'true', index); await settle(page, 'search') }
+  for (let index = 2; index < 5; index++) { await swipe('.plugin-swipe-results > .plugin-results-heading', -145); await page.waitForFunction(index => document.querySelectorAll('.plugin-search-tabs > button')[index]?.getAttribute('aria-pressed') === 'true', index); await settle(page, 'search') }
   assert.equal(await page.locator('.plugin-search-tabs > button[aria-pressed="true"]').textContent(), await page.locator('.plugin-search-tabs > button').last().textContent())
-  await swipe('.plugin-results-heading', -145); await settle(page, 'player')
+  await swipe('.plugin-swipe-results > .plugin-results-heading', -145); await settle(page, 'player')
   results.push('integrated feature/search local priority and primary handoff edges, shelf/detail ownership and no row playback')
   return results
 }

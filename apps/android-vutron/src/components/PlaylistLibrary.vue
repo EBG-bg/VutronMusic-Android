@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, toRef, watch } from 'vue'
+import { computed, inject, onMounted, onUnmounted, ref, toRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usePlaylistOrder, type PlaylistEntry } from '../composables/playlistOrdering'
 import { moveTrackKey } from '../composables/localTrackOrdering'
@@ -11,10 +11,13 @@ import LibraryLayoutControls from './LibraryLayoutControls.vue'
 import AppSelect from './AppSelect.vue'
 import TrackListPager from './TrackListPager.vue'
 import { reducedMotion } from '../platform/motion'
+import { navigationPreviewKey } from '../composables/navigationPreview'
 import { playlistSortHints } from '../platform/interfacePreferences'
 const props = withDefaults(defineProps<{ entries: PlaylistEntry[]; scope: string; query?: string; loading?: boolean; removable?: boolean }>(), { query: '' })
+defineSlots<{ actions?: () => unknown; 'row-actions'?: (props: { item: PlaylistEntry; placement: 'list' | 'card' }) => unknown }>()
 const emit = defineEmits<{ open: [key: string]; remove: [key: string] }>()
 const { t } = useI18n()
+const preview = inject(navigationPreviewKey, false)
 const { mode, ordered, commit, restore } = usePlaylistOrder(toRef(props, 'entries'), toRef(props, 'scope'))
 const sortModes = ['original', 'name', 'created', 'recent', 'custom'] as const
 const filtered = computed(() => ordered.value.filter(item => item.name.toLocaleLowerCase().includes(props.query.toLocaleLowerCase())))
@@ -29,6 +32,7 @@ const previewKeys = computed(() => {
   return state?.active && state.anchor ? moveTrackKey(ordered.value.map(item => item.key), state.key, state.anchor, state.after) : undefined
 })
 const displayed = computed(() => {
+  if (preview) return visible.value.slice(0, 24)
   if (!previewKeys.value) return visible.value
   const entries = new Map(visible.value.map(item => [item.key,item]))
   return previewKeys.value.flatMap(key => entries.has(key) ? [entries.get(key)!] : [])
@@ -115,7 +119,7 @@ function escape(event: KeyboardEvent) { if (event.key === 'Escape' && drag.value
 watch(() => [props.scope, props.entries, props.query, mode.value, playlistView.value], cancel)
 watch(() => props.scope, () => { editing.value=false; message.value='' })
 function visibilityChanged() { if (document.hidden) cancel() }
-onMounted(() => { document.addEventListener('keydown', escape, true); document.addEventListener('visibilitychange',visibilityChanged); window.addEventListener('vutron-playlist-order-back',back) })
+onMounted(() => { if (preview) return; document.addEventListener('keydown', escape, true); document.addEventListener('visibilitychange',visibilityChanged); window.addEventListener('vutron-playlist-order-back',back) })
 onUnmounted(() => { cancel(); document.removeEventListener('keydown', escape, true); document.removeEventListener('visibilitychange',visibilityChanged); window.removeEventListener('vutron-playlist-order-back',back) })
 </script>
 <template>
@@ -129,41 +133,64 @@ onUnmounted(() => { cancel(); document.removeEventListener('keydown', escape, tr
       <div v-for="item in displayed" :key="item.key" class="playlist-item" :data-playlist-key="item.key" :class="{ 'playlist-moving': drag?.active && drag.key === item.key, 'playlist-anchor': drag?.anchor === item.key }">
         <button class="playlist-card" type="button" @click="open(item.key)" @pointerdown="down($event,item)" @contextmenu.prevent>
           <span class="cover-wrap"><CoverImage v-if="item.cover || item.remoteCover" :src="item.cover" :remote-src="item.remoteCover" :size="playlistView === 'list' ? 'small' : 'auto'" alt="" /><span v-else class="cover-fallback"><OriginalIcon name="library" /></span><span class="cover-play"><OriginalIcon name="play" /></span></span>
-          <span class="playlist-copy"><b>{{ item.name }}</b><small>{{ $t('mobile.common.tracks', { count: item.count }) }}</small></span>
+          <span class="playlist-copy"><b>{{ item.name }}</b><small>{{ item.subtitle || $t('mobile.common.tracks', { count: item.count }) }}</small></span>
         </button>
         <button v-if="canDrag" class="playlist-drag-handle icon-button" type="button" :aria-label="$t('mobile.ordering.move', { name:item.name })" @pointerdown.stop="down($event,item,true)" @click.stop @keydown="keyboard($event,item)"><OriginalIcon name="drag" /></button>
         <button v-if="removable" class="icon-button playlist-remove" type="button" :aria-label="$t('mobile.offline.deletePlaylist') + ' ' + item.name" @click="emit('remove',item.key)"><OriginalIcon name="close" /></button>
+        <slot v-else-if="!editing" name="row-actions" :item="item" :placement="playlistView === 'list' ? 'list' : 'card'" />
       </div>
       <div v-if="!displayed.length" key="empty" class="empty-state"><OriginalIcon name="empty" />{{ $t(loading ? 'mobile.ordering.loading' : 'mobile.ordering.noMatches') }}</div>
     </TransitionGroup></div><TrackListPager :more="hasMore" :label="$t('mobile.library.morePlaylists')" @more="showMore" />
     <Teleport to="body"><Transition name="playlist-floating" :css="!reducedMotion">
       <div v-if="drag?.active && draggedItem" class="playlist-drag-preview" :class="{ 'playlist-preview-list': playlistView === 'list' }" :style="{ width:drag.width + 'px', transform:`translate3d(${drag.x-drag.grabX}px, ${drag.y-drag.grabY}px, 0)` }" aria-hidden="true">
-        <div class="playlist-card"><span class="cover-wrap"><CoverImage v-if="draggedItem.cover || draggedItem.remoteCover" :src="draggedItem.cover" :remote-src="draggedItem.remoteCover" loading="eager" alt="" /><span v-else class="cover-fallback"><OriginalIcon name="library" /></span></span><span class="playlist-copy"><b>{{ draggedItem.name }}</b><small>{{ $t('mobile.common.tracks', { count: draggedItem.count }) }}</small></span></div>
+        <div class="playlist-card"><span class="cover-wrap"><CoverImage v-if="draggedItem.cover || draggedItem.remoteCover" :src="draggedItem.cover" :remote-src="draggedItem.remoteCover" loading="eager" alt="" /><span v-else class="cover-fallback"><OriginalIcon name="library" /></span></span><span class="playlist-copy"><b>{{ draggedItem.name }}</b><small>{{ draggedItem.subtitle || $t('mobile.common.tracks', { count: draggedItem.count }) }}</small></span></div>
       </div>
     </Transition></Teleport>
   </section>
 </template>
 <style scoped>
-.playlist-primary-tools { min-width:0; flex-basis:auto; flex-shrink:0; max-width:100%; flex-wrap:nowrap; }
-.playlist-edit-tools { display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin:5px 0; }.playlist-sort-hint { display:flex; align-items:center; gap:8px; }.playlist-sort-hint>span { flex:1; min-width:0; }.playlist-sort-hint>.icon-button { flex:0 0 40px; }.playlist-edit-order { padding:5px; width:32px; min-width:32px; height:40px; }
-.playlist-sort { min-width:0; flex-shrink:1; }.playlist-sort :deep(.app-select-trigger) { min-height:40px; max-width:170px; }.playlist-sort :deep(.app-select-trigger > span) { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
-.playlist-toolbar > .library-layout-controls { flex-shrink:0; margin-left:auto; max-width:100%; }
-.playlist-item { transition:opacity 180ms ease,box-shadow 200ms ease; }.playlist-item.playlist-moving { opacity:.22; transform:none; }
-.playlist-reorder-move { transition:transform 240ms cubic-bezier(.2,.75,.25,1),opacity 180ms ease; }
-.playlist-drag-preview { position:fixed; top:0; left:0; z-index:10000; pointer-events:none; will-change:transform; }.playlist-drag-preview > .playlist-card { display:block; width:100%; padding:8px; border:1px solid var(--accent); border-radius:16px; background:var(--color-body-bg); box-shadow:0 12px 34px #0004; transform:scale(1.035); }
-.playlist-drag-preview .cover-wrap { display:block; position:relative; width:100%; aspect-ratio:1; overflow:hidden; border-radius:12px; }.playlist-drag-preview .cover-wrap :deep(img) { display:block; width:100%; height:100%; object-fit:cover; }.playlist-drag-preview .cover-fallback { display:grid; place-items:center; width:100%; height:100%; background:var(--surface); color:var(--accent); font-size:28px; }.playlist-drag-preview .playlist-copy { display:block; padding:8px 2px 2px; }.playlist-drag-preview .playlist-copy small { display:block; }
-.playlist-preview-list > .playlist-card { display:flex; align-items:center; gap:12px; padding:9px; }.playlist-preview-list .cover-wrap { flex:0 0 52px; width:52px; height:52px; }.playlist-preview-list .playlist-copy { flex:1; min-width:0; padding:0; }
-.playlist-floating-enter-active,.playlist-floating-leave-active { transition:opacity 180ms ease; }.playlist-floating-enter-active > .playlist-card,.playlist-floating-leave-active > .playlist-card { transition:transform 180ms ease; }.playlist-floating-enter-from,.playlist-floating-leave-to { opacity:0; }.playlist-floating-enter-from > .playlist-card,.playlist-floating-leave-to > .playlist-card { transform:scale(.98); }
-html[data-motion='reduced'] :is(.playlist-item,.playlist-reorder-move,.playlist-floating-enter-active,.playlist-floating-leave-active) { transition:none; }
-.playlist-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:10px 0 14px; }
-.playlist-primary-tools { display:flex; align-items:center; gap:8px; flex:1 0 auto; }
-.playlist-sort { display:flex; gap:6px; align-items:center; color:var(--muted); font-size:calc(12px * var(--ui-font-scale, 1)); }
-.playlist-item { position:relative; min-width:0; }.playlist-card { width:100%; }
-.playlist-drag-handle { position:absolute; right:4px; bottom:7px; width:36px; height:40px; border-radius:10px; touch-action:none; font-size:calc(22px * var(--ui-font-scale, 1)); }
-.playlist-remove { position:absolute; right:4px; top:4px; width:34px; height:34px; font-size:calc(18px * var(--ui-font-scale, 1)); border-radius:10px; }
-.playlist-anchor { outline:2px solid var(--accent); outline-offset:3px; border-radius:12px; }
-.custom-playlists .playlist-card { touch-action:pan-y; }.custom-playlists .playlist-copy { padding-right:34px; }
-.playlist-layout-list .custom-playlists .playlist-card,.playlist-layout-list .playlist-item:has(.playlist-remove) .playlist-card { padding-right:45px; }.playlist-layout-list .playlist-drag-handle { top:50%; bottom:auto; transform:translateY(-50%); }
-.playlist-layout-list .playlist-remove { right:4px; top:50%; transform:translateY(-50%); }.playlist-layout-list .playlist-item:has(.playlist-drag-handle) .playlist-remove { right:43px; }.playlist-layout-list .playlist-item:has(.playlist-remove):has(.playlist-drag-handle) .playlist-card { padding-right:80px; }
-.library-layout-controls { margin:0; flex-wrap:wrap; }.empty-state .original-icon { display:block; margin:0 auto 10px; font-size:24px; }
+.playlist-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 0 14px; }
+.playlist-primary-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; flex: 1 1 auto; max-width: 100%; }
+.playlist-edit-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.playlist-sort-hint { display: flex; align-items: center; gap: 8px; margin: 6px 0 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); font-size: calc(12px * var(--ui-font-scale, 1)); color: var(--muted); }
+.playlist-sort-hint > span { flex: 1; min-width: 0; line-height: 1.5; }
+.playlist-sort-hint > .icon-button { flex: 0 0 38px; width: 38px; height: 38px; }
+.playlist-edit-order { padding: 5px; width: 36px; min-width: 36px; height: 40px; }
+.playlist-sort { display: inline-flex; gap: 6px; align-items: center; min-width: 0; flex-shrink: 1; color: var(--muted); font-size: calc(12px * var(--ui-font-scale, 1)); }
+.playlist-sort :deep(.app-select-trigger) { min-height: 40px; max-width: 170px; }
+.playlist-sort :deep(.app-select-trigger > span) { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.playlist-toolbar > .library-layout-controls { flex-shrink: 0; margin: 0; max-width: 100%; }
+.playlist-toolbar > .library-layout-controls :deep(.app-select-trigger) { min-height: 38px; }
+.playlist-item { position: relative; min-width: 0; transition: opacity 180ms ease, box-shadow 200ms ease; }
+.playlist-item.playlist-moving { opacity: .22; transform: none; }
+.playlist-card { width: 100%; }
+.playlist-reorder-move { transition: transform 240ms cubic-bezier(.2,.75,.25,1), opacity 180ms ease; }
+.playlist-drag-preview { position: fixed; top: 0; left: 0; z-index: 10000; pointer-events: none; will-change: transform; }
+.playlist-drag-preview > .playlist-card { display: block; width: 100%; padding: 8px; border: 1px solid var(--accent); border-radius: 18px; background: var(--surface-card); box-shadow: var(--shadow-float); transform: scale(1.03); }
+.playlist-drag-preview .cover-wrap { display: block; position: relative; width: 100%; aspect-ratio: 1; overflow: hidden; border-radius: 12px; }
+.playlist-drag-preview .cover-wrap :deep(img) { display: block; width: 100%; height: 100%; object-fit: cover; }
+.playlist-drag-preview .cover-fallback { display: grid; place-items: center; width: 100%; height: 100%; background: var(--surface); color: var(--accent); font-size: 28px; }
+.playlist-drag-preview .playlist-copy { display: block; padding: 8px 2px 2px; }
+.playlist-drag-preview .playlist-copy small { display: block; }
+.playlist-preview-list > .playlist-card { display: flex; align-items: center; gap: 12px; padding: 9px; }
+.playlist-preview-list .cover-wrap { flex: 0 0 52px; width: 52px; height: 52px; }
+.playlist-preview-list .playlist-copy { flex: 1; min-width: 0; padding: 0; }
+.playlist-floating-enter-active, .playlist-floating-leave-active { transition: opacity 180ms ease; }
+.playlist-floating-enter-active > .playlist-card, .playlist-floating-leave-active > .playlist-card { transition: transform 180ms ease; }
+.playlist-floating-enter-from, .playlist-floating-leave-to { opacity: 0; }
+.playlist-floating-enter-from > .playlist-card, .playlist-floating-leave-to > .playlist-card { transform: scale(.98); }
+html[data-motion='reduced'] :is(.playlist-item, .playlist-reorder-move, .playlist-floating-enter-active, .playlist-floating-leave-active) { transition: none; }
+.playlist-drag-handle { position: absolute; right: 4px; bottom: 7px; width: 36px; height: 40px; border-radius: 10px; touch-action: none; font-size: calc(22px * var(--ui-font-scale, 1)); }
+.playlist-remove { position: absolute; right: 4px; top: 4px; width: 34px; height: 34px; font-size: calc(18px * var(--ui-font-scale, 1)); border-radius: 10px; }
+.playlist-anchor { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 14px; }
+.custom-playlists .playlist-card { touch-action: pan-y; }
+.custom-playlists .playlist-copy { padding-right: 34px; }
+.playlist-layout-list .custom-playlists .playlist-card, .playlist-layout-list .playlist-item:has(.playlist-remove) .playlist-card { padding-right: 45px; }
+.playlist-layout-list .playlist-drag-handle { top: 50%; bottom: auto; transform: translateY(-50%); }
+.playlist-layout-list .playlist-remove { right: 4px; top: 50%; transform: translateY(-50%); }
+.playlist-layout-list .playlist-item:has(.playlist-drag-handle) .playlist-remove { right: 43px; }
+.playlist-layout-list .playlist-item:has(.playlist-remove):has(.playlist-drag-handle) .playlist-card { padding-right: 80px; }
+.empty-state .original-icon { display: block; margin: 0 auto 10px; font-size: 24px; }
+.playlist-item > :deep(.playlist-menu-list) { position:absolute; right:4px; top:50%; transform:translateY(-50%); }
+.playlist-item:has(.playlist-menu-list) .playlist-card { padding-right:52px; }
 </style>

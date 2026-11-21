@@ -98,14 +98,14 @@ onBeforeUnmount(() => { tap = undefined; release(false) })
 .thumb-range { --range-thumb-width: 36px; position: relative; display: block; width: 100%; min-width: 0; max-width: 100%; height: 48px; margin: 0; padding: 0; border: 0; touch-action: pan-y; user-select: none; }
 .thumb-range > .thumb-range-input { position: absolute; inset: 0; display: block; width: 100%; height: 100%; min-width: 0; margin: 0; padding: 0; border: 0; opacity: 0; pointer-events: none; }
 .thumb-range-path { position: absolute; top: 50%; left: calc(var(--range-thumb-width) / 2 + 2px); right: calc(var(--range-thumb-width) / 2 + 2px); height: 0; pointer-events: none; }
-.thumb-range-rail { position: absolute; top: -2px; left: 0; right: 0; height: 4px; border-radius: 2px; background: var(--line); }
+.thumb-range-rail { position: absolute; top: -2.5px; left: 0; right: 0; height: 5px; border-radius: 999px; background: var(--line-strong, var(--line)); }
 .thumb-range-fill { display: block; width: var(--range-position); height: 100%; border-radius: inherit; background: var(--accent); transition: width var(--motion-slider, 180ms) ease-out; }
 .thumb-range-thumb { position: absolute; top: 0; left: var(--range-position); width: var(--range-thumb-width); height: 44px; display: grid; place-items: center; transform: translate(-50%, -50%); pointer-events: auto; touch-action: none; cursor: ew-resize; transition: left var(--motion-slider, 180ms) ease-out; }
-.thumb-range-thumb::after { content: ''; width: 18px; height: 18px; box-sizing: border-box; border: 2px solid var(--color-body-bg); border-radius: 50%; background: var(--accent); box-shadow: 0 1px 3px rgb(0 0 0 / 20%); transition: transform var(--motion-feedback, 180ms) ease, box-shadow var(--motion-state, 220ms) ease; }
+.thumb-range-thumb::after { content: ''; width: 17px; height: 17px; box-sizing: border-box; border: 2.5px solid var(--color-body-bg); border-radius: 50%; background: var(--accent); box-shadow: 0 2px 6px rgb(0 0 0 / 22%); transition: transform var(--motion-feedback, 180ms) ease, box-shadow var(--motion-state, 220ms) ease; }
 .thumb-range[data-dragging] .thumb-range-fill { transition: none; }
 .thumb-range[data-dragging] .thumb-range-thumb { transition: none; }
-.thumb-range[data-dragging] .thumb-range-thumb::after { transform: scale(1.1); box-shadow: 0 0 0 3px var(--accent-soft), 0 2px 4px rgb(0 0 0 / 18%); }
-@media (hover: hover) { .thumb-range-thumb:hover::after { box-shadow: 0 0 0 3px var(--accent-soft), 0 2px 4px rgb(0 0 0 / 18%); } }
+.thumb-range[data-dragging] .thumb-range-thumb::after { transform: scale(1.18); box-shadow: 0 0 0 5px var(--accent-soft), 0 3px 8px rgb(0 0 0 / 24%); }
+@media (hover: hover) { .thumb-range-thumb:hover::after { transform: scale(1.08); box-shadow: 0 0 0 4px var(--accent-soft), 0 2px 6px rgb(0 0 0 / 20%); } }
 .thumb-range-input:focus-visible ~ .thumb-range-path .thumb-range-thumb::after { outline: 2px solid var(--accent); outline-offset: 2px; }
 .thumb-range-color { height: 48px; }
 .thumb-range-color .thumb-range-rail { display: none; }

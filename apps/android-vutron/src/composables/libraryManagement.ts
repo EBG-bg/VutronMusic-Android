@@ -75,7 +75,7 @@ export function useLibraryManagement() {
         await askAction({ title: t('mobile.management.deleteCache'), message: t('mobile.management.cacheInUse'), confirmLabel: t('mobile.management.understood'), cancelLabel: t('mobile.management.cancel') })
         return false
       }
-      await store.loadCacheStatus(false)
+      await store.refreshCacheAfterMutation()
       store.queueNotice = t('mobile.management.cacheRemoved')
       return true
     } catch (cause) { store.error = cause instanceof Error ? cause.message : t('mobile.management.failed'); return false }
@@ -93,7 +93,7 @@ export function useLibraryManagement() {
       try {
         store.error = ''
         const result = await vutronPlugin.deleteCachedTracks({ trackIds: ids })
-        await store.loadCacheStatus(false)
+        await store.refreshCacheAfterMutation()
         if (result.skipped || result.failed) { store.error = undoText('partialCache', { removed: result.removed, skipped: result.skipped + result.failed }); return false }
         store.queueNotice = t('mobile.management.cacheRemoved'); return true
       } catch (cause) { store.error = cause instanceof Error ? cause.message : t('mobile.management.failed'); return false }
@@ -105,15 +105,15 @@ export function useLibraryManagement() {
     if (!vutronPlugin.deleteCachedPlaylist || libraryMutationBusy.value || cacheConfirmation) return false
     cacheConfirmation = true
     try {
-      const choice = await askAction({ title: t('mobile.offline.deletePlaylist'), message: t('mobile.offline.deleteHint', { name: playlist.name }), confirmLabel: t('mobile.offline.deletePlaylist'), cancelLabel: t('mobile.management.cancel') })
+      const choice = await askAction({ title: t('mobile.offline.deletePlaylist'), message: t(playlist.pluginCacheKey ? 'mobile.playlistCache.removeHint' : 'mobile.offline.deleteHint', { name: playlist.name }), confirmLabel: t('mobile.offline.deletePlaylist'), cancelLabel: t('mobile.management.cancel') })
       if (choice !== 'confirm' || libraryMutationBusy.value) return false
       libraryMutationBusy.value = true
       try {
         store.error = ''
-        const result = await vutronPlugin.deleteCachedPlaylist({ playlistId: playlist.id, userId: playlist.cacheOwnerId })
+        const result = await vutronPlugin.deleteCachedPlaylist({ playlistId: playlist.id, userId: playlist.cacheOwnerId, pluginCacheKey: playlist.pluginCacheKey })
         if (!result.removed) return false
-        store.removeCachedPlaylistView(playlist.id)
-        await Promise.all([store.loadOfflinePlaylists(), store.loadCacheStatus(false)])
+        store.removeCachedPlaylistView(playlist)
+        await Promise.all([store.loadOfflinePlaylists(), store.refreshCacheAfterMutation(false)])
         store.queueNotice = t('mobile.offline.deleted')
         return true
       } catch (cause) { store.error = cause instanceof Error ? cause.message : t('mobile.management.failed'); return false }

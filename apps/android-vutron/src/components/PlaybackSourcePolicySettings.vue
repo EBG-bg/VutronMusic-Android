@@ -1,10 +1,14 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useAndroidShellStore } from '../stores/androidShell'
 import sourcePolicy from '../../../../vendor/android-runtime/src/main/assets/sources-runtime/source-policy.json'
 import CollapsibleSettingsCard from './CollapsibleSettingsCard.vue'
 import OriginalIcon from './OriginalIcon.vue'
 
 const store = useAndroidShellStore()
+const sourceStatus = computed(() => store.playback.buffering ? 'mobile.playbackFeedback.buffering'
+  : store.playback.loading ? 'mobile.playbackFeedback.preparing'
+  : store.playback.error || !store.playback.quality ? 'mobile.plugins.audioNotPlaying' : '')
 </script>
 
 <template>
@@ -20,11 +24,8 @@ const store = useAndroidShellStore()
     <ul class="audio-policy-providers" :class="{ inactive: !store.autoMatchSources }" :aria-label="$t('mobile.plugins.audioCandidates')">
       <li v-for="id in sourcePolicy.fallbackSources" :key="id">{{ $t('mobile.plugins.audioProviderNames.' + id) }}</li>
     </ul>
-    <p class="setting-note">{{ $t('mobile.plugins.audioCandidatesHint') }}</p>
-    <div class="audio-policy-current"><b>{{ $t('mobile.plugins.audioActual') }}</b><span>{{ store.playback.quality || $t('mobile.plugins.audioNotPlaying') }}</span></div>
-    <p class="setting-note">{{ $t('mobile.plugins.audioPolicyScope') }}</p>
-    <p class="setting-note">{{ $t('mobile.plugins.audioLibrarySeparate') }}</p>
-    <p class="setting-note">{{ $t('mobile.plugins.audioPolicySeparate') }}</p>
+    <div class="audio-policy-current"><b>{{ $t('mobile.plugins.audioActual') }}</b><span>{{ sourceStatus ? $t(sourceStatus) : store.playback.quality }}</span></div>
+    <p class="setting-note">{{ $t('mobile.experience.sourceHint') }}</p>
   </CollapsibleSettingsCard>
 </template>
 

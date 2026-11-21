@@ -5,7 +5,7 @@ function load(relative, dependencies) {
   vm.runInNewContext(code, { module, exports: module.exports, require: name => name === 'vue' ? vue : dependencies[name], setTimeout, clearTimeout, Date, Error }); return module.exports;
 }
 function management(plugin, ask = async () => 'confirm', extra = {}) {
-  const calls = [], busy = vue.ref(false), store = { error: '', queueNotice: '', async reloadManagedLibrary() { calls.push('reload'); }, async loadLocalMusic() { calls.push('scan'); }, async loadCacheStatus() { calls.push('cache'); }, ...extra };
+  const calls = [], busy = vue.ref(false), store = { error: '', queueNotice: '', async reloadManagedLibrary() { calls.push('reload'); }, async loadLocalMusic() { calls.push('scan'); }, async refreshCacheAfterMutation() { calls.push('cache'); }, ...extra };
   const api = load('composables/libraryManagement.ts', { '../stores/androidShell': { useAndroidShellStore: () => store }, '../platform/vutronPlugin': { vutronPlugin: plugin }, '../platform/i18n': { translate: key => key }, '../platform/actionDialog': { askAction: ask }, '../platform/libraryActivity': { libraryMutationBusy: busy } }).useLibraryManagement();
   return { api, calls, busy, store };
 }
@@ -22,10 +22,10 @@ test('an unrelated local numeric ID cannot delete an online cache with the same 
 test('offline playlist deletion targets only its cache owner and leaves current audio and queue intact', async () => {
   let payload; const playback = { trackId: 12, playing: true }, queue = [1,2]; let state;
   state = management({ deleteCachedPlaylist: async value => { payload=value; return { removed:true }; } }, undefined, {
-    playback, playbackQueue:queue, removeCachedPlaylistView(id) { state.calls.push('view:'+id); }, async loadOfflinePlaylists() { state.calls.push('offline'); }
+    playback, playbackQueue:queue, removeCachedPlaylistView(playlist) { state.calls.push('view:'+playlist.id+':'+playlist.cacheOwnerId); }, async loadOfflinePlaylists() { state.calls.push('offline'); }
   });
   assert.equal(await state.api.deleteOfflinePlaylist({id:71,name:'Saved',cacheOwnerId:123}),true);
-  assert.equal(payload.playlistId,71); assert.equal(payload.userId,123); assert.deepEqual(state.calls,['view:71','offline','cache']);
+  assert.equal(payload.playlistId,71); assert.equal(payload.userId,123); assert.deepEqual(state.calls,['view:71:123','offline','cache']);
   assert.equal(state.store.playback,playback); assert.equal(state.store.playbackQueue,queue); assert.equal(playback.playing,true);
 });
 test('cancelled or failed offline playlist deletion preserves the visible snapshot', async () => {

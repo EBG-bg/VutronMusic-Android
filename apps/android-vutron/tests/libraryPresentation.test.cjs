@@ -113,6 +113,7 @@ test('the actual queue component windows around a deep current track without mou
         vm.runInNewContext(source, { module: helper, exports: helper.exports })
         return helper.exports
       }
+      if (name === '../composables/navigationPreview') return { navigationPreviewKey: Symbol('navigation-preview') }
       if (name === '../platform/actionDialog') return { actionDialog: vue.shallowRef() }
       if (name === '../platform/motion') return { reducedMotion: vue.ref(false) }
       if (name === '../composables/sheetDrag') {

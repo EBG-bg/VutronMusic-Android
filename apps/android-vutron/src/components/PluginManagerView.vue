@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FloatingField from './FloatingField.vue'
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { musicPluginBridge as bridge } from '../plugins/bridge'
@@ -12,8 +13,8 @@ import CollapsibleSettingsCard from './CollapsibleSettingsCard.vue'
 import OriginalIcon from './OriginalIcon.vue'
 import SheetDragHandle from './SheetDragHandle.vue'
 
-const props = defineProps<{ localOnly: boolean }>()
-const emit = defineEmits<{ open: [id: string]; back: [] }>()
+const props = defineProps<{ localOnly: boolean; accountTarget?: string }>()
+const emit = defineEmits<{ open: [id: string]; back: []; consumeAccountTarget: [] }>()
 const { t } = useI18n()
 const plugins = ref<MusicPlugin[]>([]), loading = ref(false), busy = ref(false), error = ref('')
 const noticeToken=ref(''),notice=computed(()=>noticeToken.value?t('mobile.plugins.'+noticeToken.value):'')
@@ -255,7 +256,14 @@ async function createQr() {
   } catch (cause) { if (token === generation) error.value = message(cause) }
   finally { if(token===generation)busy.value = false }
 }
-onMounted(refresh)
+onMounted(async () => {
+  const accountTarget = props.accountTarget
+  if (accountTarget) emit('consumeAccountTarget')
+  await refresh()
+  if (!alive || !accountTarget || mode.value) return
+  const plugin = plugins.value.find(row => row.id === accountTarget)
+  if (plugin && canConfigure(plugin)) void openDialog(plugin, 'account')
+})
 onUnmounted(() => { alive = false; stopQr(); password.value = ''; cookie.value = '' })
 </script>
 <template>
@@ -288,7 +296,7 @@ onUnmounted(() => { alive = false; stopQr(); password.value = ''; cookie.value =
       <p v-if="error" class="inline-error" role="alert">{{ error }}</p>
       <pre v-if="mode === 'logs'" class="plugin-log">{{ logs || $t('mobile.plugins.noLogs') }}</pre>
       <form v-else @submit.prevent="mode==='account'&&selected&&isKugou(selected)?createQr():submit(mode === 'account')">
-        <label v-if="mode === 'instance'">{{ $t('mobile.plugins.instanceName') }}<input v-model="name" required maxlength="80" autocomplete="off" /></label>
+        <FloatingField v-if="mode === 'instance'" :label="$t('mobile.plugins.instanceName')" :value="name"><input v-model="name" required maxlength="80" autocomplete="off" /></FloatingField>
         <template v-else>
           <p v-if="!canNetwork" class="setting-note">{{ $t('mobile.plugins.offline') }}</p>
           <p v-if="selected&&!selected.enabled" class="setting-note plugin-disabled-config">{{ $t('mobile.plugins.disabledConfigHint') }}</p>
@@ -297,14 +305,14 @@ onUnmounted(() => { alive = false; stopQr(); password.value = ''; cookie.value =
           <template v-if="selected&&isKugou(selected)">
             <p class="plugin-connection-intro">{{ $t(customKugouApi ? 'mobile.plugins.kugouCustomHint' : 'mobile.plugins.kugouBuiltInHint') }}</p>
           </template>
-          <template v-else><label>{{ $t('mobile.plugins.server') }}<input v-model="baseUrl" type="url" inputmode="url" autocomplete="url" placeholder="https://" :disabled="busy" /></label><p class="setting-note">{{ $t('mobile.plugins.serverHint') }}</p></template>
-          <template v-if="selected&&!isNetease(selected)&&!isKugou(selected)&&declaresPluginMethod(selected,'doLogin')"><label>{{ $t('mobile.plugins.username') }}<input v-model="userName" autocomplete="username" :disabled="busy || !canExecute" /></label><label>{{ $t('mobile.plugins.password') }}<input v-model="password" type="password" autocomplete="current-password" :disabled="busy || !canExecute" /></label></template>
+          <template v-else><FloatingField :label="$t('mobile.plugins.server')" :value="baseUrl"><input v-model="baseUrl" type="url" inputmode="url" autocomplete="url" placeholder="https://" :disabled="busy" /></FloatingField><p class="setting-note">{{ $t('mobile.plugins.serverHint') }}</p></template>
+          <template v-if="selected&&!isNetease(selected)&&!isKugou(selected)&&declaresPluginMethod(selected,'doLogin')"><FloatingField :label="$t('mobile.plugins.username')" :value="userName"><input v-model="userName" autocomplete="username" :disabled="busy || !canExecute" /></FloatingField><FloatingField :label="$t('mobile.plugins.password')" :value="password"><input v-model="password" type="password" autocomplete="current-password" :disabled="busy || !canExecute" /></FloatingField></template>
           <details v-if="selected?.type === 'library'&&!isKugou(selected)&&declaresPluginMethod(selected,'doLogin')" class="plugin-cookie"><summary>{{ $t('mobile.plugins.cookie') }}</summary><textarea v-model="cookie" rows="3" autocomplete="off" spellcheck="false" :aria-label="$t('mobile.plugins.cookie')" :disabled="busy || !canExecute" /></details>
           <div v-if="declaresPluginMethod(selected, 'loginQrKey')" class="plugin-qr"><button type="button" class="secondary-button" :disabled="busy || !canExecute" @click="createQr">{{ $t('mobile.plugins.qrLogin') }}</button><img v-if="qrImage" :src="qrImage" :alt="$t('mobile.plugins.qrLogin')" /><p v-if="qrUrl && !qrImage" class="setting-note">{{ qrUrl }}</p><p v-if="qrStatus" role="status">{{ qrStatus }}</p></div>
           <CollapsibleSettingsCard v-if="selected&&isKugou(selected)" section-id="plugin-connection" class="plugin-connection-settings" :title="$t('mobile.plugins.advancedConnection')" :remember="false" :initially-open="Boolean(selected.baseUrl?.trim())">
             <template #heading><span>{{ $t('mobile.plugins.advancedConnection') }}</span></template>
             <label class="checkbox-row"><input v-model="customKugouApi" type="checkbox" :disabled="busy" />{{ $t('mobile.plugins.useCustomApi') }}</label>
-            <template v-if="customKugouApi"><label>{{ $t('mobile.plugins.server') }}<input v-model="baseUrl" type="url" inputmode="url" autocomplete="url" placeholder="https://" :disabled="busy" /></label><p class="setting-note">{{ $t('mobile.plugins.kugouApiHint') }}</p></template>
+            <template v-if="customKugouApi"><FloatingField :label="$t('mobile.plugins.server')" :value="baseUrl"><input v-model="baseUrl" type="url" inputmode="url" autocomplete="url" placeholder="https://" :disabled="busy" /></FloatingField><p class="setting-note">{{ $t('mobile.plugins.kugouApiHint') }}</p></template>
           </CollapsibleSettingsCard>
         </template>
         <div class="plugin-actions"><button v-if="mode==='instance'||selected&&!isKugou(selected)&&declaresPluginMethod(selected,'doLogin')" type="submit" class="secondary-button" :disabled="busy || mode === 'account' && !canExecute">{{ $t(mode === 'account' ? 'mobile.plugins.login' : 'mobile.plugins.create') }}</button><button v-if="mode === 'account'&&(!selected||!isKugou(selected)||connectionChanged)" type="button" class="text-button" :disabled="busy" @click="submit(false)">{{ $t(selected&&isKugou(selected)?'mobile.plugins.saveConnection':'mobile.plugins.saveAddress') }}</button><button v-if="mode === 'account' && canLogOut" type="button" class="text-button" :disabled="busy || !canExecute" @click="logout">{{ $t('mobile.plugins.logout') }}</button></div>
@@ -327,29 +335,40 @@ onUnmounted(() => { alive = false; stopQr(); password.value = ''; cookie.value =
 .plugin-main-entry-hint { margin: 12px 0 20px; padding: 10px 13px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: none; }
 .plugin-disabled-config { padding: 11px 13px; border: 1px solid var(--line); border-radius: 12px; color: var(--source-muted); background: var(--surface); box-shadow: none; }
 .plugin-source-group { margin: 22px 0; }
-.plugin-group-heading { display: flex; align-items: center; gap: 9px; margin: 0 2px 6px; color: var(--ink); font-size: calc(16px * var(--ui-font-scale, 1)); font-weight: 700; }
-.plugin-group-heading small { display: inline-grid; place-items: center; min-width: 24px; min-height: 24px; padding: 2px 7px; border-radius: 999px; color: var(--source-muted); background: var(--surface); font-size: calc(11px * var(--ui-font-scale, 1)); font-weight: 600; }
+.plugin-group-heading { display: flex; align-items: baseline; gap: 8px; margin: 0 2px 6px; color: var(--ink); font-size: calc(16px * var(--ui-font-scale, 1)); font-weight: 700; }
+.plugin-group-heading small { color: var(--muted); font-size: calc(12px * var(--ui-font-scale, 1)); font-weight: 600; font-variant-numeric: tabular-nums; }
 .plugin-source-group > .setting-note { margin: 0 2px 12px; }
-.plugin-manager-list { display: grid; gap: 11px; }
-.plugin-manager-list :deep(.settings-collapse) { padding: 14px; border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 2px 6px rgb(0 0 0 / 3%); }
-.plugin-manager-list :deep(.settings-collapse > summary) { min-height: 52px; align-items: flex-start; }
+.plugin-manager-list { display: grid; gap: 10px; }
+.plugin-manager-list :deep(.settings-collapse) { padding: 14px; border: 1px solid var(--line); border-radius: var(--radius-card); box-shadow: var(--shadow); }
+.plugin-manager-list :deep(.settings-collapse > summary) { min-height: 50px; align-items: flex-start; }
 .plugin-manager-list :deep(.settings-title) { align-items: flex-start; gap: 11px; }
 .plugin-manager-list :deep(.settings-title h3) { font-size: calc(14px * var(--ui-font-scale, 1)); line-height: 1.4; font-weight: 700; }
 .plugin-manager-list :deep(.settings-title p) { color: var(--source-muted); overflow-wrap: anywhere; }
-.plugin-manager-list :deep(.settings-icon) { flex: 0 0 36px; width: 36px; height: 36px; margin-top: 2px; border-radius: 12px; color: var(--source-accent-ink); background: var(--accent-soft); }
+.plugin-manager-list :deep(.settings-icon) { flex: 0 0 36px; width: 36px; height: 36px; margin-top: 2px; border-radius: 11px; color: var(--source-accent-ink); background: var(--accent-soft); }
 .plugin-manager-list :deep(.settings-chevron) { margin-top: 10px; }
 .plugin-manager-list :deep(.settings-collapse-inner) { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
-.plugin-manager-list :deep(.settings-title .plugin-source-state) { display: inline-flex; max-width: 100%; margin: 7px 0 0; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--source-muted); background: var(--surface); font-size: calc(11px * var(--ui-font-scale, 1)); line-height: 1.5; font-weight: 600; overflow-wrap: anywhere; }
-.plugin-manager-list :deep(.plugin-source-state[data-source-state='localReady']), .plugin-manager-list :deep(.plugin-source-state[data-source-state='ready']), .plugin-manager-list :deep(.plugin-source-state[data-source-state='needsLogin']), .plugin-manager-list :deep(.plugin-source-state[data-source-state='savedLogin']), .plugin-manager-list :deep(.plugin-source-state[data-source-state='unverified']) { color: var(--source-accent-ink); border-color: color-mix(in srgb, var(--accent) 30%, var(--line)); background: var(--accent-soft); }
-.plugin-manager-list :deep(.plugin-source-state[data-source-state='unavailable']) { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 30%, var(--line)); background: color-mix(in srgb, var(--danger) 7%, var(--color-body-bg)); }
+.plugin-manager-list :deep(.settings-title .plugin-source-state) { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; margin: 5px 0 0; padding: 0; border: 0; border-radius: 0; color: var(--source-muted); background: transparent; font-size: calc(11px * var(--ui-font-scale, 1)); line-height: 1.45; font-weight: 600; overflow-wrap: anywhere; }
+.plugin-manager-list :deep(.settings-title .plugin-source-state)::before { content: ''; width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--muted); opacity: .65; }
+.plugin-manager-list :deep(.plugin-source-state[data-source-state='localReady']),
+.plugin-manager-list :deep(.plugin-source-state[data-source-state='ready']) { color: var(--success); }
+.plugin-manager-list :deep(.plugin-source-state[data-source-state='localReady'])::before,
+.plugin-manager-list :deep(.plugin-source-state[data-source-state='ready'])::before { background: var(--success); opacity: 1; }
+.plugin-manager-list :deep(.plugin-source-state[data-source-state='needsLogin']),
+.plugin-manager-list :deep(.plugin-source-state[data-source-state='savedLogin']),
+.plugin-manager-list :deep(.plugin-source-state[data-source-state='unverified']) { color: var(--source-accent-ink); }
+.plugin-manager-list :deep(.plugin-source-state[data-source-state='needsLogin'])::before,
+.plugin-manager-list :deep(.plugin-source-state[data-source-state='savedLogin'])::before,
+.plugin-manager-list :deep(.plugin-source-state[data-source-state='unverified'])::before { background: var(--accent); opacity: 1; }
+.plugin-manager-list :deep(.plugin-source-state[data-source-state='unavailable']) { color: var(--danger); }
+.plugin-manager-list :deep(.plugin-source-state[data-source-state='unavailable'])::before { background: var(--danger); opacity: 1; }
 .plugin-actions { margin-top: 12px; }
 .plugin-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; padding: 10px 12px; line-height: 1.5; }
 .plugin-manager-list .plugin-actions { display: grid; gap: 9px; }
 .plugin-manager-list .plugin-open { width: 100%; border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line)); border-radius: 12px; color: var(--source-accent-ink); background: var(--accent-soft); font-weight: 700; }
 .plugin-secondary-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .plugin-secondary-actions > :last-child:nth-child(odd) { grid-column: 1 / -1; }
-.plugin-secondary-actions button { min-width: 0; border: 1px solid transparent; border-radius: 10px; color: var(--ink); background: var(--surface); white-space: normal; overflow-wrap: anywhere; text-align: center; font-size: calc(12px * var(--ui-font-scale, 1)); }
-.plugin-secondary-actions .danger-text { color: var(--danger); border-color: var(--line); background: transparent; }
+.plugin-secondary-actions button { min-width: 0; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: var(--surface); white-space: normal; overflow-wrap: anywhere; text-align: center; font-size: calc(12px * var(--ui-font-scale, 1)); }
+.plugin-secondary-actions .danger-text { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 28%, var(--line)); background: transparent; }
 .plugin-secondary-actions .original-icon { flex: 0 0 18px; font-size: 18px; }
 .plugin-check-status { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; margin-top: 8px; padding-inline: 2px; color: var(--source-muted); white-space: normal; text-align: start; }
 .plugin-next-steps { margin: 16px 0; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); border-radius: 18px; background: var(--accent-soft); box-shadow: none; overflow-wrap: anywhere; }
@@ -360,8 +379,8 @@ onUnmounted(() => { alive = false; stopQr(); password.value = ''; cookie.value =
 .plugin-next-steps .plugin-actions > button { min-width: 0; color: var(--source-accent-ink); border-color: color-mix(in srgb, var(--accent) 30%, var(--line)); background: var(--color-body-bg); white-space: normal; text-align: start; }
 .plugin-lifecycle-enter-active, .plugin-lifecycle-leave-active, .plugin-lifecycle-move { transition: opacity var(--motion-state), transform var(--motion-state); }
 .plugin-lifecycle-enter-from, .plugin-lifecycle-leave-to { opacity: 0; transform: translateY(6px); }
-.plugin-dialog-layer { position: fixed; inset: 0; z-index: 145; display: flex; align-items: flex-end; justify-content: center; padding-top: max(12px, env(safe-area-inset-top)); background: rgb(0 0 0 / 38%); }
-.plugin-dialog { width: min(100%, 620px); min-width: 0; max-height: 92dvh; overflow: auto; overscroll-behavior: contain; padding: 12px max(18px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); border: 1px solid var(--line); border-bottom: 0; border-radius: 24px 24px 0 0; color: var(--ink); background: var(--color-body-bg); box-shadow: 0 -8px 32px rgb(0 0 0 / 15%); animation: plugin-dialog-enter var(--motion-panel) ease both; }
+.plugin-dialog-layer { position: fixed; inset: 0; z-index: 145; display: flex; align-items: flex-end; justify-content: center; padding-top: max(12px, env(safe-area-inset-top)); background: var(--scrim, rgb(0 0 0 / 42%)); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); }
+.plugin-dialog { width: min(100%, 620px); min-width: 0; max-height: 92dvh; overflow: auto; overscroll-behavior: contain; padding: 14px max(18px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); border: 1px solid var(--line); border-bottom: 0; border-radius: var(--radius-sheet, 24px) var(--radius-sheet, 24px) 0 0; color: var(--ink); background: var(--color-body-bg); box-shadow: var(--shadow-sheet, 0 -10px 36px rgb(0 0 0 / 16%)); animation: plugin-dialog-enter var(--motion-panel) ease both; }
 .plugin-dialog header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 7px 0 14px; border-bottom: 1px solid var(--line); }
 .plugin-dialog h3 { min-width: 0; margin: 5px 0 0; font-size: calc(18px * var(--ui-font-scale, 1)); line-height: 1.4; font-weight: 700; overflow-wrap: anywhere; }
 .plugin-dialog header > .icon-button { flex: 0 0 44px; width: 44px; height: 44px; background: var(--surface); box-shadow: none; }

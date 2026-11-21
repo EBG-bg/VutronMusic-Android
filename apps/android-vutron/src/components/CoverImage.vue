@@ -1,18 +1,23 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { inject, onMounted, onUnmounted, ref, watch } from 'vue'
 import { displayArtworkUri, fetchArtwork } from '../platform/artwork'
 import { localOnlyMode } from '../platform/localOnlyMode'
 import { observeArtworkVisibility } from '../composables/artworkVisibility'
 import originalArtwork from '../../../../src/renderer/assets/images/vutronmusic-icon.png'
 import { artworkPixelEdge } from '@vutronmusic/core/artwork'
+import { navigationPreviewKey } from '../composables/navigationPreview'
 
 const props = withDefaults(defineProps<{ src?: string; remoteSrc?: string; alt?: string; loading?: 'eager' | 'lazy'; size?: 'auto' | 'small' | 'large'; prepared?: boolean }>(), {
   src: '', remoteSrc: '', alt: '', loading: 'lazy', size: 'auto', prepared: false
 })
 const placeholder = originalArtwork
+const preview = inject(navigationPreviewKey, false)
 const element = ref<HTMLImageElement>()
-const displayed = ref(placeholder)
-const state = ref<'loading' | 'loaded' | 'missing'>('loading')
+function previewArtwork() {
+  return /^(?:file:|content:|\/(?!\/)|data:image\/|blob:)/.test(props.src) ? displayArtworkUri(props.src) || placeholder : placeholder
+}
+const displayed = ref(preview ? previewArtwork() : placeholder)
+const state = ref<'loading' | 'loaded' | 'missing'>(preview && displayed.value === placeholder ? 'missing' : 'loading')
 let stopObserving: (() => void) | undefined
 let visible = false
 let generation = 0
@@ -42,6 +47,7 @@ async function loadSource(useRemote = false) {
 }
 
 function onError() {
+  if (preview) { displayed.value = placeholder; state.value = 'missing'; return }
   if (!triedRemote && props.remoteSrc && props.remoteSrc !== props.src) {
     triedRemote = true
     void loadSource(true)
@@ -50,11 +56,13 @@ function onError() {
 function onLoad() { if (displayed.value !== placeholder) state.value = 'loaded' }
 
 watch(() => [props.src, props.remoteSrc, localOnlyMode.value], () => {
+  if (preview) { displayed.value = previewArtwork(); return }
   ++generation; triedRemote = false; displayed.value = placeholder
   void loadSource()
 })
 watch(() => props.size, () => { void loadSource() }, { flush: 'post' })
 onMounted(() => {
+  if (preview) return
   if (props.loading === 'eager' || !('IntersectionObserver' in window)) { visible = true; void loadSource(); return }
   if (element.value) stopObserving = observeArtworkVisibility(element.value, '180px', () => { visible = true; void loadSource() })
 })

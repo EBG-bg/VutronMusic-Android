@@ -1,23 +1,25 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
-import { vutronPlugin, type VutronTrack } from '../platform/vutronPlugin'
+import { computed, inject, onUnmounted, ref, watch } from 'vue'
+import { vutronPlugin, type VutronPlaylistProgress, type VutronTrack } from '../platform/vutronPlugin'
 import { useAndroidShellStore } from '../stores/androidShell'
 import { formatTime } from '../utils/formatting'
 import OriginalIcon from './OriginalIcon.vue'
+import { navigationPreviewKey } from '../composables/navigationPreview'
 import { appNavigation } from '../composables/navigationGuard'
 
+const preview = inject(navigationPreviewKey, false)
 const props = defineProps<{ tracks: VutronTrack[]; scope: string; playlistKey: string }>()
 const store = useAndroidShellStore()
-const saved = ref<{ trackId?: number; position?: number; cueTrackNo?: number }>()
+const saved = ref<VutronPlaylistProgress>()
 const busy = ref(false)
 let generation = 0
 onUnmounted(() => { generation++ })
-watch(() => [props.scope, props.playlistKey, props.tracks] as const, async () => {
+if (!preview) watch([() => props.scope, () => props.playlistKey], async ([scope, playlistKey]) => {
   const token = ++generation
   saved.value = undefined
   if (!vutronPlugin.getPlaylistProgress) return
   try {
-    const result = await vutronPlugin.getPlaylistProgress({ scope: props.scope, playlistKey: props.playlistKey })
+    const result = await vutronPlugin.getPlaylistProgress({ scope, playlistKey })
     if (token === generation) saved.value = result
   } catch (failure) { console.warn('Could not read playlist progress', failure) }
 }, { immediate: true })
@@ -25,10 +27,26 @@ const current = computed(() => store.playback.track?.playlistOrderScope === prop
   && store.playback.track?.playlistVolumeKey === props.playlistKey ? store.playback : undefined)
 const bookmark = computed(() => current.value ? {
   trackId: current.value.track?.neteaseId || current.value.trackId,
-  cueTrackNo: current.value.track?.cueTrackNo || 0, position: current.value.position
+  cueTrackNo: current.value.track?.cueTrackNo || 0, position: current.value.position,
+  localEntryKey: current.value.track?.source === 'plugin-snapshot' ? current.value.track.localEntryKey : undefined
 } : saved.value)
-const track = computed(() => props.tracks.find(row => !row.missingLocal && (!store.localOnly || !row.onlineOnly)
-  && (row.neteaseId || row.id) === bookmark.value?.trackId && (row.cueTrackNo || 0) === (bookmark.value?.cueTrackNo || 0)))
+const track = computed(() => {
+  const point = bookmark.value
+  if (!point?.trackId) return
+  const matches = (row: VutronTrack) => !row.missingLocal && (!store.localOnly || !row.onlineOnly)
+    && (row.neteaseId || row.id) === point.trackId && (row.cueTrackNo || 0) === (point.cueTrackNo || 0)
+  if (!point.localEntryKey) return props.tracks.find(matches)
+  // A refreshed offline snapshot can move a track. Continue by recording only
+  // if a single playable occurrence remains, never by an unrelated row index.
+  let fallback: VutronTrack | undefined, duplicate = false
+  for (const row of props.tracks) {
+    if (row.source !== 'plugin-snapshot' || !matches(row)) continue
+    if (row.localEntryKey === point.localEntryKey) return row
+    if (fallback) duplicate = true
+    else fallback = row
+  }
+  return duplicate ? undefined : fallback
+})
 async function resume() {
   if (!track.value || busy.value) return
   if (appNavigation.intercept(() => { void resume() })) return
