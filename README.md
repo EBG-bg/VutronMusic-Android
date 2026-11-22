@@ -44,11 +44,6 @@
 
 问题和建议请提交到 [Issues](https://github.com/EBG-bg/VutronMusic-Android/issues)，附上版本、设备和复现步骤；分享日志前移除账号凭据与个人路径。桌面版问题请反馈到上游仓库。
 
-## 1.3.0已知问题
-
-酷狗支持不完全，目前还无法正常获取歌曲。
-(ps:期待6.2sol赶快修好防御性😡)
-
 ## 许可与致谢
 
 基于 [stark81/VutronMusic](https://github.com/stark81/VutronMusic) 与 [jooy2/vutron](https://github.com/jooy2/vutron)，感谢上游作者及所有第三方组件贡献者。Android 适配与维护：**EBG-bg and contributors**。
