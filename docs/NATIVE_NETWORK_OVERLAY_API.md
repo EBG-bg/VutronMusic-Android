@@ -48,9 +48,9 @@ selectedPlaylist.tracksLoadError === ''
 
 ## 悬浮歌词
 
-`VutronLyricOverlaySettings` 新增 `reducedMotion?: boolean`。`stores/domains/shellOverlay.ts` 已将现有应用减少动效偏好同步到原生，原生备份序列化也包含该偏好，无需新增重复设置入口。
+`VutronLyricOverlaySettings` 新增 `motionPreference?: 'full' | 'system' | 'reduced'` 与兼容字段 `reducedMotion?: boolean`；非法 `motionPreference` 会以 `INVALID_OVERLAY_SETTINGS` 拒绝。`stores/domains/shellOverlay.ts` 已将应用内动效偏好与解析后的减少动效状态成对同步到原生，原生备份导入导出也会保持两者一致，无需新增重复设置入口。
 
-前奏和歌词空白行显示曲名；自然切句时原文与译文共用上下滚动进度。默认切句时长约 280ms，遵循减少动效和系统动画设置。悬浮窗恢复首帧直接显示当前句，避免重新展示隐藏前的旧句。
+前奏和歌词空白行显示曲名；自然切句时原文、译文与下一句预告共用同一轨道的上下滚动进度与边缘羽化遮罩。默认切句时长约 420ms；`full` 在系统关闭动画缩放时仍保留应用内与桌面歌词切句滚动，`system` 跟随系统动画缩放与减弱动画设置，`reduced` 关闭滚动动画。悬浮窗恢复首帧直接显示当前句，避免重新展示隐藏前的旧句。
 
 ## 界面对接
 

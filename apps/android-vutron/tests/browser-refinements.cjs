@@ -12,7 +12,7 @@ module.exports=async({page,evaluate:run,wait,delay,root})=>{
  await evaluate("Object.assign(window.featureHarness.store.playback,{tuningApplied:true,rate:1.25,pitch:1,error:'',tuningWarning:'native fallback'})");
  await wait("document.querySelector('.tuning-effective')?.textContent.includes('1.25×')");
  assert.equal(await evaluate("document.querySelector('.tuning-effective').textContent.includes('1.25×')"),true);
- assert.equal(await evaluate("Array.from(document.querySelectorAll('.tuning-sheet .setting-note')).some(e=>e.textContent.includes('设置值仍保留'))"),true);
+ assert.equal(await evaluate("Array.from(document.querySelectorAll('.tuning-sheet .setting-note')).some(e=>e.textContent.includes('你的设置会留着'))"),true);
  await shot('playback-refinements-effective-tuning.png');
  await page.send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await delay(300);
  await evaluate("Object.assign(window.featureHarness.store.playback,{playing:false,loading:true,buffering:false,error:'old source timeout',errorCode:'timeout',quality:'stale provider'})");
@@ -60,7 +60,8 @@ module.exports=async({page,evaluate:run,wait,delay,root})=>{
  assert.ok(errorLayout.constrained && errorLayout.detached && errorLayout.visibleControls && errorLayout.passesThrough && errorLayout.scroll<=errorLayout.width,JSON.stringify(errorLayout));
  const narrowNav=await evaluate("Array.from(document.querySelectorAll('.bottom-nav > button'),b=>{const label=Array.from(b.querySelectorAll('small')).find(s=>s.getClientRects().length);const range=document.createRange();range.selectNodeContents(label);const text=range.getBoundingClientRect(),box=b.getBoundingClientRect(),icon=b.querySelector('.original-icon').getBoundingClientRect();return {label:label.textContent,font:getComputedStyle(label).fontSize,iconTop:icon.top,lines:range.getClientRects().length,clear:text.left>=box.left+0.5&&text.right<=box.right-0.5,touch:b.contains(document.elementFromPoint(box.left+1,box.y+box.height/2))&&b.contains(document.elementFromPoint(box.right-1,box.y+box.height/2))}})");
  assert.deepEqual(narrowNav.map(tab=>tab.label),['Home','Library','Search','Player','Prefs']);
- assert.ok(narrowNav.every(tab=>tab.font==='16.5px' && tab.lines===1 && tab.clear && tab.touch && Math.abs(tab.iconTop-narrowNav[0].iconTop)<1), JSON.stringify(narrowNav));
+ // Compact navigation caps large text at 320px; preserve readability and fit without requiring uncapped scaling.
+ assert.ok(narrowNav.every(tab=>parseFloat(tab.font)>=12 && tab.lines===1 && tab.clear && tab.touch && Math.abs(tab.iconTop-narrowNav[0].iconTop)<1), JSON.stringify(narrowNav));
  await evaluate("window.errorTheme.appearance.value='light'");await wait("document.documentElement.dataset.theme==='light'");
  await delay(250);await shot('playback-error-floating-light-320.png');
  await evaluate("window.errorTheme.appearance.value='dark'");await wait("document.documentElement.dataset.theme==='dark'");

@@ -72,6 +72,7 @@ export function createAuthSession(options: AuthSessionOptions) {
       if (request !== networkRequest || generation !== loginGeneration) return
       networkConnected.value = connected(mode.connected)
       networkReason.value = networkConnected.value ? null : mode.reason ?? 'system'
+      if (networkConnected.value) connectivityError.value = ''
       if (!manualLocalOnly.value && networkConnected.value && !profile.value) {
         const session = await vutronPlugin.getSession()
         if (request !== networkRequest || generation !== loginGeneration) return
@@ -98,10 +99,13 @@ export function createAuthSession(options: AuthSessionOptions) {
     try {
       const state = vutronPlugin.retryConnectivity ? await vutronPlugin.retryConnectivity() : await vutronPlugin.getLocalOnly()
       // Re-read after the probe, as a native network change can race its completion event.
-      if (generation === loginGeneration) void refreshConnectivity()
+      if (generation === loginGeneration) await refreshConnectivity()
       return state
     } catch (cause) {
-      if (generation === loginGeneration) connectivityError.value = options.formatError(cause, t('mobile.runtimeText.networkReadFailed'))
+      if (generation === loginGeneration) {
+        const fallback = t('mobile.runtimeText.networkReadFailed')
+        connectivityError.value = (cause as { code?: string })?.code === 'CONNECTIVITY_CHECK_FAILED' ? fallback : options.formatError(cause, fallback)
+      }
       return undefined
     } finally { connectivityRetrying.value = false }
   }

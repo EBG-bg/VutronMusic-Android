@@ -41,13 +41,13 @@ async function main() {
     await click('.segmented-control button','本机音乐');await delay(180);
     assert.ok(await evaluate("document.querySelector('.library-mode-description').textContent.includes('手机文件夹')"));
     assert.ok(await evaluate("document.body.textContent.includes('Phone song')&&document.body.textContent.includes('Imported songs')"));
-    await click('.local-collection-links button','Imported songs'); await delay(180);
+    await click('[data-playlist-key="bundle:test"] .playlist-card','Imported songs'); await delay(180);
     assert.ok(await evaluate("document.body.textContent.includes('Imported song')"));
     await evaluate('window.offlineHarness.store.navigateBack()'); await delay(180);
     await click('.segmented-control button','缓存与离线');await delay(180);
     await evaluate("document.querySelector('[aria-label=\"删除离线歌单 Cached list\"]').click()");await delay(150);
     assert.equal(await evaluate('window.offlineHarness.store.selectedPlaylist'),undefined);
-    assert.ok(await evaluate("document.querySelector('.action-dialog').textContent.includes('保留已缓存音频')"));
+    assert.ok(await evaluate("document.querySelector('.action-dialog').textContent.includes('已缓存的音频')"));
     await evaluate("document.querySelector('.action-dialog [data-default-action]').click()");await delay(180);
     assert.equal(await evaluate('window.offlineHarness.store.cachedPlaylists.some(row=>row.id===71)'),false);
     assert.equal(await evaluate('window.offlineHarness.store.cachedTracks.length'),1);
@@ -61,7 +61,7 @@ async function main() {
     assert.equal(await evaluate('window.offlineHarness.store.localOnly'),true);
     assert.equal(await evaluate('window.offlineHarness.store.manualLocalOnly'),false);
     assert.equal(await evaluate('window.offlineHarness.store.loggedIn'),true);
-    assert.ok(await evaluate("document.body.textContent.includes('网络暂不可用')"));
+    assert.ok(await evaluate("document.body.textContent.includes('现在没连上网')"));
     assert.equal(await evaluate("document.querySelector('.segmented-control button.selected').textContent"),'缓存与离线');
     await evaluate('window.offlineHarness.backend.setConnected(true)');await delay(180);
     assert.equal(await evaluate('window.offlineHarness.store.onlineAvailable'),true);

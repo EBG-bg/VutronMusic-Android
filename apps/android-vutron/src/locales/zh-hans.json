@@ -530,7 +530,7 @@
     "qrAlt": "网易云音乐登录二维码",
     "qrTip": "用本机登录的话，截张图再到网易云音乐扫一扫里选相册就行。",
     "localEntry": "仅本地模式",
-    "localHint": "不登录、不断网也能放手机本地歌和离线缓存，之后随时可以在设置里再登录。",
+    "localHint": "不登录、不联网也能放手机本地歌和离线缓存，之后随时可以在设置里再登录。",
     "cookieFallback": "使用 Cookie 登录（备用方式）",
     "cookieLabel": "网易云 Cookie",
     "cookiePlaceholder": "粘贴 Cookie 内容",

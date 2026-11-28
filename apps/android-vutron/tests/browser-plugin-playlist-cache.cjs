@@ -45,7 +45,7 @@ async function main() {
     await expect(preview.locator('.plugin-result-card')).toHaveText(/Alpha playlist/)
     const menu = preview.getByRole('button',{name:'Playlist menu for Alpha playlist',exact:true})
     await menu.click()
-    await expect(action).toContainText('Only cached tracks can play offline.')
+    await expect(action).toContainText('only tracks marked as cached can play offline.')
     await page.keyboard.press('Escape')
     await expect(action).toHaveCount(0)
     await expect(menu).toBeFocused()

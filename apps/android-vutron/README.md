@@ -1,6 +1,6 @@
 # Vutron Music - Mobile Android
 
-Vutron Music - Mobile 的 Android 开发与构建说明。当前正式版本为 [1.4.0 / versionCode 73](https://github.com/EBG-bg/VutronMusic-Android/releases/tag/mobile-v1.4.0)。使用介绍、用前须知和发行状态见[仓库首页](../../README.md)，源码来源见[迁移说明](../../docs/MIGRATION.md)。
+Vutron Music - Mobile 的 Android 开发与构建说明。当前正式版本为 [1.4.1 / versionCode 79](https://github.com/EBG-bg/VutronMusic-Android/releases/tag/mobile-v1.4.1)。使用介绍、用前须知和发行状态见[仓库首页](../../README.md)，源码来源见[迁移说明](../../docs/MIGRATION.md)。
 
 ## 技术与目录
 
@@ -50,7 +50,7 @@ sh scripts/build-mobile.sh Debug mobile
 
 ## 版本与 Release 签名
 
-1.4.0 的发行身份为 `versionName 1.4.0`、`versionCode 73`；发布标签为 `mobile-v1.4.0`，资产为 `Vutron-Music-Mobile-1.4.0-arm64.apk` 及同名 `.sha256` 文件，可从 [1.4.0 Release](https://github.com/EBG-bg/VutronMusic-Android/releases/tag/mobile-v1.4.0) 下载。
+1.4.1 的发行身份为 `versionName 1.4.1`、`versionCode 79`；发布标签为 `mobile-v1.4.1`，资产为 `Vutron-Music-Mobile-1.4.1-arm64.apk` 及同名 `.sha256` 文件，可从 [1.4.1 Release](https://github.com/EBG-bg/VutronMusic-Android/releases/tag/mobile-v1.4.1) 下载。
 
 实际身份由 `package.json`、`mobile-release.json` 与构建入口生成，并由 Gradle 校验。不要只修改显示文字或手工替换网页中的版本号。
 
@@ -67,7 +67,7 @@ Gradle 从以下环境变量读取 Release 签名；值不得写入源码或提�
 
 未配置签名时生成 unsigned release APK，需自行签名后安装。仓库不附带签名私钥。覆盖升级要求保持 applicationId `io.github.vutronmusic.personal.webshell` 与原签名，并使用递增 versionCode。
 
-1.4.0 与已发布的 1.3.0、1.2.1、1.2.0、1.1.0、1.0.0 / 1.0.1 / 1.0.2 继续使用同一证书：
+1.4.1 与已发布的 1.4.0、1.3.0、1.2.1、1.2.0、1.1.0、1.0.0 / 1.0.1 / 1.0.2 继续使用同一证书：
 
 ```text
 Subject: C=US, O=Android, CN=Android Debug

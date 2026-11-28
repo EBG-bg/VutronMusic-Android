@@ -672,11 +672,14 @@ function handleBack(): boolean {
   }
   const lastSub = subPageHistory.value[subPageHistory.value.length - 1]
   if (lastSub && lastSub.tab === store.activeTab && !integratedSourceVisible.value) {
-    subPageHistory.value.pop()
     if (lastSub.tab === 'library') {
-      appNavigation.run(() => withSuppressedSubHistory(() => { setLibraryMode(lastSub.value) }))
+      appNavigation.run(() => {
+        if (subPageHistory.value[subPageHistory.value.length - 1] === lastSub) subPageHistory.value.pop()
+        withSuppressedSubHistory(() => { setLibraryMode(lastSub.value) })
+      })
       return true
     }
+    subPageHistory.value.pop()
     if (lastSub.tab === 'search') {
       localTransition.value = nativeSearchCategories.indexOf(lastSub.value) > nativeSearchCategories.indexOf(store.searchCategory) ? 'next' : 'previous'
       withSuppressedSubHistory(() => changeSearchCategory(lastSub.value))
