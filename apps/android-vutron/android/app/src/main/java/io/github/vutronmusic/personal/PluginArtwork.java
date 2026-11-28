@@ -141,16 +141,20 @@ final class PluginArtwork {
             location = new JSONObject().put("url", uri);
         } else location = AndroidPluginManager.resolveMedia(context, id, uri, headers);
         HttpURLConnection connection = (HttpURLConnection) new URL(location.getString("url")).openConnection();
-        connection.setConnectTimeout(10000); connection.setReadTimeout(15000); connection.setInstanceFollowRedirects(false);
+        connection.setConnectTimeout(5000); connection.setReadTimeout(15000); connection.setInstanceFollowRedirects(false);
         if (directPublicImage(uri)) {
             connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/131 Mobile Safari/537.36");
             connection.setRequestProperty("Referer", "https://www.kugou.com/");
         }
+        MusicConnectivity.Request network = MusicConnectivity.capture(context);
         try {
             if (!AndroidPluginManager.networkAllowed(context)) throw new IOException("Plugin networking is paused");
             int status = connection.getResponseCode(); if (status < 200 || status >= 300) throw new IOException("Plugin artwork HTTP " + status);
             if (connection.getContentLength() > MAX_BYTES) throw new IOException("Plugin artwork exceeds 4 MiB");
             try (InputStream input = connection.getInputStream()) { return read(input, context, true); }
+        } catch (IOException failure) {
+            MusicConnectivity.reportUnreachable(context, failure, network);
+            throw failure;
         } finally { connection.disconnect(); }
     }
 

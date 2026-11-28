@@ -63,7 +63,7 @@ public final class PlaybackVolume {
         return song == null ? "" : playlistKey(song.optString("playlistVolumeKey", ""));
     }
 
-    private static String playlistKey(String key) {
+    static String playlistKey(String key) {
         if (key == null || key.trim().isEmpty()) return "";
         return "playlist:key:" + sha256(key.trim());
     }

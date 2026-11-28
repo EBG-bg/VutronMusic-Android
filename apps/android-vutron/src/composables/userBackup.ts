@@ -16,21 +16,34 @@ import { usePlaybackTuning } from './playbackTuning'
 
 const keys = ['vutron:language', 'vutron:appearance', 'vutron:accent', 'vutron:motion-preference', 'vutron:playlist-view', 'vutron:playlist-columns', 'vutron:local-track-order', ...INTERFACE_KEYS, PLAYLIST_ORDER_KEY, ORDER_STORAGE_KEY, ORDER_HISTORY_STORAGE_KEY]
 function setIfChanged(key: string, value: string) { if (localStorage.getItem(key) !== value) localStorage.setItem(key, value) }
+function formatBytes(bytes: number) {
+  const units = ['MiB', 'GiB', 'TiB']
+  let size = bytes / (1024 * 1024), unit = 0
+  while (size >= 1024 && unit < units.length - 1) { size /= 1024; unit++ }
+  const locale = appLocale.value === 'zht' ? 'zh-TW' : appLocale.value === 'zh' ? 'zh-CN' : 'en'
+  return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 1 }).format(size)} ${units[unit]}`
+}
+function backupFailure(cause: unknown) {
+  const message = cause instanceof Error ? cause.message : ''
+  const space = message.match(/BACKUP_CACHE_SPACE:(\d+):(\d+)/)
+  if (space) return t('mobile.backup.cacheSpaceInsufficient', { required: formatBytes(Number(space[1])), available: formatBytes(Number(space[2])) })
+  return message || t('mobile.backup.failed')
+}
 export function useUserBackup() {
   const busy = ref(false), message = ref('')
   const retryImportAvailable = ref(false)
   const store = useAndroidShellStore()
   const tuning = usePlaybackTuning()
   let asking = false
-  let pendingImport: { requestId: string; includePrivacy: boolean; includeCache: boolean; summary: string } | undefined
-  async function confirmBackup(direction: 'import' | 'export', includePrivacy: boolean, summary = '', accountIncluded = false) {
+  let pendingImport: { requestId: string; includePrivacy: boolean; includeCache: boolean; cacheSpaceSkipped: boolean; summary: string } | undefined
+  async function confirmBackup(direction: 'import' | 'export', includePrivacy: boolean, summary = '', accountIncluded = false, confirmLabel?: string) {
     asking = true
     try {
       const exporting = direction === 'export'
       const choice = await askAction({
         title: t(exporting ? 'mobile.backup.exportAccountsTitle' : 'mobile.backup.import'),
         message: [t(exporting ? 'mobile.backup.exportAccountsHint' : includePrivacy && accountIncluded ? 'mobile.backup.importAccountsHint' : 'mobile.backup.confirm'), summary].filter(Boolean).join('\n'),
-        confirmLabel: t(exporting ? 'mobile.backup.exportAccounts' : 'mobile.backup.import'),
+        confirmLabel: confirmLabel || t(exporting ? 'mobile.backup.exportAccounts' : 'mobile.backup.import'),
         cancelLabel: t('mobile.management.cancel'),
       })
       return choice === 'confirm' && !libraryMutationBusy.value
@@ -50,7 +63,7 @@ export function useUserBackup() {
       if (!result.cancelled) message.value = result.cacheItems === undefined
         ? t('mobile.backup.exported', { count: result.collectionCount || 0 })
         : t('mobile.backup.exportedCache', { count: result.collectionCount || 0, cache: result.cacheItems })
-    } catch (cause) { message.value = cause instanceof Error ? cause.message : t('mobile.backup.failed') }
+    } catch (cause) { message.value = backupFailure(cause) }
     finally { busy.value = false; libraryMutationBusy.value = false }
   }
   async function importBackup(includePrivacy = false, includeCache = false) {
@@ -63,14 +76,19 @@ export function useUserBackup() {
       const inspected = await vutronPlugin.inspectUserBackup()
       if (inspected.cancelled) return
       if (!inspected.requestId) throw new Error(t('mobile.backup.failed'))
+      const cacheSpaceSkipped = Boolean(includeCache && inspected.archive && inspected.cacheRequiredBytes !== undefined
+        && inspected.cacheAvailableBytes !== undefined && inspected.cacheRequiredBytes > inspected.cacheAvailableBytes)
       const cache = inspected.archive && inspected.cacheItems
-        ? t(includeCache ? 'mobile.backup.importCacheSummary' : 'mobile.backup.importCacheSkipped', { items: inspected.cacheItems, tracks: inspected.audioItems || 0 }) : ''
+        ? t(cacheSpaceSkipped ? 'mobile.backup.importCacheSpaceWarning' : includeCache ? 'mobile.backup.importCacheSummary' : 'mobile.backup.importCacheSkipped', {
+          items: inspected.cacheItems, tracks: inspected.audioItems || 0,
+          required: formatBytes(inspected.cacheRequiredBytes || 0), available: formatBytes(inspected.cacheAvailableBytes || 0),
+        }) : ''
       const accounts = inspected.hasAccounts
         ? t(includePrivacy ? 'mobile.backup.importAccountsSummary' : 'mobile.backup.importAccountsSkipped') : ''
       const summary = t('mobile.backup.importContents', { playlists: inspected.collectionCount || 0, tracks: inspected.trackCount || 0, cache, accounts })
-      pendingImport = { requestId: inspected.requestId, includePrivacy, includeCache, summary }
+      pendingImport = { requestId: inspected.requestId, includePrivacy, includeCache: includeCache && !cacheSpaceSkipped, cacheSpaceSkipped, summary }
       busy.value = false
-      if (!await confirmBackup('import', includePrivacy, summary, Boolean(inspected.hasAccounts))) {
+      if (!await confirmBackup('import', includePrivacy, summary, Boolean(inspected.hasAccounts), cacheSpaceSkipped ? t('mobile.backup.importWithoutCache') : undefined)) {
         await vutronPlugin.cancelUserBackupImport?.({ requestId: inspected.requestId })
         pendingImport = undefined
         return
@@ -80,7 +98,7 @@ export function useUserBackup() {
       if (result.cancelled) { retryImportAvailable.value = true; message.value = t('mobile.backup.passwordPromptCancelled'); return }
       await applyImportedBackup(result)
     } catch (cause) {
-      message.value = cause instanceof Error ? cause.message : t('mobile.backup.failed')
+      message.value = backupFailure(cause)
       retryImportAvailable.value = Boolean(pendingImport)
     }
     finally { busy.value = false; libraryMutationBusy.value = false }
@@ -101,11 +119,12 @@ export function useUserBackup() {
       if (result.cancelled) { retryImportAvailable.value = true; return }
       await applyImportedBackup(result)
     } catch (cause) {
-      message.value = cause instanceof Error ? cause.message : t('mobile.backup.failed')
+      message.value = backupFailure(cause)
       retryImportAvailable.value = true
     } finally { busy.value = false; libraryMutationBusy.value = false }
   }
   async function applyImportedBackup(result: Awaited<ReturnType<NonNullable<typeof vutronPlugin.completeUserBackupImport>>>) {
+      const cacheSpaceSkipped = Boolean(pendingImport?.cacheSpaceSkipped)
       pendingImport = undefined; retryImportAvailable.value = false
       if (result.cancelled) return
       if (result.pluginAccountsRestored) notifyMusicSourcesChanged()
@@ -147,6 +166,7 @@ export function useUserBackup() {
       if (result.collectionSkipped) summary.push(t('mobile.backup.importedDuplicates', { count: result.collectionSkipped }))
       if (result.cacheItems !== undefined) summary.push(t('mobile.backup.importedCache', { cache: result.cacheItems, skipped: result.cacheSkipped ?? 0 }))
       if (result.cacheIncomplete) summary.push(t('mobile.backup.cacheIncomplete'))
+      if (cacheSpaceSkipped) summary.push(t('mobile.backup.cacheSkippedSpace'))
       const accounts = Number(Boolean(result.neteaseRestored)) + (result.pluginAccountsRestored || 0)
       if (accounts) summary.push(t('mobile.backup.accountsRestored', { count: accounts }))
       if (result.pluginAccountsSkipped) summary.push(t('mobile.backup.accountsSkipped', { count: result.pluginAccountsSkipped }))

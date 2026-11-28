@@ -14,7 +14,7 @@ import java.util.List;
 
 /** Original TrackSource links and provider priorities, scoped to each plugin account. */
 final class PluginSourceRegistry {
-    private static final Object LOCK = new Object();
+    static final Object LOCK = new Object();
     private static final int MAX_BYTES = 16 * 1024 * 1024, MAX_GROUPS = 5000;
     private final File file;
 
@@ -27,6 +27,12 @@ final class PluginSourceRegistry {
     }
     static JSONObject priorities(Context context) throws Exception { return open(context).priorities(); }
     static JSONObject setPriorities(Context context, JSONObject value) throws Exception { return open(context).setPriorities(value); }
+    static void restorePriorities(Context context, JSONObject value, BackupRestoreTransaction transaction) throws Exception {
+        if (value.length() == 0) return;
+        PluginSourceRegistry registry = open(context);
+        transaction.beforeFile(registry.file);
+        registry.setPriorities(value);
+    }
     static JSONObject link(Context context, String fromPlugin, String fromScope, JSONObject fromTrack,
                            String toPlugin, String toScope, JSONObject toTrack, int matched) throws Exception {
         return open(context).link(fromPlugin, fromScope, fromTrack, toPlugin, toScope, toTrack, matched);

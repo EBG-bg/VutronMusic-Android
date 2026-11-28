@@ -7,11 +7,8 @@ import org.json.JSONObject;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -171,62 +168,52 @@ final class PortableAccounts {
         RestorePlan(Context context, JSONObject main, JSONArray plugins, int skipped) {
             this.context = context; this.main = main; this.plugins = plugins; this.skipped = skipped;
         }
-        JSONObject apply() throws Exception {
+        JSONObject apply(BackupRestoreTransaction transaction, java.util.concurrent.Callable<JSONObject> publishLibrary) throws Exception {
             synchronized (AndroidPluginManager.class) {
                 synchronized (SessionStore.class) {
-                    if (plugins.length() == 0) return applyLocked(null);
-                    File directory = AndroidPluginManager.root(context);
-                    return EmbeddedSources.withPluginStoreAccess(context, directory, plugins, () -> applyLocked(directory));
+                    File directory = plugins.length() == 0 ? null : AndroidPluginManager.root(context);
+                    java.util.concurrent.Callable<JSONObject> publish = () -> {
+                        try { return applyLocked(directory, transaction, publishLibrary); }
+                        catch (Exception failure) { transaction.rollback(failure); throw failure; }
+                    };
+                    try {
+                        return directory == null ? publish.call() : EmbeddedSources.withPluginStoreAccess(context, directory, plugins, publish);
+                    } catch (Exception failure) {
+                        transaction.rollback(failure);
+                        throw failure;
+                    }
                 }
             }
         }
-        private JSONObject applyLocked(File root) throws Exception {
-            JSONObject registry = root == null ? null : AndroidPluginManager.registry(context);
-            Map<File, File> originals = new LinkedHashMap<>();
+        private JSONObject applyLocked(File root, BackupRestoreTransaction transaction, java.util.concurrent.Callable<JSONObject> publishLibrary) throws Exception {
+            JSONObject registry = root == null ? null : AndroidPluginManager.registryForRestore(context);
             Set<String> applied = new HashSet<>();
-            SharedPreferences session = prefs(context, "session"), profile = prefs(context, "vutron_user"), owner = prefs(context, "vutron_cache_index");
-            String oldData = session.getString("data", null), oldIv = session.getString("iv", null), oldProfile = profile.getString("profile", null);
-            long oldOwner = owner.getLong("owner_id", 0);
-            boolean sessionTouched = false, completed = false;
-            try {
-                for (int i = 0; i < plugins.length(); i++) {
-                    JSONObject row = plugins.getJSONObject(i);
-                    if (writePlugin(root, registry.getJSONObject("plugins"), row, originals)) applied.add(row.getString("id"));
-                }
-                if (!applied.isEmpty()) replace(root, new File(root, "registry.json"), registry, originals);
-                if (main != null) {
-                    sessionTouched = true;
-                    SessionStore.save(context, main.getString("cookie"));
-                    JSONObject user = main.getJSONObject("profile");
-                    if (!profile.edit().putString("profile", user.toString()).commit() || !owner.edit().putLong("owner_id", user.getLong("userId")).commit()) throw new IOException("无法保存网易云账号资料");
-                }
-                completed = true;
-            } catch (Exception failure) {
-                if (sessionTouched) {
-                    boolean restored = session.edit().putString("iv", oldIv).putString("data", oldData).commit();
-                    restored &= profile.edit().putString("profile", oldProfile).commit();
-                    restored &= (oldOwner == 0 ? owner.edit().remove("owner_id") : owner.edit().putLong("owner_id",oldOwner)).commit();
-                    if (!restored) failure.addSuppressed(new IOException("无法还原原有账号资料"));
-                }
-                for (Map.Entry<File,File> item : originals.entrySet()) {
-                    try {
-                        if (item.getValue() == null) Files.deleteIfExists(item.getKey().toPath());
-                        else Files.move(item.getValue().toPath(), item.getKey().toPath(), StandardCopyOption.REPLACE_EXISTING);
-                    } catch(IOException rollback) { failure.addSuppressed(rollback); }
-                }
-                throw failure;
-            } finally {
-                if (completed) for (File previous : originals.values()) if (previous != null) previous.delete();
+            for (int i = 0; i < plugins.length(); i++) {
+                JSONObject row = plugins.getJSONObject(i);
+                if (writePlugin(root, registry.getJSONObject("plugins"), row, transaction)) applied.add(row.getString("id"));
             }
+            if (!applied.isEmpty()) {
+                File registryFile = new File(root, "registry.json");
+                transaction.beforeFile(registryFile);
+                LibraryFiles.writeJson(registryFile, registry);
+            }
+            if (main != null) {
+                transaction.beforePreferences(prefs(context, "session"), java.util.List.of("iv", "data"));
+                SessionStore.save(context, main.getString("cookie"));
+                JSONObject user = main.getJSONObject("profile");
+                transaction.preferences(prefs(context, "vutron_user"), Map.of("profile", user.toString()));
+                transaction.preferences(prefs(context, "vutron_cache_index"), Map.of("owner_id", user.getLong("userId")));
+            }
+            JSONObject result = publishLibrary.call();
             for (String id : applied) {
                 AndroidPluginManager.invalidateArtwork(context, id);
                 AndroidPlaybackService.invalidatePluginSource(id);
             }
-            return new JSONObject().put("neteaseRestored", main != null).put("pluginAccountsRestored", applied.size())
+            return result.put("neteaseRestored", main != null).put("pluginAccountsRestored", applied.size())
                 .put("pluginAccountsSkipped", skipped + plugins.length() - applied.size());
         }
     }
-    private static boolean writePlugin(File root, JSONObject entries, JSONObject row, Map<File,File> originals) throws Exception {
+    private static boolean writePlugin(File root, JSONObject entries, JSONObject row, BackupRestoreTransaction transaction) throws Exception {
         String id = row.getString("id"), base = row.getString("baseId");
         if (!trusted(entries, id, base)) return false;
         JSONObject entry = entries.optJSONObject(id);
@@ -237,7 +224,8 @@ final class PortableAccounts {
         File file = new File(root, id + ".state.json");
         JSONObject state = AndroidPluginManager.readJson(file, new JSONObject());
         JSONObject next = restoredState(row, state);
-        replace(root, file, next, originals);
+        transaction.beforeFile(file);
+        LibraryFiles.writeJson(file, next);
         entry.put("enabled", row.getBoolean("enabled")).put("status", "login");
         if (!row.getString("name").trim().isEmpty()) entry.put("name", row.getString("name"));
         entries.put(id, entry);
@@ -255,15 +243,5 @@ final class PortableAccounts {
         state.put("db", db.put("PluginData", account)).put("store", store.put("baseUrl", url)).put("accountGeneration", old.optLong("accountGeneration",0) + 1);
         if (row.has("kugouDevice")) state.put("kugouDevice", row.getJSONObject("kugouDevice"));
         return state;
-    }
-    private static void replace(File root, File file, JSONObject value, Map<File,File> originals) throws Exception {
-        File previous = null;
-        if (file.exists()) {
-            previous = File.createTempFile(".restore-", ".previous", root);
-            try { Files.copy(file.toPath(), previous.toPath(), StandardCopyOption.REPLACE_EXISTING); }
-            catch (IOException failure) { previous.delete(); throw failure; }
-        }
-        originals.put(file, previous);
-        LibraryFiles.writeJson(file, value);
     }
 }

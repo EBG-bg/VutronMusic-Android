@@ -283,6 +283,14 @@ final class ArtworkCache {
 
     static boolean automatic(Context context) { return preferences(context).getBoolean(AUTO_CACHE, true); }
 
+    static void trimRestoredCapacity(Context context, long value) {
+        if (value < 32 || value > 1024) throw new IllegalArgumentException("Artwork cache capacity must be between 32 and 1024 MiB");
+        synchronized (CACHE_LOCK) {
+            trim(root(context), value * MIB);
+            refreshUsage(context);
+        }
+    }
+
     static void setAutomatic(Context context, boolean enabled) {
         synchronized (CACHE_LOCK) { preferences(context).edit().putBoolean(AUTO_CACHE, enabled).apply(); }
     }
@@ -414,12 +422,13 @@ final class ArtworkCache {
         URL url = new URL(urlText);
         if (url.getUserInfo() != null) throw new IOException("Artwork URL must not contain credentials");
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        connection.setConnectTimeout(10000);
+        connection.setConnectTimeout(5000);
         connection.setReadTimeout(15000);
         connection.setInstanceFollowRedirects(true);
         connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/131 Mobile Safari/537.36");
         connection.setRequestProperty("Referer", "https://music.163.com/");
         File part = new File(target.getAbsolutePath() + ".part");
+        MusicConnectivity.Request network = MusicConnectivity.capture(context);
         synchronized (PENDING_LOCK) { CONNECTIONS.add(connection); }
         try {
             LocalOnlyMode.requireOnline(context);
@@ -450,6 +459,9 @@ final class ArtworkCache {
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw new IOException("Artwork response is not a decodable image");
             commit(context, revision, manual(urlText), part, target);
             return "file://" + target.getAbsolutePath();
+        } catch (IOException failure) {
+            MusicConnectivity.reportUnreachable(context, failure, network);
+            throw failure;
         } finally {
             connection.disconnect();
             synchronized (PENDING_LOCK) { CONNECTIONS.remove(connection); }

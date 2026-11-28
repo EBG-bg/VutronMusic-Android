@@ -12,7 +12,7 @@ import java.util.Set;
 
 /** Per-NetEase-track source choices, separate from account and cache state. */
 final class TrackSourceOverrides {
-    private static final Object LOCK = new Object();
+    static final Object LOCK = new Object();
     private static final int MAX_ENTRIES = 10000;
     private static final long MAX_BYTES = 1024 * 1024;
     private static final Set<String> SOURCES = Set.of("bodian", "kuwo", "kugou", "qq", "bilibili", "pyncmd", "migu");
@@ -82,5 +82,5 @@ final class TrackSourceOverrides {
         LibraryFiles.writeJson(file(context), safe);
     }
 
-    private static File file(Context context) { return new File(context.getApplicationContext().getFilesDir(), "track-source-overrides-v1.json"); }
+    static File file(Context context) { return new File(context.getApplicationContext().getFilesDir(), "track-source-overrides-v1.json"); }
 }

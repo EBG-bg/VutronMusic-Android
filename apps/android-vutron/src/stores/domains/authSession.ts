@@ -1,7 +1,7 @@
 import { translate as t } from '../../platform/i18n'
 import { computed, ref, type Ref } from 'vue'
 import { localOnlyMode, setLocalOnlyPreference } from '../../platform/localOnlyMode'
-import { vutronPlugin, type VutronProfile } from '../../platform/vutronPlugin'
+import { vutronPlugin, type VutronProfile, type VutronNetworkState } from '../../platform/vutronPlugin'
 
 interface AuthSessionOptions {
   loading: Ref<boolean>
@@ -23,6 +23,9 @@ export function createAuthSession(options: AuthSessionOptions) {
   const localOnly = localOnlyMode
   const manualLocalOnly = ref(localOnly.value)
   const networkConnected = ref(true)
+  const networkReason = ref<VutronNetworkState['reason']>(null)
+  const connectivityRetrying = ref(false)
+  const connectivityError = ref('')
   const loginRequested = ref(false)
   const localModeLoading = ref(false)
   const loggedIn = computed(() => Boolean(profile.value))
@@ -68,6 +71,7 @@ export function createAuthSession(options: AuthSessionOptions) {
       const mode = await vutronPlugin.getLocalOnly()
       if (request !== networkRequest || generation !== loginGeneration) return
       networkConnected.value = connected(mode.connected)
+      networkReason.value = networkConnected.value ? null : mode.reason ?? 'system'
       if (!manualLocalOnly.value && networkConnected.value && !profile.value) {
         const session = await vutronPlugin.getSession()
         if (request !== networkRequest || generation !== loginGeneration) return
@@ -77,11 +81,29 @@ export function createAuthSession(options: AuthSessionOptions) {
       applyMode()
       if (restored && wasOffline !== localOnly.value) {
         if (localOnly.value) (options.onAutomaticOffline || options.resetToLocalLibrary)()
-        else await options.loadOnlineState()
+        else void options.loadOnlineState().catch(cause => {
+          if (request === networkRequest && generation === loginGeneration) options.error.value = options.formatError(cause, t('mobile.runtimeText.networkReadFailed'))
+        })
       }
     } catch (cause) {
       if (request === networkRequest && generation === loginGeneration) options.error.value = options.formatError(cause, t('mobile.runtimeText.networkReadFailed'))
     }
+  }
+
+  async function retryConnectivity(): Promise<VutronNetworkState | undefined> {
+    if (connectivityRetrying.value) return
+    connectivityRetrying.value = true
+    connectivityError.value = ''
+    const generation = loginGeneration
+    try {
+      const state = vutronPlugin.retryConnectivity ? await vutronPlugin.retryConnectivity() : await vutronPlugin.getLocalOnly()
+      // Re-read after the probe, as a native network change can race its completion event.
+      if (generation === loginGeneration) void refreshConnectivity()
+      return state
+    } catch (cause) {
+      if (generation === loginGeneration) connectivityError.value = options.formatError(cause, t('mobile.runtimeText.networkReadFailed'))
+      return undefined
+    } finally { connectivityRetrying.value = false }
   }
 
   // Native explicit login can finish after the user has returned to local mode.
@@ -102,6 +124,7 @@ export function createAuthSession(options: AuthSessionOptions) {
       if (generation !== loginGeneration) return
       manualLocalOnly.value = mode.manual ?? (mode.enabled || manualLocalOnly.value)
       networkConnected.value = connected(mode.connected)
+      networkReason.value = networkConnected.value ? null : mode.reason ?? 'system'
       const session = await vutronPlugin.getSession()
       if (generation !== loginGeneration) return
       if (session.loggedIn && session.profile) profile.value = session.profile
@@ -285,8 +308,8 @@ export function createAuthSession(options: AuthSessionOptions) {
   }
 
   return {
-    profile, localOnly, manualLocalOnly, networkConnected, loginRequested, localModeLoading, loggedIn, hasAccess, loginVisible, onlineAvailable,
+    profile, localOnly, manualLocalOnly, networkConnected, networkReason, connectivityRetrying, connectivityError, loginRequested, localModeLoading, loggedIn, hasAccess, loginVisible, onlineAvailable,
     qrLoginKey, qrLoginImage, qrLoginStatus, qrLoginLoading,
-    restore, enterLocalOnly, useAutomaticMode, refreshConnectivity, disposeNetworkMonitoring, requestLogin, login, createQrLogin, checkQrLogin, cancelQrLogin, logout
+    restore, enterLocalOnly, useAutomaticMode, refreshConnectivity, retryConnectivity, disposeNetworkMonitoring, requestLogin, login, createQrLogin, checkQrLogin, cancelQrLogin, logout
   }
 }

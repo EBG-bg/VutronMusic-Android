@@ -13,7 +13,7 @@ final class LocalOnlyMode {
 
     private LocalOnlyMode() { }
 
-    static boolean enabled(Context context) { return enabled(preferences(context)); }
+    static boolean enabled(Context context) { return MusicConnectivity.unreachable() || enabled(preferences(context)); }
 
     static boolean manual(Context context) { return manual(preferences(context)); }
     static boolean manual(SharedPreferences preferences) { return preferences.getBoolean(MANUAL_KEY, preferences.getBoolean(KEY, false)); }

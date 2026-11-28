@@ -19,6 +19,7 @@ import java.util.zip.ZipOutputStream;
 /** Portable ZIP around a v1 JSON backup and a deliberately selected set of offline cache files. */
 final class BackupCacheArchive {
     private static final long MIB = 1024L * 1024L;
+    private static final long SPACE_RESERVE_BYTES = 32 * MIB;
     private static final long MAX_ARCHIVE_BYTES = 12L * 1024 * MIB;
     private static final int MAX_ITEMS = 25_000;
     private static final String MANIFEST = "backup.json";
@@ -32,6 +33,9 @@ final class BackupCacheArchive {
 
     record Audio(long id, JSONObject song, String source, File file, String checksum, AudioCache.AudioInfo info) { }
     record Count(int restored, int skipped) { }
+    record SpaceRequirement(long requiredBytes, long availableBytes) {
+        boolean sufficient() { return availableBytes >= requiredBytes; }
+    }
     private record CachedFile(String name, File file) { }
     private record Copied(long bytes, String checksum) { }
 
@@ -62,6 +66,7 @@ final class BackupCacheArchive {
         for (CachedFile entry : others) bytes += entry.file.length();
         if (bytes > MAX_ARCHIVE_BYTES) throw new IOException("缓存备份超过 12 GiB");
         backup.put("cacheItemCount", count);
+        backup.put("cacheTotalBytes", bytes);
         LibraryTaskRunner.progress(0, count);
         int done = 0;
         try (ZipOutputStream zip = new ZipOutputStream(new BufferedOutputStream(destination))) {
@@ -119,8 +124,40 @@ final class BackupCacheArchive {
             int items = backup.optInt("cacheItemCount", -1);
             if ((format != 1 && format != 2) || audio == null || items < audio.length() || items > MAX_ITEMS)
                 throw new IOException("缓存备份清单无效");
+            spaceRequirement(backup, 0);
             LibraryBackup.validate(backup);
             return backup;
+        }
+    }
+
+    static SpaceRequirement spaceRequirement(JSONObject backup, long availableBytes) throws Exception {
+        JSONArray audio = backup.optJSONArray("audioEntries");
+        if (audio == null) throw new IOException("缓存备份清单无效");
+        long audioBytes = 0;
+        for (int i = 0; i < audio.length(); i++) {
+            long bytes = audio.getJSONObject(i).optLong("bytes", -1);
+            if (bytes < 1024 || bytes > 512 * MIB || audioBytes > MAX_ARCHIVE_BYTES - bytes)
+                throw new IOException("缓存备份大小无效");
+            audioBytes += bytes;
+        }
+
+        long itemCount = backup.optLong("cacheItemCount", -1);
+        if (itemCount < 0 || itemCount > MAX_ITEMS) throw new IOException("缓存备份条目数量无效");
+        long dataBytes = backup.has("cacheTotalBytes") ? backup.optLong("cacheTotalBytes", -1) : audioBytes;
+        if (dataBytes < audioBytes || dataBytes > MAX_ARCHIVE_BYTES) throw new IOException("缓存备份大小无效");
+        long requiredBytes = dataBytes;
+        if (itemCount > 0) requiredBytes += SPACE_RESERVE_BYTES;
+        return new SpaceRequirement(requiredBytes, Math.max(0, availableBytes));
+    }
+
+    static void requireSpace(File root, JSONObject backup) throws Exception {
+        requireSpace(backup, root.getUsableSpace());
+    }
+
+    static void requireSpace(JSONObject backup, long availableBytes) throws Exception {
+        SpaceRequirement requirement = spaceRequirement(backup, availableBytes);
+        if (!requirement.sufficient()) {
+            throw new IOException("BACKUP_CACHE_SPACE:" + requirement.requiredBytes() + ":" + requirement.availableBytes());
         }
     }
 
@@ -168,7 +205,7 @@ final class BackupCacheArchive {
     static Staged stage(Context context, InputStream source) throws Exception { return stage(context.getFilesDir(), source); }
 
     static Staged stage(File root, InputStream source) throws Exception {
-        File work = Files.createTempDirectory(root.toPath(), "backup-restore-").toFile();
+        File work = null;
         boolean success = false;
         try (ZipInputStream zip = new ZipInputStream(source)) {
             ZipEntry entry = zip.getNextEntry();
@@ -180,6 +217,8 @@ final class BackupCacheArchive {
             long owner = backup.optLong("playlistOwner");
             int expected = backup.optInt("cacheItemCount", -1);
             if (expected < 0 || expected > MAX_ITEMS) throw new IOException("缓存备份条目数量无效");
+            requireSpace(root, backup);
+            work = Files.createTempDirectory(root.toPath(), "backup-restore-").toFile();
             JSONArray metadata = backup.getJSONArray("audioEntries");
             if (metadata.length() > MAX_ITEMS) throw new IOException("缓存条目超过备份上限");
             Map<Long, JSONObject> descriptions = new HashMap<>();
@@ -190,7 +229,7 @@ final class BackupCacheArchive {
                         || descriptions.put(id, row) != null) throw new IOException("音频缓存备份索引无效");
             }
             int total = 0;
-            long remaining = Math.min(MAX_ARCHIVE_BYTES, Math.max(0, work.getUsableSpace() - 32 * MIB));
+            long remaining = Math.min(MAX_ARCHIVE_BYTES, Math.max(0, work.getUsableSpace() - SPACE_RESERVE_BYTES));
             Set<String> visited = new HashSet<>();
             List<Audio> audio = new ArrayList<>(); List<CachedFile> others = new ArrayList<>();
             LibraryTaskRunner.progress(0, expected);
@@ -234,7 +273,7 @@ final class BackupCacheArchive {
             LibraryTaskRunner.progress(total, total);
             success = true;
             return new Staged(work, backup, audio, others, owner);
-        } finally { if (!success) clearStage(work); }
+        } finally { if (!success && work != null) clearStage(work); }
     }
 
     /** Every extraction path is an app-owned temporary file, never a ZIP entry name. */

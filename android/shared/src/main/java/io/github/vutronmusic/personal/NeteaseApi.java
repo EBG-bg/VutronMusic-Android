@@ -50,6 +50,7 @@ public final class NeteaseApi {
     private static final int MAX_RESPONSE = 16 * 1024 * 1024;
     private final LinkedHashMap<String, String> cookies = new LinkedHashMap<>();
     private final BooleanSupplier onlineAllowed;
+    private java.util.function.Supplier<java.util.function.Consumer<IOException>> networkObserver;
     interface Transport { JSONObject request(String path, JSONObject payload, boolean weapi) throws IOException; }
     private final Transport transport;
     private volatile long verifiedUserId;
@@ -76,6 +77,12 @@ public final class NeteaseApi {
     private void requireOnline() throws IOException {
         if(Thread.currentThread().isInterrupted()) throw new java.io.InterruptedIOException("音乐请求已取消");
         if (!onlineAllowed.getAsBoolean()) throw new IOException("当前为本地模式，音乐网络请求已关闭");
+    }
+
+    /** Observe each request separately so a previous network's failure cannot affect its replacement. */
+    public NeteaseApi observeNetwork(java.util.function.Supplier<java.util.function.Consumer<IOException>> observer) {
+        networkObserver = observer;
+        return this;
     }
 
     public synchronized String getCookie() {
@@ -660,6 +667,7 @@ public final class NeteaseApi {
         requireOnline();
         if (transport != null) return transport.request(path, payload, weapi);
         HttpURLConnection connection = null;
+        java.util.function.Consumer<IOException> failed = networkObserver == null ? null : networkObserver.get();
         try {
             LinkedHashMap<String, String> effective;
             synchronized (this) {
@@ -729,8 +737,8 @@ public final class NeteaseApi {
             String address = (weapi ? WEB + "/weapi/" : API + "/eapi/") + path.substring(5);
             requireOnline();
             connection = (HttpURLConnection) new URL(address).openConnection();
-            connection.setConnectTimeout(15000);
-            connection.setReadTimeout(25000);
+            connection.setConnectTimeout(5000);
+            connection.setReadTimeout(12000);
             connection.setInstanceFollowRedirects(false);
             connection.setRequestMethod("POST");
             connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8");
@@ -773,6 +781,9 @@ public final class NeteaseApi {
                 throw new CommentFailure(status == 401 ? 401 : result.optInt("code"),"登录已失效，请重新登录网易云");
             if (status >= 400) throw new IOException(apiMessage(result, "音乐接口请求失败") + "（HTTP " + status + "）");
             return result;
+        } catch (IOException failure) {
+            if (failed != null) failed.accept(failure);
+            throw failure;
         } catch (JSONException | GeneralSecurityException exception) {
             throw new IOException("音乐请求编码失败", exception);
         } finally {

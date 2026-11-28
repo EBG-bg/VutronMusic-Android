@@ -239,7 +239,7 @@ final class LyricRepository {
     private static Lyrics fetch(Context context, long id, JSONObject previous, String session,
                                 BooleanSupplier allowed) throws IOException {
         requireActive(allowed);
-        JSONObject response = new NeteaseApi(session, allowed).lyricData(id);
+        JSONObject response = MusicConnectivity.netease(context, session, allowed).lyricData(id);
         requireActive(allowed);
         JSONObject texts = new JSONObject();
         try {

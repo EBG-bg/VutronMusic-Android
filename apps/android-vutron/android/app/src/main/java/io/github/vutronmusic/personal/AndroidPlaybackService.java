@@ -63,9 +63,9 @@ public final class AndroidPlaybackService extends Service {
     private static final String SLEEP_TIMER_DEADLINE = "sleepTimerDeadlineEpochMs";
     private static final String SLEEP_TIMER_PLAN = "sleepTimerPlanV2";
     private static final int NOTIFICATION_ID = 1201;
-    private static final long RESOLVE_TIMEOUT_MS = 70_000L;
-    private static final long MATCH_PREPARE_TIMEOUT_MS = 15_000L;
-    private static final long MATCH_RECOVERY_TIMEOUT_MS = 24_000L;
+    private static final long RESOLVE_TIMEOUT_MS = 15_000L;
+    private static final long MATCH_PREPARE_TIMEOUT_MS = 12_000L;
+    private static final long MATCH_RECOVERY_TIMEOUT_MS = 10_000L;
     private static final long PLUGIN_RECOVERY_TIMEOUT_MS = 6_000L;
     private static final long RELAY_DIAGNOSTIC_TIMEOUT_MS = 1_500L;
     private static volatile AndroidPlaybackService activeInstance;
@@ -85,6 +85,7 @@ public final class AndroidPlaybackService extends Service {
 
     private MediaPlayer player;
     private MusicConnectivity connectivity;
+    private MusicConnectivity.Request playerNetwork;
     private MediaSession session;
     private AudioManager audio;
     private AudioFocusRequest focusRequest;
@@ -765,6 +766,7 @@ public final class AndroidPlaybackService extends Service {
                 .remove("error").remove("errorCode").remove("errorDetail").apply();
         loadArtwork(rememberedArtwork());
         publish();
+        MusicConnectivity.Request network = MusicConnectivity.capture(this);
         urlTask = urlWorker.submit(() -> {
             try {
                 Intent prepared = PlaybackRequest.prepare(this, selected, autoPlay,prefetched).putExtra("resumePosition", position);
@@ -773,6 +775,7 @@ public final class AndroidPlaybackService extends Service {
                 });
             } catch (Exception failure) {
                 Log.w("VutronPlayback", "Could not resolve the selected queue track", failure);
+                MusicConnectivity.reportUnreachable(this, failure, network);
                 progressHandler.post(() -> {
                     if (finishUrlLookup(token))
                         publishError(PlaybackFailure.from(failure, "resolve", true, MusicConnectivity.available(this)));
@@ -894,6 +897,7 @@ public final class AndroidPlaybackService extends Service {
                 .putBoolean(LAST_PLAYING, desiredPlayback).apply();
         playerPrepared = false;
         remotePlayback = remote;
+        playerNetwork = remote ? MusicConnectivity.capture(this) : null;
         MediaPlayer candidate = new MediaPlayer(); player = candidate; playerRequest = intent;
         String setupStage = "player_setup";
         try {
@@ -974,7 +978,7 @@ public final class AndroidPlaybackService extends Service {
                 candidate.setDataSource(url);
             }
             publish();
-            long prepareTimeout = matcherSource(intent).isEmpty() && !isPluginMediaAttempt(intent) ? 25_000L : MATCH_PREPARE_TIMEOUT_MS;
+            long prepareTimeout = MATCH_PREPARE_TIMEOUT_MS;
             armPlayerDeadline(token, prepareTimeout, PlaybackFailure.timedOut("prepare", prepareTimeout), remotePlayback);
             setupStage = "prepare_async";
             candidate.prepareAsync();
@@ -1060,6 +1064,12 @@ public final class AndroidPlaybackService extends Service {
 
     private void failPlayer(Intent failedRequest, int token, PlaybackFailure failure, boolean sourceFailure, String observedRelay) {
         if (destroyed || token != generation || failedRequest != playerRequest) return;
+        if (remotePlayback && (failure.networkUnreachable || "timeout".equals(failure.code))) {
+            MusicConnectivity.reportUnreachable(this, playerNetwork);
+            publishError(failure);
+            return;
+        }
+        if (remotePlayback && !MusicConnectivity.available(this)) { publishError(PlaybackFailure.of("network").afterAttempts(failure.diagnostic)); return; }
         if (remotePlayback && isPluginMediaAttempt(failedRequest)) {
             diagnosePluginFailure(failedRequest, failure, sourceFailure, observedRelay);
         } else if (failedRequest == null || !retryFailedSource(failedRequest, token, failure, sourceFailure)) publishError(failure);
@@ -1081,6 +1091,7 @@ public final class AndroidPlaybackService extends Service {
         invalidatePrefetch(); releasePlayer(); playing = false;
         final int recoveryToken = ++generation;
         beginUrlLookup(recoveryToken, retry ? PLUGIN_RECOVERY_TIMEOUT_MS : RELAY_DIAGNOSTIC_TIMEOUT_MS, fallback);
+        MusicConnectivity.Request network = MusicConnectivity.capture(this);
         publish();
         urlTask = urlWorker.submit(() -> {
             PlaybackFailure detailed = fallback;
@@ -1095,6 +1106,7 @@ public final class AndroidPlaybackService extends Service {
                 progressHandler.post(() -> { if (finishUrlLookup(recoveryToken)) startTrack(fresh); });
                 return;
             } catch (Exception unavailable) {
+                MusicConnectivity.reportUnreachable(this, unavailable, network);
                 boolean connected = MusicConnectivity.available(this);
                 detailed = (PluginMedia.networkAllowed(this, selected)
                         ? PlaybackFailure.from(unavailable, "resolve_backup", true, connected)
@@ -1107,6 +1119,10 @@ public final class AndroidPlaybackService extends Service {
     }
 
     private boolean retryFailedSource(Intent failedRequest, int failedToken, PlaybackFailure failure, boolean sourceFailure) {
+        if (remotePlayback && (failure.networkUnreachable || "timeout".equals(failure.code))) {
+            MusicConnectivity.reportUnreachable(this, playerNetwork);
+            return false;
+        }
         if (destroyed || failedToken != generation || !MusicConnectivity.available(this) || !PluginMedia.networkAllowed(this, trackMetadata)) return false;
         if (failedRequest.getBooleanExtra("sourceRecovery", false)) return false;
         String matchedSource = matcherSource(failedRequest);
@@ -1131,6 +1147,7 @@ public final class AndroidPlaybackService extends Service {
         final int retryToken = ++generation;
         playing = false;
         beginUrlLookup(retryToken, alternate ? MATCH_RECOVERY_TIMEOUT_MS : RESOLVE_TIMEOUT_MS, "source_recovery");
+        MusicConnectivity.Request network = MusicConnectivity.capture(this);
         saved.edit().putInt(LAST_POSITION,resumePosition).putInt("position",resumePosition)
                 .remove("error").remove("errorCode").remove("errorDetail").apply();
         publish();
@@ -1149,6 +1166,7 @@ public final class AndroidPlaybackService extends Service {
                 });
             } catch (Exception unavailable) {
                 Log.w("VutronPlayback", "Playback source recovery failed: " + unavailable.getClass().getSimpleName());
+                MusicConnectivity.reportUnreachable(this, unavailable, network);
                 progressHandler.post(() -> {
                     if (!finishUrlLookup(retryToken)) return;
                     boolean connected = MusicConnectivity.available(this);
@@ -1439,6 +1457,7 @@ public final class AndroidPlaybackService extends Service {
         state.edit().putBoolean(LAST_PLAYING, true).apply();
         int token = ++generation;
         beginUrlLookup(token, RESOLVE_TIMEOUT_MS, "resolve"); publish();
+        MusicConnectivity.Request network = MusicConnectivity.capture(this);
         urlTask = urlWorker.submit(() -> {
             try {
                 Intent intent = PlaybackRequest.prepare(this, PlaybackRequest.remembered(this), true);
@@ -1446,6 +1465,7 @@ public final class AndroidPlaybackService extends Service {
                     if (finishUrlLookup(token)) startTrack(intent);
                 });
             } catch (Exception error) {
+                MusicConnectivity.reportUnreachable(this, error, network);
                 progressHandler.post(() -> {
                     if (finishUrlLookup(token)) publishError(PlaybackFailure.from(error, "resolve", true, MusicConnectivity.available(this)));
                 });
@@ -1678,6 +1698,7 @@ public final class AndroidPlaybackService extends Service {
 
     private Bitmap decodeArtwork(String source) {
         HttpURLConnection connection = null;
+        MusicConnectivity.Request network = MusicConnectivity.capture(this);
         try {
             if (source.startsWith("https://") || source.startsWith("http://")) {
                 source = ArtworkCache.resolve(this, source);
@@ -1698,7 +1719,7 @@ public final class AndroidPlaybackService extends Service {
                 LocalOnlyMode.requireOnline(this);
                 connection = (HttpURLConnection) new URL(ArtworkSource.requestUrl(source)).openConnection();
                 artworkConnection = connection;
-                connection.setConnectTimeout(8000);
+                connection.setConnectTimeout(5000);
                 connection.setReadTimeout(12000);
                 connection.setInstanceFollowRedirects(true);
                 connection.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/131.0.0.0 Mobile Safari/537.36");
@@ -1721,7 +1742,10 @@ public final class AndroidPlaybackService extends Service {
                 options.inSampleSize *= 2;
             options.inPreferredConfig = Bitmap.Config.RGB_565;
             return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
-        } catch (Exception ignored) { return null; }
+        } catch (Exception failure) {
+            if (connection != null) MusicConnectivity.reportUnreachable(this, failure, network);
+            return null;
+        }
         finally {
             if (connection != null) connection.disconnect();
             if (artworkConnection == connection) artworkConnection = null;

@@ -3,6 +3,8 @@ import { libraryTask, cancelLibraryTask } from '../platform/libraryTasks'
 import { computed } from 'vue'
 const taskLabel = computed(() => {
   if (libraryTask.kind === 'cachePlaylists') return 'mobile.taskLabels.cachePlaylists'
+  if (libraryTask.kind === 'backupEncrypt') return 'mobile.backup.encrypting'
+  if (libraryTask.kind === 'backupDecrypt') return 'mobile.backup.decrypting'
   if (libraryTask.kind === 'backupExport' || libraryTask.kind === 'backupImport') return 'mobile.backup.working'
   return 'mobile.management.task_' + libraryTask.kind
 })

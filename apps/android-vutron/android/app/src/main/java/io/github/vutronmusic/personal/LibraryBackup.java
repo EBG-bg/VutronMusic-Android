@@ -15,7 +15,7 @@ final class LibraryBackup {
     static final int MAX_BYTES = 8 * 1024 * 1024;
     static final int MAX_STORE_BYTES = 64 * 1024 * 1024;
     private static final String[] PREFS = {"lyric_overlay", "playback_volume", "audio_cache_settings", "artwork_cache_settings", "audio_sources", "vutron_playback", "playback_tuning"};
-    private static final Set<String> LYRIC_BOOLEANS = new HashSet<>(Arrays.asList("locked", "touch_passthrough_priority", "translation", "wifi_validation", "next_line", "estimated_word_timing", "shadow_enabled"));
+    private static final Set<String> LYRIC_BOOLEANS = new HashSet<>(Arrays.asList("locked", "touch_passthrough_priority", "translation", "wifi_validation", "next_line", "estimated_word_timing", "shadow_enabled", "reduced_motion"));
     private static final Set<String> LYRIC_INTS = new HashSet<>(Arrays.asList("font_size", "played_color", "unplayed_color", "background_color", "shadow_color", "shadow_radius"));
     private LibraryBackup() { }
     private static File file(Context c) { return new File(c.getFilesDir(), "restored-playlists.json"); }
@@ -436,12 +436,44 @@ final class LibraryBackup {
         }
         records.put(id, CollectionOrderHistoryBackup.remap(history, keys));
     }
-    static JSONObject restore(Context c, JSONObject input) throws Exception {
-        RestorePlan plan=planRestore(load(c),input);
-        if (!plan.added.isEmpty()) LibraryFiles.writeBytes(file(c),plan.encoded);
-        PluginSourceRegistry.setPriorities(c,plan.safe.getJSONObject("pluginSourcePriorities"));
-        if (plan.safe.has("trackSourceOverrides")) TrackSourceOverrides.restore(c,plan.safe.getJSONObject("trackSourceOverrides"));
-        for(JSONObject item:plan.added) PlaybackVolume.setPlaylistPercent(c,item.getString("id"),item.getInt("volume"));
+    static JSONObject restore(Context c, JSONObject input, PortableAccounts.RestorePlan accounts) throws Exception {
+        RestorePlan plan = planRestore(load(c), input);
+        long originalArtworkCapacity = ArtworkCache.capacityMiB(c);
+        JSONObject receipt = BackupRestoreTransaction.run(transaction -> {
+            java.util.concurrent.Callable<JSONObject> publishLibrary = () -> {
+                synchronized (PluginSourceRegistry.LOCK) {
+                    synchronized (TrackSourceOverrides.LOCK) {
+                        try { return publishLibrary(c, plan, transaction); }
+                        catch (Exception failure) { transaction.rollback(failure); throw failure; }
+                    }
+                }
+            };
+            return accounts == null ? publishLibrary.call() : accounts.apply(transaction, publishLibrary);
+        });
+        JSONObject audioSettings = plan.safe.getJSONObject("settings").getJSONObject("audio_cache_settings");
+        JSONObject artworkSettings = plan.safe.getJSONObject("settings").getJSONObject("artwork_cache_settings");
+        if (audioSettings.has("capacity_mib")) AudioCache.reloadRestoredCapacity(c);
+        if (artworkSettings.has("capacity_mib")) {
+            long restoredArtworkCapacity = artworkSettings.getLong("capacity_mib");
+            if (restoredArtworkCapacity < originalArtworkCapacity)
+                ArtworkCache.trimRestoredCapacity(c, restoredArtworkCapacity);
+        }
+        AndroidLyricOverlayService.refreshSettings();
+        AndroidPlaybackService.onVolumeSettingsChanged(c);
+        AndroidPlaybackService.onPlaybackTuningChanged(c, () -> {});
+        return receipt;
+    }
+
+    private static JSONObject publishLibrary(Context c, RestorePlan plan, BackupRestoreTransaction transaction) throws Exception {
+        if (!plan.added.isEmpty()) {
+            transaction.beforeFile(file(c));
+            LibraryFiles.writeBytes(file(c),plan.encoded);
+        }
+        PluginSourceRegistry.restorePriorities(c, plan.safe.getJSONObject("pluginSourcePriorities"), transaction);
+        if (plan.safe.has("trackSourceOverrides")) {
+            transaction.beforeFile(TrackSourceOverrides.file(c));
+            TrackSourceOverrides.restore(c,plan.safe.getJSONObject("trackSourceOverrides"));
+        }
         JSONObject settings = plan.safe.getJSONObject("settings");
         JSONObject audioSettings = settings.getJSONObject("audio_cache_settings");
         JSONObject artworkSettings = settings.getJSONObject("artwork_cache_settings");
@@ -449,23 +481,21 @@ final class LibraryBackup {
         if (audioCapacity > 0 && audioCapacity * 1024L * 1024L < AudioCache.stats(c).bytes) audioSettings.remove("capacity_mib");
         if (artworkCapacity > 0 && artworkCapacity * 1024L * 1024L < ArtworkCache.bytes(c)) artworkSettings.remove("capacity_mib");
         for (String pref : PREFS) {
-            SharedPreferences.Editor editor = c.getSharedPreferences(pref, Context.MODE_PRIVATE).edit(); JSONObject values = settings.getJSONObject(pref);
+            Map<String,Object> changes = new LinkedHashMap<>();
+            if ("playback_volume".equals(pref)) {
+                for (JSONObject item : plan.added) changes.put(PlaybackVolume.playlistKey(item.getString("id")), item.getInt("volume"));
+            }
+            SharedPreferences preferences = c.getSharedPreferences(pref, Context.MODE_PRIVATE);
+            JSONObject values = settings.getJSONObject(pref);
             for (Iterator<String> i = values.keys(); i.hasNext();) {
                 String key = i.next(); Object value = values.get(key);
-                // Capacity setters maintain native caches; don't update prefs ahead of them.
-                if ("capacity_mib".equals(key) || "artwork_cache_settings".equals(pref) && "auto_cache".equals(key)) continue;
-                if (value instanceof Boolean) editor.putBoolean(key, (Boolean) value);
-                else if ("playback_tuning".equals(pref)) editor.putFloat(key,((Number)value).floatValue());
-                else if (key.startsWith("lyric_offset_ms_")) editor.putLong(key, ((Number) value).longValue());
-                else editor.putInt(key, ((Number) value).intValue());
+                if (value instanceof Boolean) changes.put(key, value);
+                else if ("playback_tuning".equals(pref)) changes.put(key, ((Number)value).floatValue());
+                else if ("capacity_mib".equals(key) || key.startsWith("lyric_offset_ms_")) changes.put(key, ((Number)value).longValue());
+                else changes.put(key, ((Number)value).intValue());
             }
-            if (!editor.commit()) throw new IOException("备份设置写入失败：" + pref);
+            transaction.preferences(preferences, changes);
         }
-        if (audioSettings.has("capacity_mib")) AudioCache.setCapacityMiB(c, audioCapacity);
-        if (artworkSettings.has("capacity_mib")) ArtworkCache.setCapacityMiB(c, artworkCapacity);
-        if (artworkSettings.has("auto_cache")) ArtworkCache.setAutomatic(c, artworkSettings.getBoolean("auto_cache"));
-        AndroidLyricOverlayService.refreshSettings(); AndroidPlaybackService.onVolumeSettingsChanged(c);
-        AndroidPlaybackService.onPlaybackTuningChanged(c,() -> {});
         return plan.receipt();
     }
     static void remove(Context c, String id, String entry) throws Exception {

@@ -12,7 +12,7 @@ final class OnlineLibraryManager {
     private static NeteaseApi api(Context context, String cookie) throws IOException {
         LocalOnlyMode.requireOnline(context);
         if (cookie.isEmpty()) throw new IOException("请先登录网易云");
-        return new NeteaseApi(cookie, () -> !LocalOnlyMode.enabled(context) && cookie.equals(SessionStore.load(context)));
+        return MusicConnectivity.netease(context, cookie, () -> !LocalOnlyMode.enabled(context) && cookie.equals(SessionStore.load(context)));
     }
     private static void sameSession(Context context, String cookie) throws IOException {
         LocalOnlyMode.requireOnline(context);

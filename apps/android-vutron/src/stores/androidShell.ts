@@ -102,9 +102,9 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     }
   })
   const {
-    profile, localOnly, manualLocalOnly, networkConnected, loginRequested, localModeLoading, loggedIn, hasAccess, loginVisible, onlineAvailable,
+    profile, localOnly, manualLocalOnly, networkConnected, networkReason, connectivityRetrying, connectivityError, loginRequested, localModeLoading, loggedIn, hasAccess, loginVisible, onlineAvailable,
     qrLoginKey, qrLoginImage, qrLoginStatus, qrLoginLoading,
-    restore, enterLocalOnly, useAutomaticMode, refreshConnectivity, disposeNetworkMonitoring, requestLogin, login, createQrLogin, checkQrLogin, cancelQrLogin, logout
+    restore, enterLocalOnly, useAutomaticMode, refreshConnectivity, retryConnectivity, disposeNetworkMonitoring, requestLogin, login, createQrLogin, checkQrLogin, cancelQrLogin, logout
   } = authSession
 
   const search = createShellSearch({ onlineAvailable, error, t, formatError: errorMessage, getAccountId: () => profile.value?.userId })
@@ -264,9 +264,10 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     if (activeTab.value !== 'playlist' || selectedPlaylist.value?.id !== playlist.id) rememberPage()
     const requestId = ++trackListRequestId
     const accountId = profile.value?.userId
-    const isCurrent = () => requestId === trackListRequestId && onlineAvailable.value && profile.value?.userId === accountId
+    // Automatic offline fallback keeps the request; an explicit mode change cancels it.
+    const isCurrent = () => requestId === trackListRequestId && !manualLocalOnly.value && profile.value?.userId === accountId
     const requestToken = `playlist:${accountId || 0}:${playlist.id}:${requestId}:${Date.now()}`
-    selectedPlaylist.value = { ...playlist, tracksIncomplete: true, tracksLoadError: '' }; selectedEntity.value = undefined; tracks.value = []
+    selectedPlaylist.value = { ...playlist, offlineSnapshot: false, offlineReason: undefined, tracksIncomplete: true, tracksLoadError: '' }; selectedEntity.value = undefined; tracks.value = []
     activeTab.value = 'playlist'; loading.value = true; error.value = ''
     try {
       const result = await loadPlaylistTrackBatches({ playlist, userId: accountId || 0, requestToken, isCurrent,
@@ -277,7 +278,9 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
         selectedPlaylist.value = { ...selectedPlaylist.value!, tracksIncomplete: true, tracksLoadError: message }
         error.value = result.message || message
       } else {
-        selectedPlaylist.value = { ...(result.playlist || selectedPlaylist.value!), trackCount: result.tracks.length, tracksIncomplete: false, tracksLoadError: '' }
+        selectedPlaylist.value = { ...(result.playlist || selectedPlaylist.value!), trackCount: result.tracks.length,
+          offlineSnapshot: Boolean(result.cached), offlineReason: result.cached ? result.playlist?.offlineReason ?? networkReason.value ?? 'request' : undefined,
+          tracksIncomplete: false, tracksLoadError: '' }
         if (result.cacheSaved) playbackPlaylistCache.set(`${accountId}:${playlist.id}`, true)
         void loadOfflinePlaylists()
       }
@@ -377,7 +380,7 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     if (activeTab.value !== 'playlist' || selectedPlaylist.value?.id !== playlist.id
       || selectedPlaylist.value?.pluginCacheKey !== playlist.pluginCacheKey) rememberPage()
     const requestId = ++trackListRequestId
-    selectedPlaylist.value = { ...playlist, offlineSnapshot: true }
+    selectedPlaylist.value = { ...playlist, offlineSnapshot: true, tracksIncomplete: false, tracksLoadError: '' }
     selectedEntity.value = undefined
     tracks.value = []
     activeTab.value = 'playlist'
@@ -719,7 +722,7 @@ export const useAndroidShellStore = defineStore('androidShell', () => {
     localLibrary, selectedLocalCollection, libraryLoading, localScanLoading, loadLocalLibrary, importLocalPlaylist, openLocalCollection, reloadManagedLibrary,
     homeData, homeLoading, searchCategory, searchKeywords, submittedSearch, searchResults, searchCount, searchNextPage, searchLoading,
     sleepTimerRemainingMs, sleepTimerMinutes, sleepTimerLabel, sleepTimerActive, sleepTimerMode, sleepTimerRemainingTracks, sleepTimerFadeSeconds, cacheAllPlaylistsLoading, cacheAllPlaylistsResult,
-    lyrics, lyricsLoading, activeTab, loading, error, playback, abLoopEnabled, applyAbLoopState, loggedIn, localOnly, manualLocalOnly, networkConnected, hasAccess, onlineAvailable, loginVisible, localModeLoading, enterLocalOnly, useAutomaticMode, refreshConnectivity, disposeNetworkMonitoring, requestLogin,
+    lyrics, lyricsLoading, activeTab, loading, error, playback, abLoopEnabled, applyAbLoopState, loggedIn, localOnly, manualLocalOnly, networkConnected, networkReason, connectivityRetrying, connectivityError, hasAccess, onlineAvailable, loginVisible, localModeLoading, enterLocalOnly, useAutomaticMode, refreshConnectivity, retryConnectivity, disposeNetworkMonitoring, requestLogin,
     playbackQueue, queueOpen, queueNotice, queueMutationBusy, showPlaybackQueue, loadPlaybackQueue, trackWithContext, queueTrackNext, appendTrackToQueue, queueTracks, playQueueIndex, removeQueueTrack, clearPlayNext,
     canNavigateBack, playlistOrigin, navigationDirection, navigationScrollY, tabScrollFor, navigateTo, navigateBack, activePluginId, openPlugins, activeMusicSourceId, selectMusicSource, discardMusicSource, retainMusicSources,
     qrLoginKey, qrLoginImage, qrLoginStatus, qrLoginLoading,

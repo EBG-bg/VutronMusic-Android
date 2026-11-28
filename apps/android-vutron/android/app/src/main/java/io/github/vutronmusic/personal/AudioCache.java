@@ -488,6 +488,7 @@ public final class AudioCache {
         File complete = new File(directory, stem + ".audio");
         long deadline = SystemClock.elapsedRealtime() + TOTAL_TIMEOUT_MS;
         ScheduledFuture<?> timeout = DEADLINES.schedule(job::cancel, TOTAL_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+        MusicConnectivity.Request network = MusicConnectivity.capture(job.context);
         boolean committed = false;
         try {
             check(job, deadline);
@@ -550,6 +551,9 @@ public final class AudioCache {
                 for (Entry victim : evicted) deleteOwned(victim.file);
                 lastError = "";
             }
+        } catch (IOException failure) {
+            if (!job.cancelled) MusicConnectivity.reportUnreachable(job.context, failure, network);
+            throw failure;
         } finally {
             timeout.cancel(false);
             HttpURLConnection connection = job.connection;
@@ -567,7 +571,7 @@ public final class AudioCache {
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
             job.connection = connection;
             connection.setInstanceFollowRedirects(false);
-            connection.setConnectTimeout((int) Math.min(12000, Math.max(1, deadline - SystemClock.elapsedRealtime())));
+            connection.setConnectTimeout((int) Math.min(5000, Math.max(1, deadline - SystemClock.elapsedRealtime())));
             connection.setReadTimeout(IDLE_TIMEOUT_MS);
             connection.setRequestProperty("Accept-Encoding", "identity");
             connection.setRequestProperty("Accept", "audio/*,application/octet-stream;q=0.9,*/*;q=0.1");
@@ -708,6 +712,11 @@ public final class AudioCache {
                 .getLong("capacity_mib", DEFAULT_CAPACITY_MIB);
         if (value < MIN_CAPACITY_MIB || value > MAX_CAPACITY_MIB) value = DEFAULT_CAPACITY_MIB;
         return value * 1024 * 1024;
+    }
+
+    static void reloadRestoredCapacity(Context context) {
+        synchronized (LOCK) { capacityBytes = capacityBytesFromPreferences(context); }
+        scheduleCapacityTrim(context);
     }
 
     private static void scheduleCapacityTrim(Context context) {

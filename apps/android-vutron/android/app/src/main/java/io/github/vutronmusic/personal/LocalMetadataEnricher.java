@@ -34,7 +34,7 @@ final class LocalMetadataEnricher {
     static JSONObject enrich(Context context, File directory) throws Exception {
         JSONObject data = LocalPlaylistStore.load(directory); JSONArray tracks = data.getJSONArray("tracks");
         for (String key : new String[]{"id", "localTracks", "bundleDir", "trackCount", "isLocalBundle"}) data.remove(key);
-        NeteaseApi api = new NeteaseApi(SessionStore.load(context), () -> !LocalOnlyMode.enabled(context) && !LibraryTaskRunner.isCancelled());
+        NeteaseApi api = MusicConnectivity.netease(context, SessionStore.load(context), () -> !LocalOnlyMode.enabled(context) && !LibraryTaskRunner.isCancelled());
         int matched = 0, failed = 0; boolean paused = false;
         LibraryTaskRunner.phase("match");
         for (int i = 0; i < tracks.length(); i++) {

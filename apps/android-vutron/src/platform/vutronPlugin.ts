@@ -3,11 +3,11 @@ import type { VutronCommentTarget, VutronCommentQuery, VutronCommentPage } from 
 import type { PluginItem, PluginPlayback } from '../plugins/protocol'
 
 export interface VutronProfile { userId: number; nickname: string; avatarUrl?: string; isVip?: boolean }
-export interface VutronPlaylist { createTime?: number; id: number; name: string; coverImgUrl?: string; coverLocalUri?: string; trackCount?: number; copywriter?: string; creatorUserId?: number; subscribed?: boolean; privacy?: number; description?: string; tags?: string[]; specialType?: number; offlineSnapshot?: boolean; cacheOwnerId?: number; tracksIncomplete?: boolean; tracksLoadError?: string; pluginCacheKey?: string; pluginId?: string; pluginAccountScope?: string; cacheProviderName?: string }
+export interface VutronPlaylist { createTime?: number; id: number; name: string; coverImgUrl?: string; coverLocalUri?: string; trackCount?: number; copywriter?: string; creatorUserId?: number; subscribed?: boolean; privacy?: number; description?: string; tags?: string[]; specialType?: number; offlineSnapshot?: boolean; offlineReason?: 'system' | 'unreachable' | 'request'; cacheOwnerId?: number; tracksIncomplete?: boolean; tracksLoadError?: string; pluginCacheKey?: string; pluginId?: string; pluginAccountScope?: string; cacheProviderName?: string }
 export interface VutronPlaylistProgress { trackId?: number; position?: number; duration?: number; cueTrackNo?: number; updatedAt?: number; localEntryKey?: string }
 export interface VutronPlaylistTracksResult { tracks: VutronTrack[]; playlist?: VutronPlaylist; cached?: boolean; cacheSaved?: boolean; cacheSkipped?: boolean; incomplete?: boolean; message?: string }
 export interface VutronPlaylistTracksProgress { requestToken: string; userId: number; playlistId: number; offset: number; total: number; tracks: VutronTrack[]; playlist?: VutronPlaylist }
-export interface VutronNetworkState { enabled: boolean; manual?: boolean; connected?: boolean }
+export interface VutronNetworkState { enabled: boolean; manual?: boolean; connected?: boolean; reason?: 'system' | 'unreachable' | null }
 export interface VutronOnlineLibrary { userId: number; playlists?: VutronPlaylist[]; likedIds?: number[]; playlist?: VutronPlaylist; tracks?: VutronTrack[]; committed?: boolean; refreshFailed?: boolean; deletedPlaylistId?: number; createdPlaylistId?: number; message?: string }
 export interface VutronNeteaseMutation { action: 'like' | 'create' | 'edit' | 'delete' | 'add' | 'remove' | 'reorder'; playlistId?: number; trackId?: number; trackIds?: number[]; liked?: boolean; name?: string; description?: string; tags?: string[]; privacy?: number; refreshPlaylistId?: number }
 export interface VutronLocalCollection { createTime?: number; id: string; name: string; trackCount: number; uri?: string; isLocalBundle?: boolean; permissionGranted?: boolean }
@@ -120,6 +120,7 @@ export interface VutronLyricOverlaySettings {
   backgroundColor: number
   shadowColor: number
   shadowEnabled: boolean
+  reducedMotion?: boolean
   shadowRadius: number
   touchPassthroughPriority: boolean
   permissionGranted?: boolean
@@ -204,6 +205,7 @@ export interface VutronMusicPlugin extends Plugin {
   downloadAppUpdate(): Promise<VutronAppUpdateState>
   installAppUpdate(): Promise<VutronAppUpdateState>
   getLocalOnly(): Promise<VutronNetworkState>
+  retryConnectivity?(): Promise<VutronNetworkState>
   setLocalOnly(options: { enabled: boolean; manual?: boolean }): Promise<VutronNetworkState>
   getSession(options?: { refresh?: boolean }): Promise<{ loggedIn: boolean; profile?: VutronProfile; sessionSaved?: boolean; restorePending?: boolean }>
   loginWithCookie(options: { cookie: string }): Promise<{ profile: VutronProfile }>
@@ -244,7 +246,7 @@ export interface VutronMusicPlugin extends Plugin {
   clearPlayNext?(): Promise<VutronQueue>
   undoPlaybackQueue?(options: { undoToken: string }): Promise<VutronQueue>
   exportUserBackup?(options: { frontend: Record<string, string>; orders: Record<string, unknown>; includePrivacy?: boolean; includeCache?: boolean; language: string }): Promise<{ cancelled?: boolean; collectionCount?: number; cacheItems?: number }>
-  inspectUserBackup?(options?: Record<string, never>): Promise<{ cancelled?: boolean; requestId?: string; archive?: boolean; collectionCount?: number; trackCount?: number; cacheItems?: number; audioItems?: number; hasAccounts?: boolean }>
+  inspectUserBackup?(options?: Record<string, never>): Promise<{ cancelled?: boolean; requestId?: string; archive?: boolean; collectionCount?: number; trackCount?: number; cacheItems?: number; audioItems?: number; cacheRequiredBytes?: number; cacheAvailableBytes?: number; hasAccounts?: boolean }>
   cancelUserBackupImport?(options: { requestId: string }): Promise<void>
   completeUserBackupImport?(options: { requestId: string; includePrivacy: boolean; includeCache?: boolean; language: string }): Promise<{ cancelled?: boolean; frontend?: Record<string, string>; orders?: Record<string, unknown>; collectionCount?: number; collectionSkipped?: number; cacheItems?: number; cacheSkipped?: number; cacheIncomplete?: boolean; neteaseRestored?: boolean; pluginAccountsRestored?: number; pluginAccountsSkipped?: number }>
   reorderLocalPlaybackQueue?(options: { collectionId: string; keys: string[] }): Promise<VutronQueue>

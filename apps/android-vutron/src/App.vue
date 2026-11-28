@@ -821,7 +821,7 @@ function previewSeek(event: Event) {
           <TrackMenuButton v-if="currentTrack.id > 0" :name="currentTrack.name" @open="openTrackMenu(currentTrack)" />
         </div>
         <div class="progress-control">
-          <ThumbRange min="0" :max="Math.max(1, store.playback.duration)" :value="seeking ? seekValue : store.playback.position" :disabled="!store.playback.duration" :aria-label="$t('mobile.shellUi.playbackProgress')" @input="previewSeek" @change="seekFromInput" />
+          <ThumbRange min="0" :max="Math.max(1, store.playback.duration)" :value="seeking ? seekValue : store.playback.position" :disabled="!store.playback.duration" :aria-label="$t('mobile.shellUi.playbackProgress')" @input="previewSeek" @change="seekFromInput" @cancel="seeking = false" />
           <div><span>{{ formatTime(seeking ? seekValue : store.playback.position) }}</span><span>{{ formatTime(store.playback.duration) }}</span></div>
         </div>
         <div class="transport-controls">

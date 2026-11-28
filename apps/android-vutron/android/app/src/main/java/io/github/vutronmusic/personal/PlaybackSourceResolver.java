@@ -38,7 +38,7 @@ public final class PlaybackSourceResolver {
 
     static JSONObject resolveCompatible(Context context, long trackId, String cookie, NeteasePlaybackPolicy.Gate gate) throws IOException {
         NeteasePlaybackPolicy.check(gate);
-        JSONObject result = fullTrack(new NeteaseApi(cookie, () -> NeteasePlaybackPolicy.permitted(gate)).compatibleSongUrl(trackId), "netease");
+        JSONObject result = fullTrack(MusicConnectivity.netease(context, cookie, () -> NeteasePlaybackPolicy.permitted(gate)).compatibleSongUrl(trackId), "netease");
         NeteasePlaybackPolicy.check(gate);
         JSONObject playable = EmbeddedSources.playable(context, result);
         NeteasePlaybackPolicy.check(gate);
@@ -74,7 +74,7 @@ public final class PlaybackSourceResolver {
             location = fullTrack(EmbeddedSources.songUrlForSource(app, trackId, status, preferred), preferred);
         } else location = NeteasePlaybackPolicy.resolveSources(gate, () -> {
                 status.accept("正在获取网易云播放地址…");
-                return fullTrack(new NeteaseApi(cookie, () -> NeteasePlaybackPolicy.permitted(gate)).songUrl(trackId), "netease");
+                return fullTrack(MusicConnectivity.netease(app, cookie, () -> NeteasePlaybackPolicy.permitted(gate)).songUrl(trackId), "netease");
             }, () -> SourceSettings.autoMatch(app), () -> {
                 JSONObject result = EmbeddedSources.songUrl(app, trackId, status);
                 return fullTrack(result, result.optString("source", "其它音源"));

@@ -14,13 +14,13 @@ module.exports = async ({ page, evaluate, wait, delay }) => {
   await evaluate(`(async () => {
     const { vutronPlugin: api } = await import('/tests/fixtures/personal-ui-native.mock.js')
     const { musicPluginBridge } = await import('/tests/fixtures/music-plugin-native.mock.js')
-    const t = window.backupTest = { exports: [], imports: [], cancels: [], inspections: 0, sourceReads: 0, owner: 7, sensitive: false }
+    const t = window.backupTest = { exports: [], imports: [], cancels: [], inspections: 0, sourceReads: 0, owner: 7, sensitive: false, lowStorage: false }
     const list = musicPluginBridge.listMusicPlugins.bind(musicPluginBridge)
     musicPluginBridge.listMusicPlugins = async (...args) => { t.sourceReads++; return list(...args) }
     api.exportUserBackup = async options => { t.exports.push(options); return { collectionCount: 0 } }
     api.getSession = async () => ({loggedIn:true, profile:{userId:t.owner, nickname:'Listener '+t.owner}})
     api.getPlaylists = async () => ({playlists:[{id:t.owner, name:'Library '+t.owner}]})
-    api.inspectUserBackup = async () => ({ requestId: 'import-' + (++t.inspections), archive: true, collectionCount: 3, trackCount: 27, cacheItems: 12, audioItems: 9, hasAccounts: t.sensitive })
+    api.inspectUserBackup = async () => ({ requestId: 'import-' + (++t.inspections), archive: true, collectionCount: 3, trackCount: 27, cacheItems: 12, audioItems: 9, cacheRequiredBytes: t.lowStorage ? 5 * 1024 ** 3 : 2 * 1024 ** 3, cacheAvailableBytes: t.lowStorage ? 1024 ** 3 : 6 * 1024 ** 3, hasAccounts: t.sensitive })
     api.cancelUserBackupImport = async options => { t.cancels.push(options) }
     api.completeUserBackupImport = async options => {
       t.imports.push(options)
@@ -33,6 +33,12 @@ module.exports = async ({ page, evaluate, wait, delay }) => {
   await wait(`document.querySelector('${section} summary')`)
   await click(section + ' summary')
   await wait(`document.querySelector('${section} button.switch')`)
+  await evaluate(`(async()=>{const {libraryTask}=await import('/src/platform/libraryTasks.ts');Object.assign(libraryTask,{kind:'backupEncrypt',running:true,done:0,total:0})})()`)
+  await wait(`document.querySelector('.library-task-progress')?.textContent.includes('正在加密账号资料')`)
+  await evaluate(`(async()=>{const {libraryTask}=await import('/src/platform/libraryTasks.ts');libraryTask.kind='backupDecrypt'})()`)
+  await wait(`document.querySelector('.library-task-progress')?.textContent.includes('正在解密账号资料')`)
+  await evaluate(`(async()=>{const {libraryTask}=await import('/src/platform/libraryTasks.ts');libraryTask.running=false})()`)
+  await wait(`!document.querySelector('.library-task-progress')`)
   assert.equal(await evaluate(`document.querySelector('${toggle(1)}').getAttribute('aria-checked')`), 'false')
   await page.send('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 })
   await wait(`document.querySelector('${section}').getAnimations({subtree:true}).every(a => a.playState !== 'running')`)
@@ -78,10 +84,19 @@ module.exports = async ({ page, evaluate, wait, delay }) => {
   await closeDialog(true)
   await wait('backupTest.imports.length === 1'); assert.equal(await evaluate('window.featureHarness.store.profile.userId'), 7)
   assert.equal(await evaluate('backupTest.imports[0].includeCache'), false)
+  await evaluate('backupTest.lowStorage = true')
+  await click(toggle(2)); await click(importButton); await waitDialog()
+  assert.ok(await evaluate(`document.querySelector('#action-dialog-message').textContent.includes('至少需要 5 GiB')`))
+  assert.match(await evaluate(`document.querySelector('${dialog} [data-default-action]').textContent`), /不恢复缓存并继续导入/)
+  await closeDialog(true)
+  await wait('backupTest.imports.length === 2')
+  assert.equal(await evaluate('backupTest.imports[1].includeCache'), false)
+  assert.ok(await evaluate(`document.querySelector('${section} [role=status]').textContent.includes('因存储空间不足')`))
+  await evaluate('backupTest.lowStorage = false')
   await evaluate(`backupTest.sensitive = true`)
-  await click(toggle(1)); await click(toggle(2)); await click(importButton); await waitDialog(); await closeDialog(true)
-  await wait('backupTest.imports.length === 2'); assert.equal(await evaluate('backupTest.imports[1].includePrivacy'), false)
-  assert.equal(await evaluate('backupTest.imports[1].includeCache'), true)
+  await click(toggle(1)); await click(importButton); await waitDialog(); await closeDialog(true)
+  await wait('backupTest.imports.length === 3'); assert.equal(await evaluate('backupTest.imports[2].includePrivacy'), false)
+  assert.equal(await evaluate('backupTest.imports[2].includeCache'), true)
   assert.equal(await evaluate('window.featureHarness.store.profile.userId'), 7)
   // Schedule an old-account Home read to finish after restoring the new account.
   await evaluate(`(async()=>{const {vutronPlugin:api}=await import('/tests/fixtures/personal-ui-native.mock.js');
@@ -90,7 +105,7 @@ module.exports = async ({ page, evaluate, wait, delay }) => {
     void store.loadHomeData();store.searchResults=[{id:7,name:'Previous private search'}];backupTest.startReads=backupTest.sourceReads;
   })()`)
   await wait('Boolean(backupTest.late)')
-  await click(toggle(1)); await click(toggle(2)); await click(importButton); await waitDialog()
+  await click(toggle(1)); await click(importButton); await waitDialog()
   assert.ok(await evaluate(`document.querySelector('#action-dialog-message').textContent.includes('替换本机对应账号')`))
   await closeDialog(true)
   await wait('window.featureHarness.store.profile?.userId===27 && window.featureHarness.store.playlists[0]?.id===27 && backupTest.sourceReads>backupTest.startReads')
@@ -109,5 +124,5 @@ module.exports = async ({ page, evaluate, wait, delay }) => {
     await closeDialog(true)
     assert.equal(await evaluate('backupTest.exports.at(-1).language'),locale)
   }
-  console.log('Backup UI passed: JSON/ZIP consent and cancellation, opt-out, legacy import, account/plugin refresh, stale response, and narrow translated dialogs')
+  console.log('Backup UI passed: JSON/ZIP consent and cancellation, low-space cache fallback, legacy import, account/plugin refresh, stale response, and narrow translated dialogs')
 }

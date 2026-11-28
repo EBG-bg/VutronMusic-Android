@@ -51,6 +51,9 @@ final class LyricOverlaySettings {
     static void nextLine(Context context, boolean value) { preferences(context).edit().putBoolean("next_line", value).apply(); }
     static boolean estimatedWordTiming(Context context) { return preferences(context).getBoolean("estimated_word_timing", false); }
     static void estimatedWordTiming(Context context, boolean value) { preferences(context).edit().putBoolean("estimated_word_timing", value).apply(); }
+    /** Resolved app motion preference, mirrored by the shell for native lyric transitions. */
+    static boolean reducedMotion(Context context) { return preferences(context).getBoolean("reduced_motion", false); }
+    static void reducedMotion(Context context, boolean value) { preferences(context).edit().putBoolean("reduced_motion", value).apply(); }
     static int playedColor(Context context) { return preferences(context).getInt("played_color", DEFAULT_PLAYED_COLOR); }
     static void playedColor(Context context, int value) { preferences(context).edit().putInt("played_color", value).apply(); }
     static int unplayedColor(Context context) { return preferences(context).getInt("unplayed_color", DEFAULT_UNPLAYED_COLOR); }

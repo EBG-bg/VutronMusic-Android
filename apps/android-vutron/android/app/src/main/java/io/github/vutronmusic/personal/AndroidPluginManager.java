@@ -223,7 +223,13 @@ final class AndroidPluginManager {
         JSONObject request = new JSONObject().put("action", "call").put("id", id).put("method", method)
                 .put("params", params == null ? new JSONObject() : params).put("allowNetwork", networkAllowed(context)).put("allowMatchSources", SourceSettings.autoMatch(context));
         if (expectedScope != null && !expectedScope.isEmpty()) request.put("expectedAccountScope", expectedScope);
-        JSONObject response = checked(EmbeddedSources.pluginRequest(context, request));
+        MusicConnectivity.Request network = MusicConnectivity.capture(context);
+        JSONObject response;
+        try { response = checked(EmbeddedSources.pluginRequest(context, request)); }
+        catch (IOException failure) {
+            if (!"local".equals(installed.optString("type"))) MusicConnectivity.reportUnreachable(context, failure, network);
+            throw failure;
+        }
         Object result = response.opt("result");
         if (result == null || result == JSONObject.NULL) throw new PluginFailure("PLUGIN_RESULT", "插件未返回符合原版协议的结果");
         if (result instanceof JSONObject) {
@@ -236,7 +242,12 @@ final class AndroidPluginManager {
 
     static JSONObject resolveMedia(Context context, String id, String url, JSONObject headers) throws Exception {
         JSONObject installed = requireEnabled(registry(context), id);
-        return checkedMedia(EmbeddedSources.pluginMedia(context, identity(id), url, headers, networkAllowed(context)));
+        MusicConnectivity.Request network = MusicConnectivity.capture(context);
+        try { return checkedMedia(EmbeddedSources.pluginMedia(context, identity(id), url, headers, networkAllowed(context))); }
+        catch (IOException failure) {
+            MusicConnectivity.reportUnreachable(context, failure, network);
+            throw failure;
+        }
     }
 
     static void onNetworkPolicyChanged(Context context) {
@@ -358,6 +369,11 @@ final class AndroidPluginManager {
         quarantineOrphans(directory,previous,catalog);
         if(!file.isFile()||!previous.toString().equals(result.toString()))LibraryFiles.writeJson(file,result);
         return result;
+    }
+    static synchronized JSONObject registryForRestore(Context context) throws Exception {
+        File directory = root(context), file = new File(directory, "registry.json");
+        JSONObject previous = readJson(file, new JSONObject().put("format", 3).put("plugins", new JSONObject()));
+        return reconcileRegistry(previous, catalog(context), java.util.Collections.emptySet());
     }
     private static JSONArray catalog(Context context) throws Exception {
         try (InputStream input = context.getAssets().open("sources-runtime/plugins/builtin-index.json")) {

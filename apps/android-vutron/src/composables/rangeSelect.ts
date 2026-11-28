@@ -21,7 +21,7 @@ const handle = '[data-range-handle],[role=switch]'
 function bind(element: HTMLElement, value: Binding) {
   if (value) element.dataset.rangeSelect = ''
   let source = value, touch: Contact | undefined, range: Range | undefined
-  let timer: ReturnType<typeof setTimeout> | undefined, frame = 0, blockClick = false
+  let timer: ReturnType<typeof setTimeout> | undefined, frame = 0, suppressReleaseClick = false
   let pointX = 0, pointY = 0, lastFrameAt = 0, loadingMore = false, loadRevision = 0
   let scrollTarget: Element | undefined
   let lastRequestedOrder: readonly string[] | undefined
@@ -127,7 +127,7 @@ function bind(element: HTMLElement, value: Binding) {
     if (anchor === undefined) return finish(false)
     const initial = new Set(source.selected())
     range = { initial, current: new Set(initial), order, positions, anchor, end: -1, low: anchor, high: anchor, adding: !initial.has(touch.startKey) }
-    element.dataset.rangeSelecting = ''; blockClick = true
+    element.dataset.rangeSelecting = ''; suppressReleaseClick = true
     source.start?.(); apply(anchor)
     for (let node: Element | null = element; node; node = node.parentElement) {
       if (node.scrollHeight > node.clientHeight && /auto|scroll/.test(getComputedStyle(node).overflowY)) { scrollTarget = node; break }
@@ -135,7 +135,7 @@ function bind(element: HTMLElement, value: Binding) {
     scrollTarget ??= document.scrollingElement || undefined
   }
   function start(event: TouchEvent) {
-    finish(true); blockClick = false
+    finish(true)
     if (!source || event.touches.length !== 1 || element.closest('[inert]')) return
     const target = event.target as Element, row = target.closest<HTMLElement>(rowSelector)
     if (!row || !element.contains(row) || row.getAttribute('aria-disabled') === 'true') return
@@ -165,8 +165,13 @@ function bind(element: HTMLElement, value: Binding) {
   }
   function cancel() { finish(true) }
   function scroll() { if (touch && !range) finish(false) }
+  // A fresh mouse, pen or touch press starts its own click sequence.
+  function pointerDown() { suppressReleaseClick = false }
   function click(event: MouseEvent) {
-    if (blockClick && event.detail !== 0) { blockClick = false; event.preventDefault(); event.stopImmediatePropagation() }
+    if (suppressReleaseClick && event.detail !== 0) {
+      suppressReleaseClick = false
+      event.preventDefault(); event.stopImmediatePropagation()
+    }
   }
   function key(event: KeyboardEvent) { if (range && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); cancel() } }
   function context(event: Event) { if (touch || range) { event.preventDefault(); event.stopImmediatePropagation() } }
@@ -176,6 +181,7 @@ function bind(element: HTMLElement, value: Binding) {
   element.addEventListener('touchend', end, { passive: false })
   element.addEventListener('touchcancel', end)
   element.addEventListener('contextmenu', context, true)
+  element.addEventListener('pointerdown', pointerDown, true)
   element.addEventListener('click', click, true)
   window.addEventListener('blur', cancel); window.addEventListener('scroll', scroll, true)
   document.addEventListener('visibilitychange', visibility); document.addEventListener('keydown', key, true)
@@ -184,6 +190,7 @@ function bind(element: HTMLElement, value: Binding) {
     dispose() {
       finish(false); delete element.dataset.rangeSelect; element.removeEventListener('touchstart', start); element.removeEventListener('touchmove', move)
       element.removeEventListener('touchend', end); element.removeEventListener('touchcancel', end)
+      element.removeEventListener('pointerdown', pointerDown, true)
       element.removeEventListener('contextmenu', context, true); element.removeEventListener('click', click, true)
       window.removeEventListener('blur', cancel); window.removeEventListener('scroll', scroll, true); document.removeEventListener('visibilitychange', visibility); document.removeEventListener('keydown', key, true)
     },

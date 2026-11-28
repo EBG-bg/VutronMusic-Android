@@ -74,10 +74,12 @@ public final class VutronMusicPlugin extends Plugin {
         try { connectivity = new MusicConnectivity(getContext(), this::networkChanged); networkChanged(); }
         catch (RuntimeException failure) { android.util.Log.w("VutronNetwork", "Connectivity observer unavailable", failure); }
     }
-    @Override protected void handleOnResume() { networkChanged(); }
+    @Override protected void handleOnResume() { MusicConnectivity.onForeground(getContext()); networkChanged(); }
     private JSObject networkState() {
+        String reason = MusicConnectivity.reason(getContext());
         return new JSObject().put("enabled", LocalOnlyMode.enabled(getContext()))
-                .put("manual", LocalOnlyMode.manual(getContext())).put("connected", MusicConnectivity.available(getContext()));
+                .put("manual", LocalOnlyMode.manual(getContext())).put("connected", MusicConnectivity.available(getContext()))
+                .put("reason", reason.isEmpty() ? JSONObject.NULL : reason);
     }
     private void networkChanged() {
         try {
@@ -140,6 +142,15 @@ public final class VutronMusicPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void retryConnectivity(PluginCall call) {
+        MusicConnectivity.retryConnectivity(getContext()).whenComplete((connected, failure) -> {
+            if (failure != null) { call.reject("网络连通性检查失败", "CONNECTIVITY_CHECK_FAILED"); return; }
+            networkChanged();
+            call.resolve(networkState());
+        });
+    }
+
+    @PluginMethod
     public void setLocalOnly(PluginCall call) {
         Boolean enabled = call.getBoolean("enabled");
         if (enabled == null) { call.reject("缺少本地模式设置"); return; }
@@ -168,7 +179,7 @@ public final class VutronMusicPlugin extends Plugin {
                 }
                 try {
                     LocalOnlyMode.requireOnline(context);
-                    account = new NeteaseApi(cookie, () -> !LocalOnlyMode.enabled(context)).profile();
+                    account = MusicConnectivity.netease(context, cookie, () -> !LocalOnlyMode.enabled(context)).profile();
                     synchronized (qrSessions) {
                         if (!cookie.equals(SessionStore.load(context))) { call.resolve(new JSObject().put("loggedIn", false)); return; }
                         cacheProfile(context, account);
@@ -196,7 +207,7 @@ public final class VutronMusicPlugin extends Plugin {
         worker.execute(() -> {
             try {
                 Context context = getContext();
-                NeteaseApi api = new NeteaseApi(cookie);
+                NeteaseApi api = MusicConnectivity.netease(getContext(), cookie);
                 JSONObject account = api.profile();
                 synchronized(qrSessions) {
                     if(epoch!=qrEpoch) throw new java.io.IOException("登录操作已取消");
@@ -218,7 +229,7 @@ public final class VutronMusicPlugin extends Plugin {
         synchronized(qrSessions) { qrSessions.clear();epoch=++qrEpoch; }
         worker.execute(() -> {
             try {
-                NeteaseApi api = new NeteaseApi("");
+                NeteaseApi api = MusicConnectivity.netease(getContext(), "");
                 String key = api.qrKey();
                 String url = "https://music.163.com/login?codekey=" + key;
                 String imageData = qrPngData(url);
@@ -364,7 +375,7 @@ public final class VutronMusicPlugin extends Plugin {
             try {
                 LocalOnlyMode.requireOnline(getContext());
                 if (cookie.isEmpty()) throw new java.io.IOException("请先登录网易云");
-                NeteaseApi api = new NeteaseApi(cookie, () -> !LocalOnlyMode.enabled(getContext()) && cookie.equals(SessionStore.load(getContext())));
+                NeteaseApi api = MusicConnectivity.netease(getContext(), cookie, () -> !LocalOnlyMode.enabled(getContext()) && cookie.equals(SessionStore.load(getContext())));
                 String type = call.getString("targetType", "track"), id = call.getString("targetId", "");
                 JSONObject result;
                 if ("list".equals(operation)) result = api.comments(type, id, call.getInt("sort", 99), call.getInt("page", 1), call.getString("cursor", "0"));
@@ -424,9 +435,9 @@ public final class VutronMusicPlugin extends Plugin {
             long playlistId = longArg(call, "playlistId", 0L), owner = cachedUserId(context);
             String requestToken = call.getString("requestToken", ""), cookie = SessionStore.load(context);
             JSONArray values = new JSONArray();
+            if (longArg(call, "userId", owner) != owner) { call.reject("账号已变化，请重新打开歌单"); return; }
             try {
                 NeteaseApi api = authenticated();
-                if (longArg(call, "userId", owner) != owner) throw new java.io.IOException("账号已变化，请重新打开歌单");
                 JSONObject metadata = api.playlistDetail(playlistId);
                 JSObject summary = playlist(metadata, context);
                 List<JSONObject> fetched = api.tracks(metadata, (appended, total) -> {
@@ -455,7 +466,14 @@ public final class VutronMusicPlugin extends Plugin {
                     if (values.length() > 0) { call.resolve(new JSObject().put("tracks", values).put("incomplete", true).put("message", message(error, "歌曲未全部加载，请重试"))); return; }
                     call.reject(message(error, "读取歌曲列表失败")); return;
                 }
-                call.resolve(new JSObject().put("tracks", cached).put("cached", true));
+                JSObject summary = call.getObject("playlist", new JSObject().put("id", playlistId));
+                for (JSONObject item : PlaylistCache.readPlaylists(context, owner)) {
+                    if (item.optLong("id") == playlistId) { summary = playlist(item, context); break; }
+                }
+                String reason = MusicConnectivity.reason(context);
+                summary.put("offlineSnapshot", true).put("cacheOwnerId", owner).put("tracksIncomplete", false)
+                        .put("tracksLoadError", "").put("offlineReason", reason.isEmpty() ? "request" : reason);
+                call.resolve(new JSObject().put("tracks", cached).put("cached", true).put("playlist", summary));
             }
         });
     }
@@ -471,7 +489,7 @@ public final class VutronMusicPlugin extends Plugin {
                 java.util.function.BooleanSupplier admitted = () -> epoch == onlineCacheEpoch && !LocalOnlyMode.enabled(context)
                         && cookie.equals(SessionStore.load(context)) && ArtworkCache.canAutomaticallyCache(context);
                 if (admitted.getAsBoolean() && !PlaylistCache.excludesAutomaticSnapshot(context, owner, playlistId)) {
-                    NeteaseApi api = new NeteaseApi(cookie, admitted);
+                    NeteaseApi api = MusicConnectivity.netease(context, cookie, admitted);
                     JSONObject metadata = api.playlistDetail(playlistId);
                     if (admitted.getAsBoolean()) {
                         List<JSONObject> tracks = api.tracks(metadata);
@@ -643,7 +661,7 @@ public final class VutronMusicPlugin extends Plugin {
         synchronized (onlineCacheLock) { epoch = onlineCacheEpoch; }
         libraryTasks.execute("cachePlaylists", call, () -> {
             synchronized (onlineCacheLock) { requireBatchOwner(cookie, epoch); }
-            NeteaseApi api = new NeteaseApi(cookie, () -> !LocalOnlyMode.enabled(context) && cookie.equals(SessionStore.load(context)) && !LibraryTaskRunner.isCancelled());
+            NeteaseApi api = MusicConnectivity.netease(context, cookie, () -> !LocalOnlyMode.enabled(context) && cookie.equals(SessionStore.load(context)) && !LibraryTaskRunner.isCancelled());
             JSONObject metadata = api.playlistDetail(playlistId);
             List<JSONObject> values = api.tracks(metadata, (items, total) -> {
                 synchronized (onlineCacheLock) { requireBatchOwner(cookie, epoch); }
@@ -723,7 +741,7 @@ public final class VutronMusicPlugin extends Plugin {
             Context context=getContext();String cookie=SessionStore.load(context);
             if(cookie.isEmpty()) throw new java.io.IOException("请先登录网易云");
             final long epoch;synchronized(onlineCacheLock) { epoch=onlineCacheEpoch; }
-            NeteaseApi api=new NeteaseApi(cookie,() -> !LocalOnlyMode.enabled(context) && cookie.equals(SessionStore.load(context)));
+            NeteaseApi api=MusicConnectivity.netease(context, cookie,() -> !LocalOnlyMode.enabled(context) && cookie.equals(SessionStore.load(context)));
             long userId=cachedUserId(context);List<JSONObject> lists=api.playlists(userId);
             synchronized(onlineCacheLock) { requireBatchOwner(cookie,epoch);PlaylistCache.savePlaylists(context,userId,lists); }
             int done=0,cachedPlaylists=0,cachedTracks=0,failedPlaylists=0;
@@ -1251,7 +1269,11 @@ public final class VutronMusicPlugin extends Plugin {
             JSONObject envelope = null;
             if (PortableAccounts.hasAccounts(accounts)) {
                 char[] password = BackupPasswordPrompt.request(getActivity(), true, call.getString("language", ""));
-                try { envelope = BackupAccountCipher.seal(accounts, password); }
+                try {
+                    LibraryTaskRunner.phase("backupEncrypt");
+                    envelope = BackupAccountCipher.seal(accounts, password);
+                    LibraryTaskRunner.phase("backupExport");
+                }
                 finally { java.util.Arrays.fill(password, '\0'); }
             }
             LibraryTaskRunner.checkCancelled();
@@ -1339,6 +1361,8 @@ public final class VutronMusicPlugin extends Plugin {
             JSONArray audioEntries = archive ? backup.optJSONArray("audioEntries") : null;
             if (archive && audioEntries == null) throw new java.io.IOException("缓存备份清单无效");
             int audio = audioEntries == null ? 0 : audioEntries.length();
+            BackupCacheArchive.SpaceRequirement cacheSpace = archive
+                    ? BackupCacheArchive.spaceRequirement(backup, context.getFilesDir().getUsableSpace()) : null;
             String id = java.util.UUID.randomUUID().toString();
             String hash = digestBackupManifest(backup);
             if (archive) {
@@ -1354,6 +1378,7 @@ public final class VutronMusicPlugin extends Plugin {
                     .put("collectionCount", backup.getJSONArray("collections").length())
                     .put("trackCount", countBackupTracks(backup)).put("cacheItems", caches)
                     .put("audioItems", audio).put("hasAccounts", backup.optJSONObject(LibraryBackup.ACCOUNT_ENVELOPE) != null);
+            if (cacheSpace != null) summary.put("cacheRequiredBytes", cacheSpace.requiredBytes()).put("cacheAvailableBytes", cacheSpace.availableBytes());
             call.resolve(summary);
         });
     }
@@ -1374,6 +1399,7 @@ public final class VutronMusicPlugin extends Plugin {
         boolean includeCache = Boolean.TRUE.equals(call.getBoolean("includeCache", false));
         libraryTasks.execute("backupImport", call, () -> {
             JSONObject manifest = new JSONObject(pending.document().toString());
+            if (pending.archive() && includeCache) BackupCacheArchive.requireSpace(getContext().getFilesDir(), manifest);
             PortableAccounts.RestorePlan accounts = prepareBackupAccounts(call, manifest);
             LibraryTaskRunner.checkCancelled();
             JSONObject restored;
@@ -1402,26 +1428,26 @@ public final class VutronMusicPlugin extends Plugin {
         JSONObject envelope = LibraryBackup.takeAccountEnvelope(document, privacy);
         if (envelope == null) return null;
         char[] password = BackupPasswordPrompt.request(getActivity(), false, call.getString("language", ""));
-        try { return PortableAccounts.prepare(getContext(), BackupAccountCipher.open(envelope, password)); }
+        try {
+            LibraryTaskRunner.phase("backupDecrypt");
+            JSONObject decrypted = BackupAccountCipher.open(envelope, password);
+            LibraryTaskRunner.phase("backupImport");
+            return PortableAccounts.prepare(getContext(), decrypted);
+        }
         finally { java.util.Arrays.fill(password, '\0'); }
     }
 
     private JSONObject restoreBackupDocument(PluginCall call, JSONObject document, PortableAccounts.RestorePlan accounts) throws Exception {
         LibraryTaskRunner.beginCommit();
-        JSONObject receipt = LibraryBackup.restore(getContext(), document);
-        if (accounts != null) {
-            JSONObject applied;
-            synchronized (qrSessions) {
-                applied = accounts.apply();
-                if (applied.optBoolean("neteaseRestored")) invalidateQrSessions();
-            }
-            receipt.put("neteaseRestored", applied.optBoolean("neteaseRestored"))
-                    .put("pluginAccountsRestored", applied.optInt("pluginAccountsRestored"))
-                    .put("pluginAccountsSkipped", applied.optInt("pluginAccountsSkipped"));
-            if (applied.optBoolean("neteaseRestored")) {
-                synchronized (onlineCacheLock) { onlineCacheEpoch++; }
-                networkChanged();
-            }
+        JSONObject receipt;
+        if (accounts == null) receipt = LibraryBackup.restore(getContext(), document, null);
+        else synchronized (qrSessions) {
+            receipt = LibraryBackup.restore(getContext(), document, accounts);
+            if (receipt.optBoolean("neteaseRestored")) invalidateQrSessions();
+        }
+        if (accounts != null && receipt.optBoolean("neteaseRestored")) {
+            synchronized (onlineCacheLock) { onlineCacheEpoch++; }
+            networkChanged();
         }
         return receipt;
     }
@@ -1941,6 +1967,7 @@ public final class VutronMusicPlugin extends Plugin {
                 .put("translation", LyricOverlaySettings.translation(context))
                 .put("nextLine", LyricOverlaySettings.nextLine(context))
                 .put("estimatedWordTiming", LyricOverlaySettings.estimatedWordTiming(context))
+                .put("reducedMotion", LyricOverlaySettings.reducedMotion(context))
                 .put("wifiValidation", LyricOverlaySettings.wifiValidation(context))
                 .put("fontSize", LyricOverlaySettings.fontSize(context))
                 .put("playedColor", LyricOverlaySettings.playedColor(context))
@@ -1963,6 +1990,7 @@ public final class VutronMusicPlugin extends Plugin {
         if (values.has("translation")) LyricOverlaySettings.translation(context, values.optBoolean("translation"));
         if (values.has("nextLine")) LyricOverlaySettings.nextLine(context, values.optBoolean("nextLine"));
         if (values.has("estimatedWordTiming")) LyricOverlaySettings.estimatedWordTiming(context, values.optBoolean("estimatedWordTiming"));
+        if (values.has("reducedMotion")) LyricOverlaySettings.reducedMotion(context, values.optBoolean("reducedMotion"));
         if (values.has("wifiValidation")) LyricOverlaySettings.wifiValidation(context, values.optBoolean("wifiValidation"));
         if (values.has("fontSize")) LyricOverlaySettings.fontSize(context, values.optInt("fontSize"));
         if (values.has("playedColor")) LyricOverlaySettings.playedColor(context, values.optInt("playedColor"));
@@ -2107,7 +2135,7 @@ public final class VutronMusicPlugin extends Plugin {
         LocalOnlyMode.requireOnline(getContext());
         String cookie = SessionStore.load(getContext());
         if (cookie.isEmpty()) throw new Exception("请先登录网易云");
-        return new NeteaseApi(cookie, () -> !LocalOnlyMode.enabled(getContext()) && cookie.equals(SessionStore.load(getContext())));
+        return MusicConnectivity.netease(getContext(), cookie, () -> !LocalOnlyMode.enabled(getContext()) && cookie.equals(SessionStore.load(getContext())));
     }
 
     private static void cacheProfile(Context context, JSONObject account) throws java.io.IOException {

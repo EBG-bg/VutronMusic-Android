@@ -79,5 +79,86 @@ onMounted(() => { void load() })
 </template>
 
 <style scoped>
-.track-source-layer{position:fixed;inset:0;z-index:145;display:flex;align-items:flex-end;justify-content:center;background:var(--scrim);padding-top:max(12px,env(safe-area-inset-top))}.track-source-sheet{width:min(100%,640px);max-height:90dvh;overflow:auto;overscroll-behavior:contain;padding:16px max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));border:1px solid var(--line);border-bottom:0;border-radius:var(--radius-sheet) var(--radius-sheet) 0 0;background:var(--color-body-bg);color:var(--color-text);box-shadow:var(--shadow-sheet);animation:track-source-in var(--motion-panel) ease both}.track-source-sheet header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-bottom:10px;border-bottom:1px solid var(--line)}.track-source-sheet header>div{min-width:0}.track-source-sheet h3{margin:0;font-size:calc(17px * var(--ui-font-scale,1))}.track-source-sheet header p{margin:4px 0 0;color:var(--muted);overflow-wrap:anywhere}.track-source-candidates{display:grid;gap:6px;margin-top:10px}.track-source-candidate{display:grid;grid-template-columns:24px minmax(0,1fr) auto;align-items:center;gap:9px;width:100%;min-height:66px;padding:10px;border:1px solid var(--line);border-radius:var(--radius-card);background:var(--surface-card);color:inherit;text-align:left;font:inherit;transition:border-color var(--motion-control) ease,background-color var(--motion-control) ease}.track-source-candidate.selected{border-color:var(--accent);background:var(--accent-soft)}.track-source-check{display:grid;place-items:center;width:20px;height:20px;border:1px solid var(--line-strong);border-radius:50%;color:var(--accent)}.track-source-candidate.selected .track-source-check{border-color:var(--accent)}.track-source-copy,.track-source-meta{display:grid;min-width:0;gap:3px}.track-source-copy>span,.track-source-copy>small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.track-source-copy>span{font-size:calc(13px * var(--ui-font-scale,1))}.track-source-copy>small,.track-source-meta small{color:var(--muted);font-size:calc(11px * var(--ui-font-scale,1))}.track-source-meta{text-align:right}.track-source-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:12px}.track-source-current{padding:9px 10px;border-radius:var(--radius-card);background:var(--surface);font-size:calc(12px * var(--ui-font-scale,1))}@keyframes track-source-in{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}html[data-motion='reduced'] .track-source-sheet{animation:none}
+.track-source-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 145;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-top: max(12px, env(safe-area-inset-top));
+  background: var(--scrim);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+.track-source-sheet {
+  width: min(100%, 640px);
+  max-height: 90dvh;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 16px max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+  background: var(--color-body-bg);
+  color: var(--color-text);
+  box-shadow: var(--shadow-sheet);
+  animation: track-source-in var(--motion-panel) ease both;
+}
+
+.track-source-sheet header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.track-source-sheet header > div { min-width: 0; }
+.track-source-sheet h3 { margin: 0; font-size: calc(17px * var(--ui-font-scale, 1)); }
+.track-source-sheet header p { margin: 4px 0 0; color: var(--muted); overflow-wrap: anywhere; }
+
+.track-source-candidates {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.track-source-candidate {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 66px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface-card);
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  transition: border-color var(--motion-feedback) ease, background-color var(--motion-feedback) ease;
+}
+
+.track-source-candidate.selected { border-color: var(--accent); background: var(--accent-soft); }
+.track-source-check { display: grid; place-items: center; width: 20px; height: 20px; border: 1px solid var(--line-strong); border-radius: 50%; color: var(--accent); }
+.track-source-candidate.selected .track-source-check { border-color: var(--accent); }
+.track-source-copy, .track-source-meta { display: grid; min-width: 0; gap: 3px; }
+.track-source-copy > span, .track-source-copy > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.track-source-copy > span { font-size: calc(13px * var(--ui-font-scale, 1)); }
+.track-source-copy > small, .track-source-meta small { color: var(--muted); font-size: calc(11px * var(--ui-font-scale, 1)); }
+.track-source-meta { text-align: right; font-variant-numeric: tabular-nums; }
+
+.track-source-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.track-source-current { padding: 9px 10px; border-radius: var(--radius-card); background: var(--surface); font-size: calc(12px * var(--ui-font-scale, 1)); }
+
+@keyframes track-source-in {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: none; }
+}
+
+html[data-motion='reduced'] .track-source-sheet { animation: none; }
 </style>

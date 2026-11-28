@@ -149,13 +149,14 @@ final class PluginMedia {
                 return resolved.put("pluginMediaCandidates", backups)
                         .put("pluginMediaAttempt", attempt).put("pluginMediaTotal", attempt + backups.length());
             } catch (StaleAccount cancelled) { throw cancelled; }
-            catch (java.io.InterruptedIOException interrupted) {
-                if (Thread.currentThread().isInterrupted() || !(interrupted instanceof java.net.SocketTimeoutException)) throw interrupted;
-                if (firstFailure == null) firstFailure = interrupted;
-            } catch (AndroidPluginManager.PluginFailure unavailable) {
-                if (!"PLUGIN_ERROR".equals(unavailable.code)) throw unavailable;
+            catch (java.io.InterruptedIOException interrupted) { throw interrupted; }
+            catch (AndroidPluginManager.PluginFailure unavailable) {
+                if (MusicConnectivity.isUnreachable(unavailable) || !"PLUGIN_ERROR".equals(unavailable.code)) throw unavailable;
                 if (firstFailure == null) firstFailure = unavailable;
-            } catch (IOException unavailable) { if (firstFailure == null) firstFailure = unavailable; }
+            } catch (IOException unavailable) {
+                if (MusicConnectivity.isUnreachable(unavailable)) throw unavailable;
+                if (firstFailure == null) firstFailure = unavailable;
+            }
         }
         if (firstFailure != null) throw firstFailure;
         throw new IOException("插件没有返回播放地址");

@@ -41,7 +41,8 @@ module.exports=async({page,evaluate,wait,delay,root})=>{
       g=await geometry(selector);await delay(200);g=await geometry(selector);
       const swipeX=g.x<(g.start+g.end)/2?g.end:g.start;
       await gesture(kind,{x:swipeX,y:g.y},{x:(g.start+g.end)/2,y:g.y});
-      assert.equal(await value(selector),g.value,selector+': blank track drag changed value');
+      const middle=Number(await value(selector)),midpoint=(Number(g.min)+Number(g.max))/2;
+      assert.ok(Math.abs(middle-midpoint)<=Number(await evaluate('document.querySelector('+JSON.stringify(selector)+').step')||1)/2+1,selector+': a '+kind+' horizontal rail drag must follow the pointer to the midpoint (got '+middle+')');
       for(const edge of ['min','max']){
         g=await geometry(selector);
         await gesture(kind,{x:g.x,y:g.y},{x:edge==='min'?g.left+1:g.right-1,y:g.y});
@@ -67,6 +68,7 @@ module.exports=async({page,evaluate,wait,delay,root})=>{
   let g=await geometry(selectorFor('音频缓存容量')),oldScroll=await evaluate('scrollY');
   await gesture('touch',{x:g.start,y:g.y},{x:g.start,y:g.y-110});
   assert.ok(await evaluate('scrollY')>oldScroll,'A swipe on the blank rail should scroll the page');
+  assert.equal(await value(selectorFor('音频缓存容量')),g.value,'Vertical scrolling must leave the slider value unchanged');
   await evaluate("document.querySelector('[data-settings-section=lyrics] > summary').click()");await delay(200);
   for(const label of ['歌词大小','阴影模糊'])await checkRange(selectorFor(label));
   await evaluate("document.querySelector('[data-settings-section=lyric-colors] > summary').click()");await delay(200);
@@ -97,6 +99,20 @@ module.exports=async({page,evaluate,wait,delay,root})=>{
     await delay(100);
   }
   await evaluate("window.featureHarness.store.navigateTo('player')");await wait("document.querySelector('.progress-control')");await delay(350);
+  const progress='.progress-control input[type=range]';
+  await evaluate(`(()=>{const store=window.featureHarness.store,seek=store.seek;window.sliderSeeks=[];store.seek=(position)=>{window.sliderSeeks.push(position);return seek(position)}})()`);
+  for(const ending of ['touchCancel','touchEnd']){
+    g=await geometry(progress);
+    const start=g.x<(g.start+g.end)/2?g.end:g.start;
+    await page.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:start,y:g.y}]});
+    await page.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:(g.start+g.end)/2,y:g.y+2}]});
+    const preview=Number(await value(progress));
+    assert.notEqual(preview,Number(g.value),'Drag updates the playback preview before release');
+    assert.deepEqual(await evaluate('window.sliderSeeks'),[],'Preview must not dispatch native seek');
+    await page.send('Input.dispatchTouchEvent',{type:ending,touchPoints:[]});await delay(80);
+    assert.deepEqual(await evaluate('window.sliderSeeks'),ending==='touchEnd'?[preview]:[],'Only release should seek, exactly once');
+    if(ending==='touchCancel')assert.equal(await value(progress),g.value,'Cancelling returns to the playback position');
+  }
   await evaluate("document.querySelector('[data-settings-section=playback-volume] > summary').click()");await delay(200);
   for(const selector of ['.progress-control input[type=range]','#track-volume','#playlist-volume'])await checkRange(selector);
   await page.send('Emulation.setDeviceMetricsOverride',{width:320,height:844,deviceScaleFactor:1,mobile:true});
@@ -120,7 +136,7 @@ module.exports=async({page,evaluate,wait,delay,root})=>{
       await geometry(selector);await assertEndpoints(selector);
     }
     assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'),true,'Horizontal overflow at '+width);
-    assert.equal(await evaluate("Array.from(document.querySelectorAll('input[type=range]')).every(e=>e.closest('.thumb-range'))"),true,'Every numeric rail must use the thumb-only control');
+    assert.equal(await evaluate("Array.from(document.querySelectorAll('input[type=range]')).every(e=>e.closest('.thumb-range'))"),true,'Native range inputs use the shared slider');
     for(const seconds of [-30,30]){
       await evaluate(`(()=>{const e=document.querySelector('[aria-label="歌词延迟秒数"]');e.value=${seconds};e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('blur'))})()`);
       await offsetGeometry();

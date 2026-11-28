@@ -1,4 +1,4 @@
-import { computed, ref, type Ref } from 'vue'
+import { computed, ref, watch, type Ref } from 'vue'
 import {
   vutronPlugin,
   type VutronLyricOverlaySettings,
@@ -6,6 +6,7 @@ import {
 } from '../../platform/vutronPlugin'
 import { createLiveSettingWriter } from '../../platform/liveSettingWrites'
 import { flushRegisteredLiveSettings } from '../../platform/liveSettingsLifecycle'
+import { reducedMotion } from '../../platform/motion'
 
 export interface ShellOverlayOptions {
   playback: Ref<VutronPlaybackState>
@@ -93,6 +94,8 @@ export function createShellOverlay(options: ShellOverlayOptions) {
     onError: cause => { error.value = formatError(cause, t('mobile.runtimeText.overlaySaveFailed')) },
   })
 
+  watch(reducedMotion, value => { void updateOverlayField('reducedMotion', value) })
+
   // --- Overlay read ---------------------------------------------------------
 
   async function loadOverlaySettings() {
@@ -121,6 +124,7 @@ export function createShellOverlay(options: ShellOverlayOptions) {
         }
         overlayTrackKey = trackKey
       }
+      await updateOverlayField('reducedMotion', reducedMotion.value)
     } catch (cause) {
       error.value = formatError(cause, t('mobile.runtimeText.overlayReadFailed'))
     }

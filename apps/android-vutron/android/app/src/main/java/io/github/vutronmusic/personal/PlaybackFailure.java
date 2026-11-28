@@ -15,28 +15,32 @@ import javax.net.ssl.SSLException;
 /** Stable UI codes; diagnostics contain stages/types/numeric player codes, never source URLs or cookies. */
 final class PlaybackFailure {
     final String code, message, diagnostic;
+    final boolean networkUnreachable;
     private PlaybackFailure(String code, String message, String diagnostic) {
-        this.code = code; this.message = message; this.diagnostic = diagnostic;
+        this(code, message, diagnostic, false);
+    }
+    private PlaybackFailure(String code, String message, String diagnostic, boolean networkUnreachable) {
+        this.code = code; this.message = message; this.diagnostic = diagnostic; this.networkUnreachable = networkUnreachable;
     }
     static PlaybackFailure of(String code) { return new PlaybackFailure(code, message(code), ""); }
     static PlaybackFailure timedOut(String stage) { return new PlaybackFailure("timeout", message("timeout"), stage); }
     static PlaybackFailure timedOut(String stage, long millis) { return timedOut(stage + " (" + millis + " ms)"); }
     PlaybackFailure atStage(String stage) {
-        return new PlaybackFailure(code, message, diagnostic.isEmpty() ? stage : stage + ": " + diagnostic);
+        return new PlaybackFailure(code, message, diagnostic.isEmpty() ? stage : stage + ": " + diagnostic, networkUnreachable);
     }
     PlaybackFailure withRelayReason(String relayStatus) {
         if (!"timeout".equals(code) && !"source_io".equals(code) && !"playback".equals(code)) return this;
         // Only the current relay snapshot can refine a generic player error. Its last field is the failure reason.
         if (!relayStatus.startsWith("relay=failed, ")
                 || (!relayStatus.endsWith(", address") && !relayStatus.endsWith(", address_recovery"))) return this;
-        return new PlaybackFailure("source_address", message("source_address"), diagnostic);
+        return new PlaybackFailure("source_address", message("source_address"), diagnostic, networkUnreachable);
     }
     PlaybackFailure atAttempt(int attempt, int total, String relayStatus) {
         return new PlaybackFailure(code, message, "CDN " + attempt + "/" + total + " · " + (diagnostic.isEmpty() ? code : diagnostic)
-                + (relayStatus.isEmpty() ? "" : " · " + relayStatus));
+                + (relayStatus.isEmpty() ? "" : " · " + relayStatus), networkUnreachable);
     }
     PlaybackFailure afterAttempts(String previous) {
-        return previous == null || previous.isEmpty() ? this : new PlaybackFailure(code, message, previous + "\n" + diagnostic);
+        return previous == null || previous.isEmpty() ? this : new PlaybackFailure(code, message, previous + "\n" + diagnostic, networkUnreachable);
     }
     static PlaybackFailure incompleteStream() { return new PlaybackFailure("source_unavailable", message("source_unavailable"), "decoded_duration"); }
     static PlaybackFailure noOtherMatch(String source, PlaybackFailure original) {
@@ -81,7 +85,8 @@ final class PlaybackFailure {
         }
         if (code.isEmpty()) code = !networkCode.isEmpty() ? networkCode : remote && !online ? "network"
                 : "resolve".equals(stage) ? "source_unavailable" : "playback";
-        return new PlaybackFailure(code, message(code), stage + ": " + (failure == null ? "Unknown" : failure.getClass().getSimpleName()));
+        return new PlaybackFailure(code, message(code), stage + ": " + (failure == null ? "Unknown" : failure.getClass().getSimpleName()),
+                remote && !Set.of("auth", "plugin_auth", "offline").contains(code) && MusicConnectivity.isUnreachable(failure));
     }
 
     static PlaybackFailure media(int what, int extra, boolean remote, boolean online) {
@@ -89,7 +94,7 @@ final class PlaybackFailure {
         String code = what == 100 ? "player" : extra == -110 ? "timeout" : remote && !online ? "network"
                 : extra == -1007 || extra == -1010 || !remote && extra == Integer.MIN_VALUE ? "decode"
                 : remote && (extra == -1004 || extra == Integer.MIN_VALUE) ? "source_io" : "playback";
-        return new PlaybackFailure(code, message(code), "MediaPlayer what=" + what + ", extra=" + extra);
+        return new PlaybackFailure(code, message(code), "MediaPlayer what=" + what + ", extra=" + extra, remote && what != 100 && extra == -110);
     }
 
     static boolean isMediaSourceFailure(int what, int extra) {

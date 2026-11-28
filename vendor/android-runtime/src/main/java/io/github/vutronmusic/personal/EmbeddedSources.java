@@ -59,6 +59,11 @@ public final class EmbeddedSources {
 
     private EmbeddedSources() { }
 
+    /** A loopback host failure is not evidence that the phone has lost Internet access. */
+    static final class LocalTransportFailure extends IOException {
+        LocalTransportFailure(IOException cause) { super("手机内置音源服务通信失败", cause); }
+    }
+
     static final class NoMatch extends IOException {
         NoMatch(String message) { super(message); }
     }
@@ -579,6 +584,10 @@ public final class EmbeddedSources {
             return result;
         } catch (JSONException invalid) {
             throw new IOException("手机内置音源服务返回了无效结果", invalid);
+        } catch (IOException failure) {
+            if (Thread.currentThread().isInterrupted()
+                    || failure instanceof InterruptedIOException && !(failure instanceof java.net.SocketTimeoutException)) throw failure;
+            throw new LocalTransportFailure(failure);
         } finally {
             if (timeout != null) timeout.cancel(false);
             if (connection != null) connection.disconnect();
@@ -617,6 +626,11 @@ public final class EmbeddedSources {
             }
             return new JSONObject(output.toString(StandardCharsets.UTF_8.name()));
         } catch (JSONException invalid) { throw new IOException("插件宿主返回了无效结果", invalid); }
+        catch (IOException failure) {
+            if (Thread.currentThread().isInterrupted()
+                    || failure instanceof InterruptedIOException && !(failure instanceof java.net.SocketTimeoutException)) throw failure;
+            throw new LocalTransportFailure(failure);
+        }
         finally { timeout.cancel(false); connection.disconnect(); }
     }
 

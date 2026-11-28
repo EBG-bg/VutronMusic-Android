@@ -63,6 +63,34 @@ public class BackupCacheArchiveTest {
         assertTrue("inspection reads only the first ZIP member", input.count < 32 * 1024);
     }
 
+    @Test public void cacheSpaceEstimateUsesArchiveTotalAndSupportsOlderAudioManifests() throws Exception {
+        long audioBytes = 2L * 1024 * 1024 * 1024;
+        long archiveBytes = audioBytes + 12 * 1024 * 1024;
+        JSONArray audioEntries = new JSONArray();
+        for (int id = 123; id < 127; id++) audioEntries.put(new JSONObject().put("id", id)
+                .put("bytes", 512L * 1024 * 1024).put("sha256", "a".repeat(64)));
+        JSONObject current = new JSONObject().put("cacheItemCount", 4).put("cacheTotalBytes", archiveBytes)
+                .put("audioEntries", audioEntries);
+        BackupCacheArchive.SpaceRequirement currentSpace = BackupCacheArchive.spaceRequirement(current, Long.MAX_VALUE);
+        assertEquals(archiveBytes + 32L * 1024 * 1024, currentSpace.requiredBytes());
+        assertTrue(currentSpace.sufficient());
+
+        JSONObject older = new JSONObject().put("cacheItemCount", 4).put("audioEntries", audioEntries);
+        BackupCacheArchive.SpaceRequirement olderSpace = BackupCacheArchive.spaceRequirement(older, audioBytes + 32L * 1024 * 1024);
+        assertEquals(audioBytes + 32L * 1024 * 1024, olderSpace.requiredBytes());
+        assertTrue(olderSpace.sufficient());
+    }
+
+    @Test public void insufficientCacheSpaceFailsWithRequiredAndAvailableBytes() throws Exception {
+        long archiveBytes = 3L * 1024 * 1024 * 1024;
+        JSONObject manifest = new JSONObject().put("cacheItemCount", 2).put("cacheTotalBytes", archiveBytes)
+                .put("audioEntries", new JSONArray());
+        long required = archiveBytes + 32L * 1024 * 1024;
+        IOException failure = assertThrows(IOException.class,
+                () -> BackupCacheArchive.requireSpace(manifest, required - 1));
+        assertEquals("BACKUP_CACHE_SPACE:" + required + ":" + (required - 1), failure.getMessage());
+    }
+
     @Test public void invalidPathAndMissingEntriesFailBeforeAnyCacheFileIsApplied() throws Exception {
         File root = temporary.newFolder();
         for (byte[] archive : new byte[][]{zip(1, "lyrics/../vutron_user.xml", new JSONObject().put("value", "x")), zip(2, "lyrics/123.json", new JSONObject().put("_songId", 123))}) {
