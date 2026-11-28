@@ -10,7 +10,7 @@ import PlayerPlaybackStatus from './PlayerPlaybackStatus.vue'
 import ThumbRange from './ThumbRange.vue'
 import TrackMenuButton from './TrackMenuButton.vue'
 
-const props = defineProps<{ track: VutronTrack; cover: string; speed?: number }>()
+const props = defineProps<{ track: VutronTrack; cover: string; speed?: number; lyrics?: boolean }>()
 const store = useAndroidShellStore()
 </script>
 
@@ -23,7 +23,7 @@ const store = useAndroidShellStore()
         <button class="secondary-button playback-tuning-button" type="button">{{ (props.speed ?? store.playback.rate ?? 1).toFixed(2) }}×</button>
       </div>
     </div>
-    <PlayerVisual :cover="cover" :remote-cover="track.picUrl" :plugin-id="track.pluginId" :plugin-context="track.pluginSourceContext" />
+    <PlayerVisual :cover="cover" :remote-cover="track.picUrl" :plugin-id="track.pluginId" :plugin-context="track.pluginSourceContext" :preview-lyrics="lyrics" />
     <div class="player-title-row">
       <div class="player-title"><h2>{{ track.name }}</h2><p>{{ track.artists?.join(' / ') || store.playback.artist || buildInfo.displayName }}</p></div>
       <TrackMenuButton v-if="track.id > 0" :name="track.name" />

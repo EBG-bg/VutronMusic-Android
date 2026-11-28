@@ -24,6 +24,13 @@ const text = ref(''), reply = ref<VutronComment>(), composer = ref<HTMLTextAreaE
 const length = computed(() => Array.from(text.value).length)
 const MAX_AUTO_COMMENTS = 300
 let observer: IntersectionObserver | undefined
+function visibleQuotes(replies: VutronComment["replies"], owner: VutronComment, self?: VutronComment) {
+  return (replies || []).filter(quoted => {
+    const id = String(quoted.id || "")
+    if (id) return id !== String(owner.id) && (!self || id !== String(self.id))
+    return !(quoted.nickname === owner.nickname && quoted.content === owner.content)
+  })
+}
 function date(time: number) { return time > 0 ? new Date(time).toLocaleDateString() : '' }
 function replyTo(row: VutronComment) { reply.value = row; void nextTick(() => composer.value?.focus()) }
 function collapseFloor(row: VutronComment,event: MouseEvent) {
@@ -60,7 +67,7 @@ onUnmounted(() => { observer?.disconnect() })
       <article v-for="row in comments" :key="row.id" class="comment-row">
         <div class="comment-author"><b>{{ row.nickname }}</b><small>{{ date(row.time) }}</small></div>
         <p class="comment-content">{{ row.content }}</p>
-        <blockquote v-for="quoted in row.replies" :key="quoted.id">{{ quoted.nickname ? quoted.nickname + '：' : '' }}{{ quoted.content }}</blockquote>
+        <blockquote v-for="quoted in visibleQuotes(row.replies, row)" :key="quoted.id">{{ quoted.nickname ? quoted.nickname + '：' : '' }}{{ quoted.content }}</blockquote>
         <div class="comment-actions">
           <button :disabled="busy || expired || row.deleted" :aria-pressed="row.liked" @click="thread.like(row)"><OriginalIcon :name="row.liked ? 'heartSolid' : 'heart'" />{{ row.likedCount || $t('mobile.comments.like') }}</button>
           <button :disabled="busy || expired || row.deleted" @click="replyTo(row)">{{ $t('mobile.comments.reply') }}</button>
@@ -68,7 +75,7 @@ onUnmounted(() => { observer?.disconnect() })
           <button v-if="row.userId === account && !row.deleted" :disabled="busy || expired" @click="remove(row)">{{ $t('mobile.comments.delete') }}</button>
         </div>
         <div v-if="floors[row.id]" :id="'comment-floor-' + row.id" class="comment-floor-region" :class="{ expanded: floors[row.id].expanded }" :inert="!floors[row.id].expanded" :aria-hidden="!floors[row.id].expanded"><div class="comment-floor-clip"><section class="comment-floor">
-          <article v-for="child in floors[row.id].rows" :key="child.id"><b>{{ child.nickname }}</b><p class="comment-content">{{ child.content }}</p><blockquote v-for="quoted in child.replies" :key="quoted.id">{{ quoted.nickname }}：{{ quoted.content }}</blockquote><div class="comment-actions"><button :disabled="busy || expired || child.deleted" :aria-pressed="child.liked" @click="thread.like(child)"><OriginalIcon :name="child.liked ? 'heartSolid' : 'heart'" />{{ child.likedCount || $t('mobile.comments.like') }}</button><button :disabled="busy || expired || child.deleted" @click="replyTo(child)">{{ $t('mobile.comments.reply') }}</button><button v-if="child.userId === account && !child.deleted" :disabled="busy || expired" @click="remove(child)">{{ $t('mobile.comments.delete') }}</button></div></article>
+          <article v-for="child in floors[row.id].rows" :key="child.id"><b>{{ child.nickname }}</b><p class="comment-content">{{ child.content }}</p><blockquote v-for="quoted in visibleQuotes(child.replies, row, child)" :key="quoted.id">{{ quoted.nickname ? quoted.nickname + '：' : '' }}{{ quoted.content }}</blockquote><div class="comment-actions"><button :disabled="busy || expired || child.deleted" :aria-pressed="child.liked" @click="thread.like(child)"><OriginalIcon :name="child.liked ? 'heartSolid' : 'heart'" />{{ child.likedCount || $t('mobile.comments.like') }}</button><button :disabled="busy || expired || child.deleted" @click="replyTo(child)">{{ $t('mobile.comments.reply') }}</button><button v-if="child.userId === account && !child.deleted" :disabled="busy || expired" @click="remove(child)">{{ $t('mobile.comments.delete') }}</button></div></article>
           <p v-if="floors[row.id].loading" class="setting-note" role="status">{{ $t('mobile.comments.loading') }}</p>
           <p v-if="floors[row.id].error" class="inline-error">{{ floors[row.id].error }}</p>
           <button v-if="floors[row.id].more || floors[row.id].error" class="text-button" :disabled="floors[row.id].loading || expired" @click="thread.loadFloor(row)">{{ $t(floors[row.id].loading ? 'mobile.comments.loading' : 'mobile.comments.moreReplies') }}</button>

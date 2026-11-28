@@ -7,12 +7,13 @@ import type { VutronSearchCategory } from '../platform/vutronPlugin'
 import { useAndroidShellStore } from '../stores/androidShell'
 import OriginalIcon from './OriginalIcon.vue'
 
-const props = defineProps<{ swipePosition?: number; swiping?: boolean }>()
+const props = defineProps<{ swipePosition?: number; swiping?: boolean; activeCategory?: VutronSearchCategory }>()
 const emit = defineEmits<{ submit: []; category: [VutronSearchCategory] }>()
 const store = useAndroidShellStore()
 const preview = inject(navigationPreviewKey, false)
 const tabs = ref<HTMLElement>()
-const position = computed(() => props.swipePosition ?? nativeSearchCategories.indexOf(store.searchCategory))
+const currentCategory = computed(() => props.activeCategory ?? store.searchCategory)
+const position = computed(() => props.swipePosition ?? nativeSearchCategories.indexOf(currentCategory.value))
 const indicator = !preview ? useNavigationIndicator(tabs, position, ref(nativeSearchCategories.length)) : undefined
 const keywords = computed({ get: () => store.searchKeywords, set: value => { if (!preview) store.searchKeywords = value } })
 </script>
@@ -26,7 +27,7 @@ const keywords = computed({ get: () => store.searchKeywords, set: value => { if 
   </form>
   <div ref="tabs" class="search-categories" :class="{ 'navigation-tabs': !preview }" :data-swiping="swiping ? '' : undefined" role="tablist" :aria-label="$t('mobile.shellUi.searchCategories')">
     <span v-if="!preview" class="navigation-tab-indicator" :style="indicator" aria-hidden="true"></span>
-    <button v-for="category in nativeSearchCategories" :key="category" type="button" role="tab" :aria-selected="store.searchCategory === category" :class="{ selected: store.searchCategory === category }" @click="!preview && emit('category', category)">{{ $t(nativeSearchCategoryLabel[category]) }}</button>
+    <button v-for="category in nativeSearchCategories" :key="category" type="button" role="tab" :aria-selected="currentCategory === category" :class="{ selected: currentCategory === category }" @click="!preview && emit('category', category)">{{ $t(nativeSearchCategoryLabel[category]) }}</button>
   </div>
   <div v-if="keywords" class="search-result-heading">
     <b>“{{ keywords }}”</b>

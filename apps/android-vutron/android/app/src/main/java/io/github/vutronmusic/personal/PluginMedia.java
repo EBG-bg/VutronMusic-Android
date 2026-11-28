@@ -149,6 +149,8 @@ final class PluginMedia {
                 return resolved.put("pluginMediaCandidates", backups)
                         .put("pluginMediaAttempt", attempt).put("pluginMediaTotal", attempt + backups.length());
             } catch (StaleAccount cancelled) { throw cancelled; }
+            // SocketTimeoutException also stops here: a real network timeout must not fan out to more CDNs.
+            // Loopback host timeouts are wrapped in LocalTransportFailure and follow the non-network path below.
             catch (java.io.InterruptedIOException interrupted) { throw interrupted; }
             catch (AndroidPluginManager.PluginFailure unavailable) {
                 if (MusicConnectivity.isUnreachable(unavailable) || !"PLUGIN_ERROR".equals(unavailable.code)) throw unavailable;

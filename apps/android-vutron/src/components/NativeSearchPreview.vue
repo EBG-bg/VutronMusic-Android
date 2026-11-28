@@ -1,15 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { nativeSearchCategories } from '../composables/nativeSearchCategories'
-import type { VutronSearchItem } from '../platform/vutronPlugin'
+import type { VutronSearchCategory, VutronSearchItem } from '../platform/vutronPlugin'
 import { useAndroidShellStore } from '../stores/androidShell'
 import NativeSearchHeader from './NativeSearchHeader.vue'
 import NativeSearchResults from './NativeSearchResults.vue'
 
 // Mounted only inside NavigationPeek, which disables input and artwork fetching.
-const props = defineProps<{ nestedCategory?: string; items?: readonly VutronSearchItem[]; moreResults?: boolean }>()
+const props = defineProps<{ nestedCategory?: string; previewCategory?: VutronSearchCategory; items?: readonly VutronSearchItem[]; moreResults?: boolean }>()
 const store = useAndroidShellStore()
-const category = computed(() => nativeSearchCategories.find(value => value === props.nestedCategory) ?? store.searchCategory)
+const category = computed(() => nativeSearchCategories.find(value => value === (props.nestedCategory ?? props.previewCategory)) ?? store.searchCategory)
 const adjacent = computed(() => category.value !== store.searchCategory)
 const hasSubmittedQuery = computed(() => Boolean(store.submittedSearch.keywords) && store.searchKeywords.trim() === store.submittedSearch.keywords)
 const snapshot = computed(() => adjacent.value && hasSubmittedQuery.value && store.adjacentSearch?.category === category.value ? store.adjacentSearch : undefined)
@@ -28,7 +28,7 @@ const stateKey = computed(() => JSON.stringify(['search-tracks', store.profile?.
 
 <template>
   <component :is="nestedCategory ? 'div' : 'section'" :class="nestedCategory ? 'content-switch-stage swipe-surface' : 'page search-page'">
-    <NativeSearchHeader v-if="!nestedCategory" />
+    <NativeSearchHeader v-if="!nestedCategory" :active-category="category" />
     <NativeSearchResults :category="category" :items="items" :loading="loading" :searched="searched" :more="more" :state-key="stateKey" />
   </component>
 </template>

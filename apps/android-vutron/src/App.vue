@@ -82,6 +82,7 @@ const pluginViewState = ref({ isDetail: false, canGoBack: false, caption: '', lo
 const pageTransitioning = ref(false)
 const mainTabTransition = ref<'next' | 'previous'>()
 const pendingSurfaceAction = ref<{ key: string; action: 'root' | 'back' }>()
+const pluginEntryEdge = ref<{ tab: string; edge: 'start' | 'end' }>()
 const integratedSourceVisible = computed(() => Boolean(musicSources.selected.value) && ['home', 'library', 'search'].includes(store.activeTab))
 const integratedSection = computed(() => store.activeTab === 'home' ? 'home' : store.activeTab === 'search' ? 'search' : 'library')
 const mainOnlineNavigation = computed(() => store.onlineAvailable || Boolean(musicSources.selected.value))
@@ -95,7 +96,8 @@ watch(() => store.profile?.userId, () => homeShelfPositions.clear(), { flush: 's
 const transitionHeight = ref<number>()
 const trackMenuSurface = ref<{ handleBack(): boolean }>()
 async function playFromPlugin(value: PluginPlayback) { await store.playPlugin(value) }
-function navigateTo(tab: Parameters<typeof store.navigateTo>[0]) {
+function navigateTo(tab: Parameters<typeof store.navigateTo>[0], preserveEntryEdge = false) {
+  if (!preserveEntryEdge) pluginEntryEdge.value = undefined
   if (tab === store.activeTab && integratedSourceVisible.value) {
     if (pageTransitioning.value || pluginViewState.value.loading) pendingSurfaceAction.value = { key: pageKey.value, action: 'root' }
     else void pluginSurface.value?.goRoot?.()
@@ -189,11 +191,27 @@ const navigationEnabled = () => !sidebarOpen.value && !commentTrack.value && !tr
 const swipeContext = computed(() => !integratedSourceVisible.value && store.activeTab === 'library' && !store.selectedPlaylist ? 'library' : !integratedSourceVisible.value && store.activeTab === 'search' ? 'search' : store.activeTab === 'player' ? 'player' : 'main')
 const localTabs = computed<readonly string[]>(() => swipeContext.value === 'library' ? store.onlineAvailable ? ['playlists', 'local', 'offline'] : ['local', 'offline'] : swipeContext.value === 'search' ? nativeSearchCategories : swipeContext.value === 'player' ? playerVisual.value?.wide ? [] : ['cover', 'lyrics'] : mainTabs.value)
 const swipeCurrent = computed(() => swipeContext.value === 'library' ? libraryMode.value : swipeContext.value === 'search' ? store.searchCategory : swipeContext.value === 'player' ? playerLyrics.value ? 'lyrics' : 'cover' : store.activeTab)
+type SubPageEntry = { tab: 'library'; value: LibraryMode } | { tab: 'search'; value: VutronSearchCategory } | { tab: 'player'; value: boolean }
+const subPageHistory = ref<SubPageEntry[]>([])
+let suppressSubHistory = false
+function withSuppressedSubHistory(action: () => void) {
+  suppressSubHistory = true
+  try { action() } finally { suppressSubHistory = false }
+}
+function pushSubHistory(entry: SubPageEntry) {
+  if (suppressSubHistory) return
+  const last = subPageHistory.value[subPageHistory.value.length - 1]
+  if (last && last.tab === entry.tab && last.value === entry.value) return
+  subPageHistory.value.push(entry)
+  if (subPageHistory.value.length > 20) subPageHistory.value.shift()
+}
+watch(() => [store.activeTab, store.activeMusicSourceId, store.localOnly] as const, () => { subPageHistory.value = [] }, { flush: 'sync' })
 const libraryPaneScrolls = new Map<LibraryMode, number>()
 let libraryPaneHandoff: { from: number; to: number; leaving?: HTMLElement } | undefined
 watch(() => store.profile?.userId, () => libraryPaneScrolls.clear(), { flush: 'sync' })
 function setLibraryMode(mode: LibraryMode) {
   if (mode === libraryMode.value) return
+  if (swipeContext.value === 'library') pushSubHistory({ tab: 'library', value: libraryMode.value })
   if (swipeContext.value === 'library' && localSwipeFrame.value) {
     const from = window.scrollY
     libraryPaneScrolls.set(libraryMode.value, from)
@@ -201,6 +219,34 @@ function setLibraryMode(mode: LibraryMode) {
     localTransition.value = localTabs.value.indexOf(mode) > localTabs.value.indexOf(libraryMode.value) ? 'next' : 'previous'
   }
   libraryMode.value = mode
+}
+function navigateByPrimarySwipe(tab: Parameters<typeof store.navigateTo>[0]) {
+  const from = mainTabs.value.indexOf(mainNavigationTab.value as never)
+  const to = mainTabs.value.indexOf(tab as never)
+  const edge: 'start' | 'end' | undefined = from >= 0 && to >= 0 && from !== to ? (to < from ? 'end' : 'start') : undefined
+  if (edge) {
+    if (musicSources.selected.value && ['home', 'library', 'search'].includes(tab)) {
+      pluginEntryEdge.value = { tab, edge }
+    } else {
+      pluginEntryEdge.value = undefined
+      if (tab === 'library') {
+        const modes: LibraryMode[] = store.onlineAvailable ? ['playlists', 'local', 'offline'] : ['local', 'offline']
+        const target = edge === 'end' ? modes[modes.length - 1] : modes[0]
+        withSuppressedSubHistory(() => { libraryMode.value = target })
+      } else if (tab === 'search') {
+        const target = edge === 'end' ? nativeSearchCategories[nativeSearchCategories.length - 1] : nativeSearchCategories[0]
+        if (store.searchCategory !== target) {
+          withSuppressedSubHistory(() => {
+            store.searchCategory = target
+            if (store.searchKeywords.trim()) void store.runSearch(target, store.searchKeywords.trim(), true, true)
+          })
+        }
+      } else if (tab === 'player' && !window.matchMedia('(min-width: 840px) and (orientation: landscape)').matches) {
+        withSuppressedSubHistory(() => { playerLyrics.value = edge === 'end' })
+      }
+    }
+  }
+  navigateTo(tab, true)
 }
 function navigateSurface(tab: string) {
   if (swipeContext.value === 'library') { appNavigation.run(() => setLibraryMode(tab as LibraryMode)); return }
@@ -227,10 +273,19 @@ function restoreLibraryPaneScroll() {
   handoff.leaving?.style.setProperty('--page-leave-y', window.scrollY - handoff.from + 'px')
 }
 const libraryNeighbor = computed(() => swipeContext.value === 'library' ? navigationSwipe.neighbor.value as LibraryMode | undefined : undefined)
-const primarySwipe = useMainNavigationSwipe(mainTabs, computed(() => store.activeTab), () => navigationEnabled() && !(store.activeTab === 'library' && store.selectedPlaylist) && !(swipeContext.value === 'player' && playerVisual.value?.wide), navigateTo, {
+const primarySwipe = useMainNavigationSwipe(mainTabs, computed(() => store.activeTab), () => navigationEnabled() && !(store.activeTab === 'library' && store.selectedPlaylist) && !(swipeContext.value === 'player' && playerVisual.value?.wide), navigateByPrimarySwipe, {
   allowLyrics: () => swipeContext.value === 'player', viewport: () => pageFrame.value,
   previewTop: tab => window.scrollY - store.tabScrollFor(tab)
 })
+const primaryPeekEdge = computed<'start' | 'end' | undefined>(() => {
+  const neighbor = primarySwipe.neighbor.value
+  if (!neighbor) return undefined
+  const from = mainTabs.value.indexOf(store.activeTab as never), to = mainTabs.value.indexOf(neighbor as never)
+  return from >= 0 && to >= 0 && from !== to ? (to < from ? 'end' : 'start') : undefined
+})
+const peekLibraryMode = computed<LibraryMode>(() => primaryPeekEdge.value === 'end' ? 'offline' : primaryPeekEdge.value === 'start' ? (store.onlineAvailable ? 'playlists' : 'local') : libraryMode.value)
+const peekSearchCategory = computed<VutronSearchCategory>(() => primaryPeekEdge.value === 'end' ? nativeSearchCategories[nativeSearchCategories.length - 1] : primaryPeekEdge.value === 'start' ? nativeSearchCategories[0] : store.searchCategory)
+const peekPlayerLyrics = computed(() => primaryPeekEdge.value === 'end' ? true : primaryPeekEdge.value === 'start' ? false : playerLyrics.value)
 function startContentSwipe(event: TouchEvent) { navigationSwipe.start(event); primarySwipe.start(event) }
 function startContentPointer(event: PointerEvent) { navigationSwipe.pointerStart(event); primarySwipe.pointerStart(event) }
 function moveContentSwipe(event: TouchEvent) { navigationSwipe.move(event); primarySwipe.move(event) }
@@ -247,9 +302,49 @@ watch([() => navigationSwipe.neighbor.value, swipeContext], ([category, context]
   const timer = setTimeout(() => store.warmSearchCategory(category as VutronSearchCategory), 100)
   onCleanup(() => clearTimeout(timer))
 })
+watch([() => primarySwipe.neighbor.value, () => primarySwipe.holding.value, peekSearchCategory], ([neighbor, holding, category], _, onCleanup) => {
+  if (musicSources.selected.value || neighbor !== 'search' || !holding || category === store.searchCategory) return
+  const timer = setTimeout(() => store.warmSearchCategory(category), 100)
+  onCleanup(() => clearTimeout(timer))
+})
 const pageSwipeStyle = primarySwipe.style
 const localSwipeStyle = computed(() => swipeContext.value !== 'main' ? navigationSwipe.style.value : {})
-watch(playerLyrics, value => { if (store.activeTab === 'player') localTransition.value = value ? 'next' : 'previous' }, { flush: 'sync' })
+watch(playerLyrics, (value, previous) => {
+  if (store.activeTab === 'player') {
+    localTransition.value = value ? 'next' : 'previous'
+    if (!playerVisual.value?.wide && previous !== undefined && value !== previous) pushSubHistory({ tab: 'player', value: previous })
+  }
+}, { flush: 'sync' })
+const canStepBackInPage = computed(() =>
+  subPageHistory.value.length > 0
+  || (store.activeTab === 'player' && !playerVisual.value?.wide && playerLyrics.value)
+  || (!store.activeMusicSourceId && !store.localOnly && store.activeTab === 'library' && libraryMode.value !== 'playlists')
+)
+const networkStatusKey = computed(() =>
+  store.manualLocalOnly ? 'mobile.network.manualOffline'
+    : !store.networkConnected
+      ? (store.networkReason === 'unreachable' ? 'mobile.network.unreachableOffline' : 'mobile.network.automaticOffline')
+      : store.localOnly ? 'mobile.network.localGuest' : 'mobile.network.online'
+)
+const snapshotNoticeKey = computed(() => {
+  const playlist = store.selectedPlaylist
+  if (!playlist?.offlineSnapshot || !playlist.offlineReason) return ''
+  if (playlist.offlineReason === 'system') return 'mobile.offline.snapshotSystem'
+  if (playlist.offlineReason === 'unreachable') return 'mobile.offline.snapshotUnreachable'
+  return 'mobile.offline.snapshotRequest'
+})
+async function retryPlaylistOnline() {
+  const playlist = store.selectedPlaylist
+  if (!playlist) return
+  if (!store.manualLocalOnly && !store.networkConnected) {
+    await store.retryConnectivity()
+    if (store.onlineAvailable && store.activeTab === 'playlist' && store.selectedPlaylist?.id === playlist.id) {
+      await store.openPlaylist(playlist)
+    }
+    return
+  }
+  if (store.onlineAvailable) await store.openPlaylist(playlist)
+}
 const selectedMainSource = computed(() => store.activeMusicSourceId ? 'plugin:' + store.activeMusicSourceId : 'native:' + (libraryMode.value === 'playlists' ? 'netease' : libraryMode.value))
 const { headerRefreshLabel: nativeRefreshLabel, headerRefreshing: nativeRefreshing, refreshCurrentView: refreshNativeView } = usePageRefresh(store, libraryMode)
 const headerRefreshLabel = computed(() => integratedSourceVisible.value
@@ -575,8 +670,29 @@ function handleBack(): boolean {
     else openDetails.open = false
     return true
   }
+  const lastSub = subPageHistory.value[subPageHistory.value.length - 1]
+  if (lastSub && lastSub.tab === store.activeTab && !integratedSourceVisible.value) {
+    subPageHistory.value.pop()
+    if (lastSub.tab === 'library') {
+      appNavigation.run(() => withSuppressedSubHistory(() => { setLibraryMode(lastSub.value) }))
+      return true
+    }
+    if (lastSub.tab === 'search') {
+      localTransition.value = nativeSearchCategories.indexOf(lastSub.value) > nativeSearchCategories.indexOf(store.searchCategory) ? 'next' : 'previous'
+      withSuppressedSubHistory(() => changeSearchCategory(lastSub.value))
+      return true
+    }
+    if (lastSub.tab === 'player' && !playerVisual.value?.wide) {
+      withSuppressedSubHistory(() => { playerLyrics.value = lastSub.value })
+      return true
+    }
+  }
+  if (store.activeTab === 'player' && !playerVisual.value?.wide && playerLyrics.value) {
+    withSuppressedSubHistory(() => { playerLyrics.value = false })
+    return true
+  }
   if (!store.activeMusicSourceId && !store.localOnly && store.activeTab === 'library' && libraryMode.value !== 'playlists') {
-    appNavigation.run(() => { setLibraryMode('playlists'); query.value = '' }); return true
+    appNavigation.run(() => withSuppressedSubHistory(() => { setLibraryMode('playlists'); query.value = '' })); return true
   }
   if (appNavigation.intercept(() => store.navigateBack())) return true
   return store.navigateBack()
@@ -609,6 +725,7 @@ function submitSearch() {
 }
 
 function changeSearchCategory(category: VutronSearchCategory) {
+  if (swipeContext.value === 'search' && category !== store.searchCategory) pushSubHistory({ tab: 'search', value: store.searchCategory })
   store.searchCategory = category
   void store.runSearch(category, store.searchKeywords.trim(), true, true)
 }
@@ -653,11 +770,11 @@ function previewSeek(event: Event) {
   <main class="app-shell" :inert="Boolean(commentTrack) || store.queueOpen || tuningOpen || abLoopOpen || Boolean(actionDialog)" :class="[`playlist-layout-${playlistView}`, { 'settings-surface': ['settings', 'about'].includes(store.activeTab) }]" :style="{ '--playlist-columns': playlistColumns }">
     <header class="app-header">
       <button v-if="store.hasAccess && !store.loginVisible" ref="sidebarTrigger" class="icon-button sidebar-toggle" type="button" :aria-label="$t('mobile.library.openSidebar')" :aria-expanded="sidebarOpen" @click="sidebarOpen = !sidebarOpen"><OriginalIcon name="list" /></button>
-      <button v-if="store.canNavigateBack || integratedSourceVisible && pluginViewState.canGoBack" class="icon-button header-back" type="button" :aria-label="$t('mobile.common.back')" @click="handleBack"><OriginalIcon name="back" /></button>
+      <button v-if="store.canNavigateBack || canStepBackInPage || integratedSourceVisible && pluginViewState.canGoBack" class="icon-button header-back" type="button" :aria-label="$t('mobile.common.back')" @click="handleBack"><OriginalIcon name="back" /></button>
       <div v-if="!store.hasAccess" class="brand-mark original-brand"><img :src="originalBrandLogo" :alt="buildInfo.displayName" /></div>
       <div class="brand-copy">
         <h1>{{ buildInfo.displayName }}</h1>
-        <p>{{ musicSources.selected.value ? musicSources.selected.value.name : store.localOnly ? $t(store.manualLocalOnly ? 'mobile.network.manualOffline' : !store.networkConnected ? 'mobile.network.automaticOffline' : 'mobile.network.localGuest') : store.profile?.nickname || $t('mobile.common.mobilePlayer') }}</p>
+        <p>{{ musicSources.selected.value ? musicSources.selected.value.name : store.localOnly ? $t(networkStatusKey) : store.profile?.nickname || $t('mobile.common.mobilePlayer') }}</p>
       </div>
       <button v-if="headerRefreshLabel" class="icon-button header-refresh" :class="{ 'is-refreshing': headerRefreshing }" type="button" :aria-label="headerRefreshing ? $t('mobile.home.refreshing') : headerRefreshLabel" :title="headerRefreshLabel" :aria-busy="headerRefreshing" :disabled="headerRefreshing" @click="refreshCurrentView"><OriginalIcon name="refresh" /></button>
     </header>
@@ -724,12 +841,12 @@ function previewSeek(event: Event) {
           <template v-else-if="!musicSources.selected.value && primarySwipe.neighbor.value === 'library'">
             <MusicSourceSwitcher v-if="musicSources.sources.value.length" :model-value="selectedMainSource" :sources="musicSources.sources.value" :online-available="store.onlineAvailable" />
             <section class="page library-page">
-              <LibraryHeader :library-mode="libraryMode" />
-              <LibraryPane :library-mode="libraryMode" :query="query" :filter="libraryQuery" :local-batch-actions="localBatchActions" :cache-batch-actions="cacheBatchActions" />
+              <LibraryHeader :library-mode="peekLibraryMode" />
+              <LibraryPane :library-mode="peekLibraryMode" :query="query" :filter="libraryQuery" :local-batch-actions="localBatchActions" :cache-batch-actions="cacheBatchActions" />
             </section>
           </template>
-          <NativeSearchPreview v-else-if="!musicSources.selected.value && primarySwipe.neighbor.value === 'search'" :items="store.searchCategory === 'tracks' ? visibleSearchTracks : visibleSearchResults" :more-results="moreSearchResults" />
-          <PlayerNavigationPreview v-else-if="primarySwipe.neighbor.value === 'player'" :track="currentTrack" :cover="currentCover" :speed="playbackTuning.speed" />
+          <NativeSearchPreview v-else-if="!musicSources.selected.value && primarySwipe.neighbor.value === 'search'" :preview-category="peekSearchCategory" :items="store.searchCategory === 'tracks' ? visibleSearchTracks : visibleSearchResults" :more-results="moreSearchResults" />
+          <PlayerNavigationPreview v-else-if="primarySwipe.neighbor.value === 'player'" :track="currentTrack" :cover="currentCover" :speed="playbackTuning.speed" :lyrics="peekPlayerLyrics" />
           <AppSettingsView v-else-if="primarySwipe.neighbor.value === 'settings'" />
           <NavigationPreview v-else :tab="primarySwipe.neighbor.value" :source-name="musicSources.selected.value?.name" />
         </NavigationPeek>
@@ -737,7 +854,7 @@ function previewSeek(event: Event) {
       <Transition :name="transitionName" @before-leave="preserveTransitionSpace" @before-enter="primarySwipe.prepareEnter" @enter="preparePageEnter" @after-enter="finishPageTransition">
       <div :key="pageKey" class="page-stage" data-slide-active :data-page-key="pageKey" :data-swiping="primarySwipe.holding.value ? '' : undefined" :style="pageSwipeStyle">
       <MusicSourceSwitcher v-if="store.activeTab === 'library' && musicSources.sources.value.length && (!integratedSourceVisible || !pluginViewState.isDetail)" :model-value="selectedMainSource" :sources="musicSources.sources.value" :online-available="store.onlineAvailable" @select="selectMainSource" @manage="enterPlugins" />
-      <PluginLibraryView v-if="integratedSourceVisible" :key="musicSources.selectionKey.value + ':' + store.activeTab" ref="pluginSurface" :plugin-id="store.activeMusicSourceId" integrated :section="integratedSection" :local-only="store.manualLocalOnly || !store.networkConnected" @view-state="pluginViewState = $event" @back="handleBack" @manage="enterPlugins" @open-source="openPluginSource" @play="playFromPlugin" @next="store.queuePlugin($event, 'next')" @append="store.queuePlugin($event, 'append')" @radio-trash="store.pluginRadioTrash" />
+      <PluginLibraryView v-if="integratedSourceVisible" :key="musicSources.selectionKey.value + ':' + store.activeTab" ref="pluginSurface" :plugin-id="store.activeMusicSourceId" integrated :section="integratedSection" :entry-edge="pluginEntryEdge?.tab === store.activeTab ? pluginEntryEdge.edge : undefined" :local-only="store.manualLocalOnly || !store.networkConnected" @consume-entry-edge="pluginEntryEdge = undefined" @view-state="pluginViewState = $event" @back="handleBack" @manage="enterPlugins" @open-source="openPluginSource" @play="playFromPlugin" @next="store.queuePlugin($event, 'next')" @append="store.queuePlugin($event, 'append')" @radio-trash="store.pluginRadioTrash" />
       <PluginManagerView v-else-if="store.activeTab === 'plugins' && !store.activePluginId" ref="pluginSurface" :local-only="store.manualLocalOnly || !store.networkConnected" :account-target="playbackAccountTarget" @consume-account-target="playbackAccountTarget = undefined" @open="openManagedLibrary" @back="store.navigateBack" />
       <PluginLibraryView v-else-if="store.activeTab === 'plugins'" :key="store.activePluginId" ref="pluginSurface" :plugin-id="store.activePluginId" :local-only="store.manualLocalOnly || !store.networkConnected" @back="store.navigateBack" @manage="store.openPlugins()" @open-source="openPluginSource" @play="playFromPlugin" @next="store.queuePlugin($event, 'next')" @append="store.queuePlugin($event, 'append')" @radio-trash="store.pluginRadioTrash" />
       <NativeHomeView v-else-if="store.activeTab === 'home'" :hero-index="heroIndex" :shelf-positions="homeShelfPositions" @navigate="navigateTo" @refresh="refreshCurrentView" @hero="clickHero" @hero-select="selectHero" @hero-move="moveHero($event); startHeroRotation()" @menu="openTrackMenu($event)" />
@@ -802,6 +919,8 @@ function previewSeek(event: Event) {
             <button v-if="store.selectedPlaylist.offlineSnapshot" class="icon-button" type="button" :aria-label="$t('mobile.offline.deletePlaylist')" @click="libraryManagement.deleteOfflinePlaylist(store.selectedPlaylist)"><OriginalIcon name="close" /></button>
             <PlaylistMenuButton v-else :playlist="store.selectedPlaylist" />
           </div>
+          <p v-if="snapshotNoticeKey" class="library-mode-description playlist-snapshot-notice" role="status">{{ $t(snapshotNoticeKey) }} <button v-if="!store.manualLocalOnly && !store.networkConnected" class="text-button" type="button" :disabled="store.connectivityRetrying" :aria-busy="store.connectivityRetrying" @click="retryPlaylistOnline">{{ $t(store.connectivityRetrying ? 'mobile.network.checkingConnectivity' : 'mobile.network.retryConnectivity') }}</button><button v-else-if="store.onlineAvailable && store.selectedPlaylist.offlineReason === 'request'" class="text-button" type="button" :disabled="store.loading" @click="retryPlaylistOnline">{{ $t('mobile.offline.retryOnline') }}</button></p>
+          <p v-if="snapshotNoticeKey && !store.manualLocalOnly && !store.networkConnected && store.connectivityError" class="inline-error" role="alert">{{ store.connectivityError }}</p>
           <LocalTrackList :tracks="store.tracks" :collection-key="snapshotDetailKey || 'netease:' + store.selectedPlaylist.id"
             :order-key="snapshotDetailKey || 'netease:' + (store.selectedPlaylist.cacheOwnerId || store.profile?.userId || 0) + ':playlist:' + store.selectedPlaylist.id"
             :continue-scope="snapshotDetailKey || 'netease:' + (store.selectedPlaylist.cacheOwnerId || store.profile?.userId || 0)"

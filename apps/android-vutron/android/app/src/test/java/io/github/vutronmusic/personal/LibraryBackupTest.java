@@ -76,6 +76,59 @@ public class LibraryBackupTest {
         assertEquals(1.5,safe.getJSONObject("playback_tuning").getDouble("speed"),.001);
         assertTrue(safe.getJSONObject("playback_tuning").getBoolean("prefetchWifi"));assertFalse(safe.toString().contains("secret"));
     }
+    @Test public void threeStateOverlayMotionSurvivesExportAndRestoreWithoutPrivacyOptIn() throws Exception {
+        for (String preference : new String[]{"full", "system", "reduced"}) {
+            JSONObject preferences = new JSONObject().put("lyric_overlay", new JSONObject()
+                    .put("motion_preference", preference).put("reduced_motion", true));
+            JSONObject exported = LibraryBackup.exportPreferences(preferences, false);
+            JSONObject source = backup(new JSONArray()).put("settings", exported);
+            LibraryBackup.RestorePlan plan = LibraryBackup.planRestore(new JSONObject().put("collections", new JSONArray()), source);
+            JSONObject nativeSettings = plan.safe.getJSONObject("settings").getJSONObject("lyric_overlay");
+            assertEquals(preference, nativeSettings.getString("motion_preference"));
+            assertEquals(!preference.equals("full"), nativeSettings.getBoolean("reduced_motion"));
+            assertEquals(preference, plan.safe.getJSONObject("frontend").getString("vutron:motion-preference"));
+            assertEquals(exported.toString(), LibraryBackup.safePreferences(exported).toString());
+        }
+    }
+
+    @Test public void legacyOverlayMotionRestoresToBothSidesAndOverridesAnExistingNewPreference() throws Exception {
+        for (boolean reduced : new boolean[]{false, true}) {
+            JSONObject source = backup(new JSONArray()).put("settings", new JSONObject().put("lyric_overlay",
+                    new JSONObject().put("reduced_motion", reduced)));
+            JSONObject safe = LibraryBackup.validate(source);
+            String expected = reduced ? "reduced" : "system";
+            assertEquals(expected, safe.getJSONObject("settings").getJSONObject("lyric_overlay").getString("motion_preference"));
+            assertEquals(expected, safe.getJSONObject("frontend").getString("vutron:motion-preference"));
+            assertEquals(expected, LyricOverlaySettings.resolveMotionPreference(null, reduced));
+        }
+    }
+
+    @Test public void explicitFrontendMotionWinsOverAnOlderResolvedNativeFlag() throws Exception {
+        JSONObject source = backup(new JSONArray()).put("frontend", new JSONObject().put("vutron:motion-preference", "full"))
+                .put("settings", new JSONObject().put("lyric_overlay", new JSONObject().put("reduced_motion", true)));
+        JSONObject safe = LibraryBackup.validate(source);
+        JSONObject nativeSettings = safe.getJSONObject("settings").getJSONObject("lyric_overlay");
+        assertEquals("full", nativeSettings.getString("motion_preference"));
+        assertFalse(nativeSettings.getBoolean("reduced_motion"));
+        source.put("settings", new JSONObject());
+        nativeSettings = LibraryBackup.validate(source).getJSONObject("settings").getJSONObject("lyric_overlay");
+        assertEquals("full", nativeSettings.getString("motion_preference"));
+    }
+
+    @Test public void invalidOrAbsentMotionValuesCannotOverwritePreferencesDuringRestore() throws Exception {
+        for (Object invalid : new Object[]{"FULL", "anything", true, 0, JSONObject.NULL}) {
+            assertFalse(LyricOverlaySettings.validMotionPreference(invalid));
+            JSONObject safe = LibraryBackup.validate(backup(new JSONArray())
+                    .put("frontend", new JSONObject().put("vutron:motion-preference", invalid))
+                    .put("settings", new JSONObject().put("lyric_overlay", new JSONObject().put("motion_preference", invalid))));
+            assertFalse(safe.getJSONObject("settings").getJSONObject("lyric_overlay").has("motion_preference"));
+            assertFalse(safe.getJSONObject("frontend").has("vutron:motion-preference"));
+        }
+        JSONObject safe = LibraryBackup.validate(backup(new JSONArray()));
+        assertFalse(safe.getJSONObject("settings").getJSONObject("lyric_overlay").has("motion_preference"));
+        assertFalse(safe.getJSONObject("frontend").has("vutron:motion-preference"));
+    }
+
     private JSONObject song() throws Exception { return new JSONObject().put("id", 1).put("name", "Song").put("artists", new JSONArray().put("Artist")).put("album", "Album").put("duration", 1000).put("localUri", "content://private/folder/audio").put("localFileName", "song.flac").put("cookie", "secret"); }
     @Test public void portableTracksExcludePathsCredentialsAndLocalNumericIdentity() throws Exception {
         JSONObject portable = LibraryBackup.portableTrack(song());

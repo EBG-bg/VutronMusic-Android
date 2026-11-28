@@ -75,8 +75,36 @@ let handoffFrame = 0
 let handoffRemainder = 0
 let handoffWindowY = 0
 let layoutFrame = 0
+let scrollAnimationFrame = 0
 let layoutObserver: ResizeObserver | undefined
 let observedRow: HTMLElement | undefined
+const observedSizes = new WeakMap<Element, string>()
+
+function cancelScrollAnimation() {
+  if (!scrollAnimationFrame) return
+  cancelAnimationFrame(scrollAnimationFrame)
+  scrollAnimationFrame = 0
+}
+
+function animateScrollTop(list: HTMLElement, target: number) {
+  cancelScrollAnimation()
+  const maxTop = Math.max(0, list.scrollHeight - list.clientHeight)
+  const destination = Math.max(0, Math.min(maxTop, target))
+  const start = list.scrollTop
+  const delta = destination - start
+  if (Math.abs(delta) < 1) { list.scrollTop = destination; return }
+  const duration = Math.max(240, Math.min(460, 240 + Math.abs(delta) * 0.45))
+  const startedAt = performance.now()
+  const step = (now: number) => {
+    if (!mounted || manualScroll.value || container.value !== list) { scrollAnimationFrame = 0; return }
+    const progress = Math.min(1, (now - startedAt) / duration)
+    const eased = 1 - Math.pow(1 - progress, 3)
+    list.scrollTop = start + delta * eased
+    if (progress < 1) scrollAnimationFrame = requestAnimationFrame(step)
+    else scrollAnimationFrame = 0
+  }
+  scrollAnimationFrame = requestAnimationFrame(step)
+}
 
 function setRow(element: Element | ComponentPublicInstance | null, index: number) {
   if (element instanceof HTMLElement) rows[index] = element
@@ -94,7 +122,7 @@ function selectHighlightedRow(index: number) {
   const row = rows[index]
   highlightedElement = row
   if (observedRow !== row) {
-    if (observedRow) layoutObserver?.unobserve(observedRow)
+    if (observedRow) { layoutObserver?.unobserve(observedRow); observedSizes.delete(observedRow) }
     observedRow = row
     if (row) layoutObserver?.observe(row)
   }
@@ -187,8 +215,16 @@ async function followActive(instant = false, reveal = false) {
     viewport = unobscuredViewport(list)
     band = { top: listRect.top, bottom: listRect.bottom }
   }
-  const top = lyricCenteredScrollTop(list.scrollTop, rowRect.top, rowRect.bottom, band)
-  list.scrollTo({ top, behavior: instant || isMotionReduced() ? 'instant' as ScrollBehavior : 'smooth' })
+  // Account for ancestor CSS transform scaling (such as .page-stage entry transitions)
+  // because getBoundingClientRect() returns scaled viewport pixels while scrollTop uses layout pixels.
+  const scale = list.clientHeight > 0 && listRect.height > 0 && Math.abs(listRect.height - list.clientHeight) > 0.5 ? listRect.height / list.clientHeight : 1
+  const top = scale === 1
+    ? lyricCenteredScrollTop(list.scrollTop, rowRect.top, rowRect.bottom, band)
+    : lyricCenteredScrollTop(list.scrollTop, band.top + (rowRect.top - band.top) / scale, band.top + (rowRect.bottom - band.top) / scale, { top: band.top, bottom: band.top + (band.bottom - band.top) / scale })
+  if (instant || isMotionReduced()) {
+    cancelScrollAnimation()
+    list.scrollTop = Math.max(0, Math.min(Math.max(0, list.scrollHeight - list.clientHeight), top))
+  } else animateScrollTop(list, top)
 }
 
 function returnToCurrent() {
@@ -199,11 +235,13 @@ function returnToCurrent() {
 
 function markManualScroll() {
   clearConfirmation()
+  cancelScrollAnimation()
   ++followGeneration
   manualScroll.value = true
 }
 
 function touchStart(event: TouchEvent) {
+  cancelScrollAnimation()
   if (event.touches.length !== 1) { lastFingerY = undefined; return }
   lastFingerY = event.touches[0].clientY
   fingerStartX = event.touches[0].clientX
@@ -254,6 +292,7 @@ function seekLine(line: LyricLine, event: MouseEvent, index: number) {
   if (touchPointerMoved && event.detail !== 0) { touchPointerMoved = false; return }
   if (pendingLine.value !== index || performance.now() > pendingUntil) {
     clearConfirmation()
+    cancelScrollAnimation()
     manualScroll.value = true
     ++followGeneration
     pendingLine.value = index
@@ -295,6 +334,17 @@ function onViewportChange() {
   })
 }
 
+function onObservedResize(entries: ResizeObserverEntry[]) {
+  let changed = false
+  for (const entry of entries) {
+    const size = Math.round(entry.contentRect.width) + "x" + Math.round(entry.contentRect.height)
+    const previous = observedSizes.get(entry.target)
+    observedSizes.set(entry.target, size)
+    if (previous !== undefined && previous !== size) changed = true
+  }
+  if (changed) onViewportChange()
+}
+
 if (!preview) {
   watch(() => [props.position, props.playing, props.rate, props.offsetMs, props.duration, props.loop], reanchor)
   watch(displayLines, () => {
@@ -304,6 +354,7 @@ if (!preview) {
   }, { deep: true, flush: 'post' })
   watch(() => props.family, async () => {
     clearConfirmation()
+    cancelScrollAnimation()
     ++followGeneration
     highlightedRow = -1
     activeWords = []
@@ -321,7 +372,7 @@ if (!preview) {
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('resize', onViewportChange, { passive: true })
     window.visualViewport?.addEventListener('resize', onViewportChange, { passive: true })
-    layoutObserver = new ResizeObserver(onViewportChange)
+    layoutObserver = new ResizeObserver(onObservedResize)
     if (container.value) layoutObserver.observe(container.value)
     reanchor()
     void followActive(true)
@@ -332,6 +383,7 @@ if (!preview) {
     cancelAnimationFrame(frame)
     cancelAnimationFrame(handoffFrame)
     cancelAnimationFrame(layoutFrame)
+    cancelScrollAnimation()
     layoutObserver?.disconnect()
     ++followGeneration
     document.removeEventListener('visibilitychange', onVisibility)

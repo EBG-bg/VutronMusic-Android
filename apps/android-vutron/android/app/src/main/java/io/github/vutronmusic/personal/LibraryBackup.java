@@ -87,6 +87,7 @@ final class LibraryBackup {
         }
         if ("playback_volume".equals(pref)) return key.matches("track:id:[1-9][0-9]*|track:local:[a-f0-9]{64}|playlist:key:[a-f0-9]{64}|plugin:[1-9][0-9]{0,15}") && value instanceof Number && ((Number) value).doubleValue() == ((Number) value).intValue() && ((Number) value).intValue() >= 0 && ((Number) value).intValue() <= 100;
         if ("lyric_overlay".equals(pref)) {
+            if ("motion_preference".equals(key)) return LyricOverlaySettings.validMotionPreference(value);
             if (LYRIC_BOOLEANS.contains(key)) return value instanceof Boolean;
             if (key.matches("lyric_offset_ms_[a-f0-9]{64}")) return value instanceof Number && Math.abs(((Number) value).longValue()) <= 30000;
             if (!LYRIC_INTS.contains(key) || !(value instanceof Number)) return false;
@@ -107,6 +108,11 @@ final class LibraryBackup {
         for (String pref : PREFS) {
             JSONObject values = supplied.optJSONObject(pref), safe = new JSONObject();
             if (values != null) for (Iterator<String> i = values.keys(); i.hasNext();) { String key = i.next(); Object value = values.get(key); if (validPreference(pref, key, value)) safe.put(key, value); }
+            if ("lyric_overlay".equals(pref) && (safe.has("motion_preference") || safe.has("reduced_motion"))) {
+                String preference = LyricOverlaySettings.resolveMotionPreference(safe.opt("motion_preference"), safe.optBoolean("reduced_motion"));
+                safe.put("motion_preference", preference).put("reduced_motion",
+                        LyricOverlaySettings.compatibleReducedMotion(preference, safe.optBoolean("reduced_motion")));
+            }
             result.put(pref, safe);
         }
         return result;
@@ -119,6 +125,18 @@ final class LibraryBackup {
             preferences.getJSONObject("playback_tuning").remove("prefetchWifi");
         }
         return preferences;
+    }
+
+    /** One app preference survives restore even when an older backup only contains the native flag. */
+    static void synchronizeMotionPreference(JSONObject settings, JSONObject frontend) throws Exception {
+        JSONObject overlay = settings.getJSONObject("lyric_overlay");
+        Object frontendValue = frontend.opt("vutron:motion-preference");
+        Object nativeValue = overlay.opt("motion_preference");
+        if (!LyricOverlaySettings.validMotionPreference(frontendValue) && !LyricOverlaySettings.validMotionPreference(nativeValue)) return;
+        String preference = (String) (LyricOverlaySettings.validMotionPreference(frontendValue) ? frontendValue : nativeValue);
+        frontend.put("vutron:motion-preference", preference);
+        overlay.put("motion_preference", preference).put("reduced_motion",
+                LyricOverlaySettings.compatibleReducedMotion(preference, overlay.optBoolean("reduced_motion")));
     }
     /** Pull the native-only section out before the ordinary restore plan or JS receipt can see it. */
     static JSONObject takeAccountEnvelope(JSONObject document, boolean includePrivacy) throws Exception {
@@ -260,7 +278,9 @@ final class LibraryBackup {
             JSONArray rows = new JSONArray(); for (JSONArray lane : new JSONArray[]{queue.songs, queue.upNext}) for (int i = 0; i < lane.length(); i++) rows.put(lane.getJSONObject(i));
             collections.put(portableCollection(c, "backup:queue", "恢复的播放队列", rows, new JSONObject(), new JSONObject()));
         }
-        return new JSONObject().put("format", 1).put("generator", GENERATOR).put("settings", exportPreferences(preferences, includePrivacy)).put("frontend", safeFrontend(frontend)).put("collections", collections)
+        JSONObject exportedSettings = exportPreferences(preferences, includePrivacy), exportedFrontend = safeFrontend(frontend);
+        synchronizeMotionPreference(exportedSettings, exportedFrontend);
+        return new JSONObject().put("format", 1).put("generator", GENERATOR).put("settings", exportedSettings).put("frontend", exportedFrontend).put("collections", collections)
                 .put("pluginSourcePriorities",PluginSourceRegistry.priorities(c)).put("trackSourceOverrides",TrackSourceOverrides.snapshot(c));
     }
     static JSONObject safeFrontend(JSONObject value) throws Exception {
@@ -378,6 +398,7 @@ final class LibraryBackup {
         JSONObject result = new JSONObject().put("collections", safe).put("frontend", safeFrontend(input.optJSONObject("frontend") == null ? new JSONObject() : input.getJSONObject("frontend")))
                 .put("settings", safePreferences(input.optJSONObject("settings") == null ? new JSONObject() : input.getJSONObject("settings")))
                 .put("pluginSourcePriorities",PluginSourceRegistry.sanitizePriorities(input.optJSONObject("pluginSourcePriorities")==null ? new JSONObject() : input.getJSONObject("pluginSourcePriorities")));
+        synchronizeMotionPreference(result.getJSONObject("settings"), result.getJSONObject("frontend"));
         if (input.has("trackSourceOverrides")) result.put("trackSourceOverrides",TrackSourceOverrides.sanitize(input.getJSONObject("trackSourceOverrides")));
         return result;
     }
@@ -490,6 +511,7 @@ final class LibraryBackup {
             for (Iterator<String> i = values.keys(); i.hasNext();) {
                 String key = i.next(); Object value = values.get(key);
                 if (value instanceof Boolean) changes.put(key, value);
+                else if (value instanceof String) changes.put(key, value);
                 else if ("playback_tuning".equals(pref)) changes.put(key, ((Number)value).floatValue());
                 else if ("capacity_mib".equals(key) || key.startsWith("lyric_offset_ms_")) changes.put(key, ((Number)value).longValue());
                 else changes.put(key, ((Number)value).intValue());

@@ -10,9 +10,13 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
+import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.hardware.input.InputManager;
@@ -33,7 +37,6 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.LinearLayout;
-import android.widget.TextView;
 
 import org.json.JSONObject;
 
@@ -51,7 +54,6 @@ public final class AndroidLyricOverlayService extends Service {
     private static final String TAG = "VutronLyricsOverlay";
     private static final String HIDDEN_UNTIL = "web_hidden_until";
     private static final long WINDOW_CHECK_MS = 2000L;
-    private static final long LINE_TRANSITION_MS = 280L;
     private static volatile AndroidLyricOverlayService active;
     private static long nextServiceRecoveryAt;
 
@@ -59,10 +61,10 @@ public final class AndroidLyricOverlayService extends Service {
     private final ExecutorService lyricWorker = Executors.newSingleThreadExecutor();
     private WindowManager windows;
     private WindowManager.LayoutParams windowParams;
-    private LinearLayout root;
+    private LyricTrackLayout root;
     private TimedLyricView original;
     private TimedLyricView translation;
-    private TextView nextLine;
+    private TimedLyricView nextLine;
     private LyricRepository.Lyrics lyrics;
     private long lyricTrackId;
     private long lyricGeneration;
@@ -86,14 +88,11 @@ public final class AndroidLyricOverlayService extends Service {
     private int appliedStyleHash = Integer.MIN_VALUE;
     private boolean settingsRefreshScheduled;
     private String lyricTitle = "";
-    private int displayedLineIndex = Integer.MIN_VALUE;
+    private final LyricLineTransition lineTransition = new LyricLineTransition();
+    private float lyricPlaybackRate = 1f;
     private LyricRepository.Lyrics previewLyrics;
     private int previewLineIndex = Integer.MIN_VALUE;
     private String previewText = "";
-    private boolean lineTransitionsEnabled;
-    private long lineTransitionDurationMs = LINE_TRANSITION_MS;
-    private long lineTransitionStartedAt = -1;
-    private float lineTransitionProgress = 1f;
 
     /** Apply bridge previews on the next UI frame without waiting for the 100ms state poll. */
     static void refreshSettings() {
@@ -135,6 +134,7 @@ public final class AndroidLyricOverlayService extends Service {
         if (choreographer != null && frameScheduled) choreographer.removeFrameCallback(lyricFrame);
         frameScheduled = false;
         finishLineTransition();
+        lineTransition.reset();
     }
 
     static boolean isRunning() {
@@ -283,7 +283,6 @@ public final class AndroidLyricOverlayService extends Service {
 
     private void detachWindow() {
         stopFrames();
-        displayedLineIndex = Integer.MIN_VALUE;
         if (root == null || windows == null || !root.isAttachedToWindow() && root.getParent() == null) return;
         try { windows.removeViewImmediate(root); }
         catch (RuntimeException alreadyRemoved) { Log.d(TAG, "Lyric window already detached"); }
@@ -308,16 +307,12 @@ public final class AndroidLyricOverlayService extends Service {
 
     private void createWindow() {
         if (root != null || windows == null) return;
-        root = new LinearLayout(this);
+        root = new LyricTrackLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER);
-        root.setPadding(dp(16), dp(8), dp(16), dp(8));
         original = new TimedLyricView(this);
-        translation = new TimedLyricView(this);
-        nextLine = new TextView(this);
-        nextLine.setGravity(Gravity.CENTER);
-        nextLine.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
-        nextLine.setTextSize(Math.max(13, LyricOverlaySettings.fontSize(this) - 5));
+        translation = new TimedLyricView(this, false, true);
+        nextLine = new TimedLyricView(this, true, false);
         root.addView(original, new LinearLayout.LayoutParams(-1, -2));
         root.addView(translation, new LinearLayout.LayoutParams(-1, -2));
         root.addView(nextLine, new LinearLayout.LayoutParams(-1, -2));
@@ -359,16 +354,17 @@ public final class AndroidLyricOverlayService extends Service {
         background.setColor(backgroundColor);
         background.setCornerRadius(dp(18));
         root.setBackground(background);
+        root.setFadeSpace(Math.max(dp(12), Math.round(fontSize * getResources().getDisplayMetrics().scaledDensity * .55f))
+                + (shadow ? dp(shadowRadius) : 0));
         original.setLyricSize(fontSize);
         translation.setLyricSize(Math.max(12, fontSize - 7));
         original.setColors(playedColor, unplayedColor);
         translation.setColors(playedColor, unplayedColor);
         original.setLyricShadow(shadow, dpFloat(shadowRadius), shadowColor);
         translation.setLyricShadow(shadow, dpFloat(shadowRadius), shadowColor);
-        nextLine.setTextSize(Math.max(13, fontSize - 5));
-        nextLine.setTextColor(unplayedColor);
-        if (shadow && shadowRadius > 0) nextLine.setShadowLayer(dpFloat(shadowRadius), 0, dp(1), shadowColor);
-        else nextLine.getPaint().clearShadowLayer();
+        nextLine.setLyricSize(Math.max(13, fontSize - 5));
+        nextLine.setColors(unplayedColor, unplayedColor);
+        nextLine.setLyricShadow(shadow, dpFloat(shadowRadius), shadowColor);
         windowParams.flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
                 | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED;
         if (locked) windowParams.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
@@ -413,15 +409,14 @@ public final class AndroidLyricOverlayService extends Service {
         long now = SystemClock.elapsedRealtime();
         PowerManager power = getSystemService(PowerManager.class);
         interactive = power == null || power.isInteractive();
-        clock.update(id, storedPosition, state.getLong("positionElapsedRealtime", 0L), playing, duration, now,state.getFloat("playbackRate",1f));
+        lyricPlaybackRate = state.getFloat("playbackRate", 1f);
+        clock.update(id, storedPosition, state.getLong("positionElapsedRealtime", 0L), playing, duration, now, lyricPlaybackRate);
         lastPlaying = playing;
         lyricDuration = duration;
         float animatorScale = Settings.Global.getFloat(getContentResolver(), Settings.Global.ANIMATOR_DURATION_SCALE, 1f);
-        lineTransitionsEnabled = !LyricOverlaySettings.reducedMotion(this)
-                && Float.isFinite(animatorScale) && animatorScale > 0f
-                && (Build.VERSION.SDK_INT < 26 || ValueAnimator.areAnimatorsEnabled());
-        lineTransitionDurationMs = Math.max(1L, Math.round(LINE_TRANSITION_MS * animatorScale));
-        if (!lineTransitionsEnabled || !playing || !interactive) finishLineTransition();
+        lineTransition.configure(LyricOverlaySettings.motionPreference(this), animatorScale, LyricOverlaySettings.reducedMotion(this),
+                Build.VERSION.SDK_INT < 26 || ValueAnimator.areAnimatorsEnabled());
+        if (!lineTransition.enabled() || !playing || !interactive) finishLineTransition();
 
         root.setVisibility(View.VISIBLE);
 
@@ -430,8 +425,13 @@ public final class AndroidLyricOverlayService extends Service {
         if (!hasLyricText(lyricTitle)) lyricTitle = song.optString("name", "");
         lyricOffset = LyricOverlaySettings.lyricOffsetMs(this, song);
         estimateWords = LyricOverlaySettings.estimatedWordTiming(this);
-        showTranslation = LyricOverlaySettings.translation(this);
-        showNextLine = LyricOverlaySettings.nextLine(this);
+        boolean nextTranslation = LyricOverlaySettings.translation(this), nextPreview = LyricOverlaySettings.nextLine(this);
+        if (showTranslation != nextTranslation || showNextLine != nextPreview) {
+            finishLineTransition();
+            lineTransition.reset();
+        }
+        showTranslation = nextTranslation;
+        showNextLine = nextPreview;
         String songKey = LyricOverlaySettings.trackIdentity(song) + "|" + LyricOverlaySettings.remoteLyricId(song);
         if (id != lyricTrackId || !songKey.equals(lyricSongKey)) {
             lyricSongKey = songKey;
@@ -442,9 +442,8 @@ public final class AndroidLyricOverlayService extends Service {
             validateLyrics(song, lyricGeneration);
         }
         if (lyrics == null || lyrics.original.lines.isEmpty()) {
-            showLyricPair(lyricTitle, "", -1, now, false);
+            showLyricRows(lyricTitle, "", "", -1, clock.positionAt(now), now, false);
             original.setProgress(0);
-            setNextText("");
             stopFrames();
             return;
         }
@@ -453,21 +452,16 @@ public final class AndroidLyricOverlayService extends Service {
         else stopFrames();
     }
 
-    private void setNextText(String value) {
-        if (!android.text.TextUtils.equals(nextLine.getText(), value)) nextLine.setText(value);
-        nextLine.setVisibility(showNextLine && hasLyricText(value) ? View.VISIBLE : View.GONE);
-    }
-
     private void renderLyrics(long position, long now) {
         if (lyrics == null || lyrics.original.lines.isEmpty()) return;
 
         long effectiveTime = LyricTimeline.adjustedTime(position, lyricOffset);
         int index = lyrics.original.indexAt(effectiveTime);
-        updateNextLine(index);
+        String nextText = nextLineText(index);
         if (index < 0 || index >= lyrics.original.lines.size()
                 || !hasLyricText(lyrics.original.lines.get(index).text)) {
             // Loading, lead-ins and explicit instrumental rows all keep a visible title.
-            showLyricPair(lyricTitle, "", -1, now, true);
+            showLyricRows(lyricTitle, "", nextText, -1, effectiveTime, now, true);
             original.setProgress(0);
             advanceLineTransition(now);
             return;
@@ -480,7 +474,7 @@ public final class AndroidLyricOverlayService extends Service {
         if (nextTime <= line.time) nextTime = line.time + 3000;
         String translatedText = showTranslation ? lyrics.translationAt(index) : "";
         if (!hasLyricText(translatedText)) translatedText = "";
-        showLyricPair(line.text, translatedText, index, now, true);
+        showLyricRows(line.text, translatedText, nextText, index, effectiveTime, now, true);
         boolean estimate = estimateWords;
         original.setProgress(line.displayCharacters(effectiveTime, nextTime, estimate));
         boolean progressive = !line.words.isEmpty() || estimate;
@@ -505,7 +499,8 @@ public final class AndroidLyricOverlayService extends Service {
         advanceLineTransition(now);
     }
 
-    private void updateNextLine(int index) {
+    private String nextLineText(int index) {
+        if (!showNextLine) return "";
         if (previewLyrics != lyrics || previewLineIndex != index) {
             previewLyrics = lyrics;
             previewLineIndex = index;
@@ -515,44 +510,51 @@ public final class AndroidLyricOverlayService extends Service {
                 if (hasLyricText(text)) { previewText = text; break; }
             }
         }
-        setNextText(previewText);
+        return previewText;
     }
 
-    private void showLyricPair(String text, String translatedText, int index, long now, boolean allowTransition) {
-        boolean changedLine = displayedLineIndex != index;
-        if (!changedLine && original.text.equals(text) && translation.text.equals(translatedText)) return;
-        boolean animate = allowTransition && changedLine && displayedLineIndex != Integer.MIN_VALUE
-                && lineTransitionsEnabled && canAnimate() && hasLyricText(original.text);
-        // Keep only the outgoing and incoming line, including when seeking during a transition.
-        finishLineTransition();
+    private void showLyricRows(String text, String translatedText, String nextText, int index,
+                               long position, long now, boolean allowTransition) {
+        boolean textChanged = !original.text.equals(text) || !translation.text.equals(translatedText)
+                || !nextLine.text.equals(nextText);
+        LyricLineTransition.Change change = lineTransition.show(lyrics, index, position, now, lyricPlaybackRate,
+                textChanged, allowTransition && canAnimate() && hasLyricText(original.text));
+        if (change == LyricLineTransition.Change.NONE) { updateRowVisibility(); return; }
+        // Discard the previous outgoing snapshot before taking the next; no stacked seek ghosts.
+        finishTextTransitions();
+        boolean animate = change == LyricLineTransition.Change.SCROLL;
         original.setLyricText(text, animate);
         translation.setLyricText(translatedText, animate);
-        displayedLineIndex = index;
-        if (animate) {
-            lineTransitionStartedAt = now;
-            lineTransitionProgress = 0f;
-        }
-        translation.setVisibility(translation.hasVisibleText() ? View.VISIBLE : View.GONE);
+        nextLine.setLyricText(nextText, animate);
+        updateRowVisibility();
+        root.invalidate();
     }
 
     private void advanceLineTransition(long now) {
-        if (lineTransitionStartedAt < 0) return;
-        float elapsed = Math.max(0f, (float) (now - lineTransitionStartedAt) / lineTransitionDurationMs);
-        if (elapsed >= 1f) { finishLineTransition(); return; }
-        float remaining = 1f - elapsed;
-        lineTransitionProgress = 1f - remaining * remaining * remaining;
-        original.invalidate();
-        translation.invalidate();
+        if (!lineTransition.running()) return;
+        if (!lineTransition.advance(now)) { finishTextTransitions(); return; }
+        root.invalidate();
     }
 
     private void finishLineTransition() {
-        lineTransitionStartedAt = -1;
-        lineTransitionProgress = 1f;
+        lineTransition.finish();
+        finishTextTransitions();
+    }
+
+    private void finishTextTransitions() {
         if (original != null) original.finishTextTransition();
-        if (translation != null) {
-            translation.finishTextTransition();
-            translation.setVisibility(translation.hasVisibleText() ? View.VISIBLE : View.GONE);
-        }
+        if (translation != null) translation.finishTextTransition();
+        if (nextLine != null) nextLine.finishTextTransition();
+        updateRowVisibility();
+        if (root != null) root.invalidate();
+    }
+
+    private void updateRowVisibility() {
+        // Keep slots through untranslated/instrumental/last rows; toggling a setting is an explicit layout change.
+        if (translation != null) translation.setVisibility(showTranslation && lyrics != null
+                && !lyrics.translation.lines.isEmpty() ? View.VISIBLE : View.GONE);
+        if (nextLine != null) nextLine.setVisibility(showNextLine && lyrics != null
+                && !lyrics.original.lines.isEmpty() ? View.VISIBLE : View.GONE);
     }
 
     private static boolean hasLyricText(String text) {
@@ -569,7 +571,6 @@ public final class AndroidLyricOverlayService extends Service {
         lyricTrackId = id;
         lyrics = null;
         stopFrames();
-        displayedLineIndex = Integer.MIN_VALUE;
         previewLyrics = null;
         previewLineIndex = Integer.MIN_VALUE;
         previewText = "";
@@ -677,6 +678,68 @@ public final class AndroidLyricOverlayService extends Service {
         }
     }
 
+    /** Clip and soften the whole lyric track, never the individual moving rows. */
+    private final class LyricTrackLayout extends LinearLayout {
+        private final Paint edgeMask = new Paint();
+        private int fadeSpace;
+
+        LyricTrackLayout(Context context) {
+            super(context);
+            setClipChildren(false);
+            setClipToPadding(false);
+            edgeMask.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));
+        }
+
+        void setFadeSpace(int pixels) {
+            if (fadeSpace == pixels) return;
+            fadeSpace = pixels;
+            setPadding(dp(16), pixels + dp(4), dp(16), pixels + dp(4));
+            rebuildMask();
+        }
+
+        private void rebuildMask() {
+            if (getHeight() <= 0) return;
+            float edge = Math.min(.45f, (float) fadeSpace / getHeight());
+            edgeMask.setShader(new LinearGradient(0, 0, 0, getHeight(),
+                    new int[]{Color.TRANSPARENT, Color.WHITE, Color.WHITE, Color.TRANSPARENT},
+                    new float[]{0f, edge, 1f - edge, 1f}, Shader.TileMode.CLAMP));
+        }
+
+        @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
+            super.onSizeChanged(width, height, oldWidth, oldHeight);
+            rebuildMask();
+        }
+
+        float travel() { return Math.max(1, getHeight() - getPaddingTop() - getPaddingBottom()); }
+
+        @Override protected void dispatchDraw(Canvas canvas) {
+            if (!lineTransition.running()) { drawRows(canvas, false); return; }
+            int save = canvas.saveLayer(0, 0, getWidth(), getHeight(), null);
+            drawPhase(canvas, true);
+            drawPhase(canvas, false);
+            canvas.drawRect(0, 0, getWidth(), getHeight(), edgeMask);
+            canvas.restoreToCount(save);
+        }
+
+        private void drawPhase(Canvas canvas, boolean outgoing) {
+            float progress = lineTransition.progress();
+            float opacity = outgoing ? LyricLineTransition.outgoingOpacity(progress) : LyricLineTransition.incomingOpacity(progress);
+            if (opacity <= 0f) return;
+            // Composite the entire sentence group so explicit shadow alpha fades with the glyphs.
+            int save = canvas.saveLayerAlpha(0, 0, getWidth(), getHeight(), Math.round(opacity * 255));
+            canvas.translate(0, outgoing ? LyricLineTransition.outgoingOffset(progress, travel())
+                    : LyricLineTransition.incomingOffset(progress, travel()));
+            drawRows(canvas, outgoing);
+            canvas.restoreToCount(save);
+        }
+
+        private void drawRows(Canvas canvas, boolean outgoing) {
+            original.drawRow(canvas, outgoing);
+            translation.drawRow(canvas, outgoing);
+            nextLine.drawRow(canvas, outgoing);
+        }
+    }
+
     /** Smoothly reveals timed text and scrolls long lines to keep the active words visible. */
     private final class TimedLyricView extends View {
         private final TextPaint textPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG | Paint.SUBPIXEL_TEXT_FLAG);
@@ -691,10 +754,21 @@ public final class AndroidLyricOverlayService extends Service {
         private int unplayedColor = LyricOverlaySettings.DEFAULT_UNPLAYED_COLOR;
         private int lastContentWidth = -1;
         private final Path reveal = new Path();
+        private final boolean preview;
+        private final boolean translated;
+        private LyricRepository.Lyrics capacityLyrics;
+        private int capacityWidth = -1;
+        private int capacityHeight;
 
         TimedLyricView(Context context) {
+            this(context, false, false);
+        }
+
+        TimedLyricView(Context context, boolean preview, boolean translated) {
             super(context);
-            textPaint.setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
+            this.preview = preview;
+            this.translated = translated;
+            textPaint.setTypeface(Typeface.create("sans-serif", preview ? Typeface.NORMAL : Typeface.BOLD));
             setPadding(0, dp(3), 0, dp(3));
             setWillNotDraw(false);
         }
@@ -702,6 +776,9 @@ public final class AndroidLyricOverlayService extends Service {
         void setLyricText(String value, boolean animate) {
             String next = value == null ? "" : value;
             boolean changed = !text.equals(next);
+            if (changed && lyrics == null) capacityWidth = -1;
+            boolean needsMeasure = capacityLyrics != lyrics || capacityWidth < 0;
+            if (needsMeasure) requestLayout();
             if (!changed && !animate) return;
             if (animate) {
                 ensureLayout(getWidth() - getPaddingLeft() - getPaddingRight());
@@ -715,19 +792,14 @@ public final class AndroidLyricOverlayService extends Service {
             if (changed) {
                 layout = null;
                 lastContentWidth = -1;
-                requestLayout();
             }
             invalidate();
         }
 
-        boolean hasVisibleText() { return hasLyricText(text) || outgoingLayout != null; }
-
         void finishTextTransition() {
             if (!transitioning) return;
-            boolean shrink = outgoingLayout != null && (layout == null || outgoingLayout.getHeight() > layout.getHeight());
             outgoingLayout = null;
             transitioning = false;
-            if (shrink) requestLayout();
             invalidate();
         }
 
@@ -738,6 +810,7 @@ public final class AndroidLyricOverlayService extends Service {
             textPaint.setTextSize(next);
             layout = null;
             lastContentWidth = -1;
+            capacityWidth = -1;
             requestLayout();
             invalidate();
         }
@@ -758,21 +831,42 @@ public final class AndroidLyricOverlayService extends Service {
             float next = Math.max(0f, Math.min(text.length(), value));
             if (Math.abs(progress - next) < .0001f) return;
             progress = next;
-            invalidate();
+            if (root != null) root.invalidate();
         }
 
         private void ensureLayout(int contentWidth) {
             if (contentWidth <= 0 || text.isEmpty()) { layout = null; return; }
             if (layout != null && contentWidth == lastContentWidth) return;
+            layout = buildTextLayout(text, contentWidth);
+            lastContentWidth = contentWidth;
+        }
+
+        private StaticLayout buildTextLayout(String value, int contentWidth) {
             int layoutWidth = contentWidth;
-            if (text.indexOf('\n') < 0) layoutWidth = Math.max(contentWidth, (int) Math.ceil(textPaint.measureText(text)));
-            layout = StaticLayout.Builder.obtain(text, 0, text.length(), textPaint, layoutWidth)
+            if (!preview && value.indexOf('\n') < 0) layoutWidth = Math.max(contentWidth, (int) Math.ceil(textPaint.measureText(value)));
+            return StaticLayout.Builder.obtain(value, 0, value.length(), textPaint, layoutWidth)
                     .setAlignment(Layout.Alignment.ALIGN_CENTER)
                     .setIncludePad(false)
                     .setBreakStrategy(android.graphics.text.LineBreaker.BREAK_STRATEGY_SIMPLE)
                     .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
                     .build();
-            lastContentWidth = contentWidth;
+        }
+
+        private void ensureCapacity(int contentWidth) {
+            if (capacityLyrics == lyrics && capacityWidth == contentWidth) return;
+            capacityLyrics = lyrics;
+            capacityWidth = contentWidth;
+            capacityHeight = buildTextLayout("Ag", contentWidth).getHeight();
+            if (layout != null) capacityHeight = Math.max(capacityHeight, layout.getHeight());
+            if (lyrics == null) return;
+            // One scan per track/font/width. No outgoing/current max or shrinking at sentence boundaries.
+            LyricTimeline timeline = translated ? lyrics.translation : lyrics.original;
+            for (LyricTimeline.Line line : timeline.lines) {
+                if (hasLyricText(line.text)) capacityHeight = Math.max(capacityHeight, buildTextLayout(line.text, contentWidth).getHeight());
+            }
+            if (!preview && !translated && hasLyricText(lyricTitle)) {
+                capacityHeight = Math.max(capacityHeight, buildTextLayout(lyricTitle, contentWidth).getHeight());
+            }
         }
 
         @Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
@@ -780,9 +874,8 @@ public final class AndroidLyricOverlayService extends Service {
             if (MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.UNSPECIFIED) width = dp(320);
             int contentWidth = Math.max(1, width - getPaddingLeft() - getPaddingRight());
             ensureLayout(contentWidth);
-            int contentHeight = layout == null ? Math.max(1, (int) textSizePx) : layout.getHeight();
-            if (outgoingLayout != null) contentHeight = Math.max(contentHeight, outgoingLayout.getHeight());
-            int height = contentHeight + getPaddingTop() + getPaddingBottom();
+            ensureCapacity(contentWidth);
+            int height = capacityHeight + getPaddingTop() + getPaddingBottom();
             setMeasuredDimension(resolveSize(width, widthMeasureSpec), resolveSize(height, heightMeasureSpec));
         }
 
@@ -793,50 +886,39 @@ public final class AndroidLyricOverlayService extends Service {
 
         @Override protected void onDetachedFromWindow() {
             stopFrames();
-            displayedLineIndex = Integer.MIN_VALUE;
             super.onDetachedFromWindow();
         }
 
-        @Override protected void onDraw(Canvas canvas) {
-            super.onDraw(canvas);
+        void drawRow(Canvas canvas, boolean outgoing) {
+            if (getVisibility() != View.VISIBLE) return;
             int viewportWidth = getWidth() - getPaddingLeft() - getPaddingRight();
             ensureLayout(viewportWidth);
-            if (layout == null && outgoingLayout == null) return;
+            StaticLayout textLayout = outgoing ? outgoingLayout : layout;
+            if (textLayout == null) return;
             int save = canvas.save();
-            canvas.clipRect(getPaddingLeft(), 0, getWidth() - getPaddingRight(), getHeight());
-            if (transitioning && lineTransitionProgress < 1f) {
-                float travel = getHeight() - getPaddingTop() - getPaddingBottom() + dp(6);
-                drawTextLayout(canvas, outgoingLayout, outgoingProgress,
-                        -travel * lineTransitionProgress, 1f - lineTransitionProgress);
-                drawTextLayout(canvas, layout, progress,
-                        travel * (1f - lineTransitionProgress), lineTransitionProgress);
-            } else {
-                drawTextLayout(canvas, layout, progress, 0f, 1f);
-            }
+            canvas.translate(getLeft(), getTop());
+            // One parent clip and one common offset; no per-row vertical clipping or centering.
+            canvas.clipRect(getPaddingLeft(), -root.getHeight(), getWidth() - getPaddingRight(), root.getHeight() * 2f);
+            drawTextLayout(canvas, textLayout, outgoing ? outgoingProgress : progress);
             canvas.restoreToCount(save);
         }
 
-        private void drawTextLayout(Canvas canvas, StaticLayout textLayout, float characterPosition, float offsetY, float opacity) {
-            if (textLayout == null || opacity <= 0f) return;
+        private void drawTextLayout(Canvas canvas, StaticLayout textLayout, float characterPosition) {
             int viewportWidth = getWidth() - getPaddingLeft() - getPaddingRight();
             float scroll = 0;
             if (textLayout.getWidth() > viewportWidth) {
                 float focus = horizontalAt(textLayout, characterPosition);
                 scroll = Math.max(0f, Math.min(textLayout.getWidth() - viewportWidth, focus - viewportWidth / 2f));
             }
-            float vertical = offsetY + getPaddingTop() + Math.max(0f,
-                    (getHeight() - getPaddingTop() - getPaddingBottom() - textLayout.getHeight()) / 2f);
             int save = canvas.save();
-            canvas.translate(getPaddingLeft() - scroll, vertical);
+            canvas.translate(getPaddingLeft() - scroll, getPaddingTop());
             textPaint.setColor(unplayedColor);
-            textPaint.setAlpha(Math.round(Color.alpha(unplayedColor) * opacity));
             textLayout.draw(canvas);
             Path reveal = revealPath(textLayout, characterPosition);
             if (reveal != null && !reveal.isEmpty()) {
                 int revealSave = canvas.save();
                 canvas.clipPath(reveal);
                 textPaint.setColor(playedColor);
-                textPaint.setAlpha(Math.round(Color.alpha(playedColor) * opacity));
                 textLayout.draw(canvas);
                 canvas.restoreToCount(revealSave);
             }

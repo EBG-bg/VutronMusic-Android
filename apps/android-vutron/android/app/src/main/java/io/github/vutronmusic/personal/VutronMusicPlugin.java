@@ -1778,6 +1778,10 @@ public final class VutronMusicPlugin extends Plugin {
     public void updateLyricOverlaySettings(PluginCall call) {
         JSObject values = call.getObject("settings");
         if (values != null) {
+            if (values.has("motionPreference") && !LyricOverlaySettings.validMotionPreference(values.opt("motionPreference"))) {
+                call.reject("Invalid overlay motion preference", "INVALID_OVERLAY_SETTINGS");
+                return;
+            }
             applyOverlaySettings(values);
             if (values.has("enabled")) {
                 if (values.optBoolean("enabled")) enableLyricOverlay();
@@ -1968,6 +1972,7 @@ public final class VutronMusicPlugin extends Plugin {
                 .put("nextLine", LyricOverlaySettings.nextLine(context))
                 .put("estimatedWordTiming", LyricOverlaySettings.estimatedWordTiming(context))
                 .put("reducedMotion", LyricOverlaySettings.reducedMotion(context))
+                .put("motionPreference", LyricOverlaySettings.motionPreference(context))
                 .put("wifiValidation", LyricOverlaySettings.wifiValidation(context))
                 .put("fontSize", LyricOverlaySettings.fontSize(context))
                 .put("playedColor", LyricOverlaySettings.playedColor(context))
@@ -1990,7 +1995,9 @@ public final class VutronMusicPlugin extends Plugin {
         if (values.has("translation")) LyricOverlaySettings.translation(context, values.optBoolean("translation"));
         if (values.has("nextLine")) LyricOverlaySettings.nextLine(context, values.optBoolean("nextLine"));
         if (values.has("estimatedWordTiming")) LyricOverlaySettings.estimatedWordTiming(context, values.optBoolean("estimatedWordTiming"));
-        if (values.has("reducedMotion")) LyricOverlaySettings.reducedMotion(context, values.optBoolean("reducedMotion"));
+        if (values.has("motionPreference")) LyricOverlaySettings.motionPreference(context, values.optString("motionPreference"),
+                values.optBoolean("reducedMotion", false));
+        else if (values.has("reducedMotion")) LyricOverlaySettings.reducedMotion(context, values.optBoolean("reducedMotion"));
         if (values.has("wifiValidation")) LyricOverlaySettings.wifiValidation(context, values.optBoolean("wifiValidation"));
         if (values.has("fontSize")) LyricOverlaySettings.fontSize(context, values.optInt("fontSize"));
         if (values.has("playedColor")) LyricOverlaySettings.playedColor(context, values.optInt("playedColor"));

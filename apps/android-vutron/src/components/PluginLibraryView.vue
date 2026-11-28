@@ -31,14 +31,28 @@ import { useNavigationIndicator } from '../composables/navigationIndicator'
 import { activeAppSelect } from '../platform/appSelect'
 const CollectionOrderHistorySheet = defineAsyncComponent(() => import('./CollectionOrderHistorySheet.vue'))
 
-const props = withDefaults(defineProps<{ pluginId: string; localOnly: boolean; integrated?:boolean;section?:'home'|'library'|'search' }>(),{integrated:false,section:'library'})
-const emit = defineEmits<{ back: []; manage: []; play: [value: PluginPlayback]; next: [value: PluginPlayback]; append: [value: PluginPlayback]; radioTrash:[value:PluginPlayback]; openSource:[value:Omit<PluginNavigation,'key'>];viewState:[value:{isDetail:boolean;canGoBack:boolean;caption:string;loading:boolean}] }>()
+const props = withDefaults(defineProps<{ pluginId: string; localOnly: boolean; integrated?:boolean;section?:'home'|'library'|'search'; entryEdge?: 'start' | 'end' }>(),{integrated:false,section:'library'})
+const emit = defineEmits<{ back: []; manage: []; play: [value: PluginPlayback]; next: [value: PluginPlayback]; append: [value: PluginPlayback]; radioTrash:[value:PluginPlayback]; openSource:[value:Omit<PluginNavigation,'key'>];viewState:[value:{isDetail:boolean;canGoBack:boolean;caption:string;loading:boolean}]; consumeEntryEdge: [] }>()
 const pageKey=computed(()=>props.integrated?'integrated:'+props.section:'standalone')
 const { t } = useI18n(), library = usePluginLibrary(toRef(props, 'pluginId'), toRef(props, 'localOnly'),musicPluginBridge,pageKey)
 const { plugin, loading, busy, error, rows, kind, detail, features, allowed, count, more, context } = library
 const keywords = ref(''), searchTab = ref<PluginEntityKind>('tracks'), visibleCount = ref(80)
 const searchKinds: PluginEntityKind[] = ['tracks', 'playlists', 'albums', 'artists', 'mvs']
 const selectedFeature = ref(''), comments = ref<{ item: PluginItem; plugin:MusicPlugin; type: 'track' | 'playlist' | 'album' | 'mv'; trigger?: HTMLElement }>()
+const subTabHistory = ref<Array<{ kind: 'search'; value: PluginEntityKind } | { kind: 'feature'; value: string }>>([])
+let suppressSubTabHistory = false
+function pushSubTabHistory(entry: { kind: 'search'; value: PluginEntityKind } | { kind: 'feature'; value: string }) {
+  if (suppressSubTabHistory) return
+  const last = subTabHistory.value[subTabHistory.value.length - 1]
+  if (last && last.kind === entry.kind && last.value === entry.value) return
+  subTabHistory.value.push(entry)
+  if (subTabHistory.value.length > 20) subTabHistory.value.shift()
+}
+function selectSearchTab(next: PluginEntityKind, record = true) {
+  if (next === searchTab.value) return
+  if (record) pushSubTabHistory({ kind: 'search', value: searchTab.value })
+  searchTab.value = next
+}
 const panel = ref<HTMLElement>(), editMode = ref<'create' | 'edit'>()
 const playlistName = ref(''), description = ref(''), tags = ref(''), privatePlaylist = ref(false)
 const dialogBusy = ref(false), dialogError = ref(''), trackNotice = ref('')
@@ -250,7 +264,7 @@ const discoveryMethods=['getRecommendPlaylist','getRecommendTracks','rankList','
 const libraryMethods=['userPlaylist','getAllTracks','likelist','userLikedArtists','userLikedMVs','cloudDisk','userRecord']
 const sectionFeatures=computed(()=>props.integrated?features.value.filter(row=>(props.section==='home'?discoveryMethods:props.section==='library'?libraryMethods:[]).includes(row.method)):features.value)
 const isDetail=computed(()=>Boolean(detail.value)||library.history.value.length>0)
-const canGoBack=computed(()=>isDetail.value||Boolean(comments.value||editMode.value||orderDraft.value||playlistPreparing.value||historyOpen.value))
+const canGoBack=computed(()=>isDetail.value||subTabHistory.value.length>0||Boolean(comments.value||editMode.value||orderDraft.value||playlistPreparing.value||historyOpen.value))
 const rootTools=computed(()=>!props.integrated||!isDetail.value)
 const discoveryTools=computed(()=>rootTools.value&&(!props.integrated||props.section==='home'))
 const searchTabs = ref<HTMLElement>(), featureTabs = ref<HTMLElement>(), swipeViewport = ref<HTMLElement>()
@@ -261,7 +275,7 @@ const swipeReady = computed(() => Boolean(allowed.value) && !isDetail.value && !
     && !syncBusy.value && !playlistPreparing.value && !orderDraft.value && !drag.value && !orderDirty.value && !selecting.value
     && !comments.value && !editMode.value && !historyOpen.value && !batchChoices.value && !actionDialog.value && !activeAppSelect.value && !appNavigation.pending.value)
 const localSwipe = useMainNavigationSwipe(swipeTabs, swipeCurrent, () => swipeReady.value,
-  value => { if (swipeSearch.value) searchTab.value = value as PluginEntityKind; else void chooseFeature(value) }, { yieldAtBoundary: () => props.integrated, viewport: () => swipeViewport.value })
+  value => { if (swipeSearch.value) selectSearchTab(value as PluginEntityKind); else void chooseFeature(value) }, { yieldAtBoundary: () => props.integrated, viewport: () => swipeViewport.value })
 const swipeCaption = computed(() => {
   const next = localSwipe.neighbor.value
   return next ? t('mobile.plugins.' + (swipeSearch.value ? next : sectionFeatures.value.find(item => item.method === next)?.label || 'browse')) : ''
@@ -297,6 +311,15 @@ function handleBack() {
   if (orderDraft.value && !orderDirty.value) { cancelOrder(); return true }
   if (library.history.value.length) { appNavigation.run(() => { if (library.back()) restoreView() }); return true }
   if(props.integrated&&detail.value){void goRoot();return true}
+  const previousSub = subTabHistory.value.pop()
+  if (previousSub) {
+    suppressSubTabHistory = true
+    try {
+      if (previousSub.kind === 'search') selectSearchTab(previousSub.value, false)
+      else void chooseFeature(previousSub.value, false)
+    } finally { suppressSubTabHistory = false }
+    return true
+  }
   return false
 }
 async function refresh() {
@@ -311,6 +334,7 @@ async function refresh() {
 }
 async function goRoot(){
   if(playlistPreparing.value)cancelPreparation()
+  subTabHistory.value=[]
   comments.value=undefined;closeDialog()
   appNavigation.run(() => {
     cancelOrder()
@@ -358,11 +382,15 @@ watch(()=>[props.pluginId,plugin.value?.accountScope,currentKind.value,detail.va
   }catch(cause){if(token===progressGeneration)trackNotice.value=causeMessage(cause)}
   finally{if(token===progressGeneration)progressLoading.value=false}
 })
-async function chooseFeature(method: string) {
-  if(orderDirty.value && appNavigation.intercept(()=>{void chooseFeature(method)}))return
+async function chooseFeature(method: string, record = true) {
+  if(orderDirty.value && appNavigation.intercept(()=>{void chooseFeature(method, record)}))return
   const feature = sectionFeatures.value.find(item => item.method === method)
   if (!feature) return
   if(playlistPreparing.value)cancelPreparation()
+  const previousFeature = selectedFeature.value || library.method.value
+  if (record && previousFeature && previousFeature !== method && sectionFeatures.value.some(item => item.method === previousFeature)) {
+    pushSubTabHistory({ kind: 'feature', value: previousFeature })
+  }
   rememberView()
   // A new root feature supersedes an earlier in-flight read; stale replies
   // remain isolated by the library generation and account checks.
@@ -548,13 +576,31 @@ watch(()=>[mvSources.value,videoIndex.value,allowed.value] as const,async()=>{
 async function initializeSurface(restore=true){
   rememberView();library.saveSnapshot()
   resetTrackActions()
-  comments.value = undefined;banners.value=[];closeDialog();cancelOrder();playlistPreparing.value=false;visibleCount.value = 80;trackNotice.value=''
+  subTabHistory.value=[];comments.value = undefined;banners.value=[];closeDialog();cancelOrder();playlistPreparing.value=false;visibleCount.value = 80;trackNotice.value=''
   initializing.value=true;readyPluginId.value=''
   const token=++generation;await library.initialize(restore,!props.integrated&&pendingPluginNavigation.value?.pluginId!==props.pluginId)
   if(token!==generation)return
   initializing.value=false;readyPluginId.value=props.pluginId
   restoreView()
-  if(await followNavigation() || library.restored.value)return
+  if(await followNavigation())return
+  const edge = props.integrated ? props.entryEdge : undefined
+  if (edge) emit('consumeEntryEdge')
+  if (edge && allowed.value && !isDetail.value) {
+    if (props.section === 'search' && supported('search')) {
+      selectSearchTab(edge === 'end' ? searchKinds[searchKinds.length - 1] : searchKinds[0], false)
+      return
+    }
+    if (sectionFeatures.value.length) {
+      const target = edge === 'end' ? sectionFeatures.value[sectionFeatures.value.length - 1] : sectionFeatures.value[0]
+      if ((selectedFeature.value || library.method.value) !== target.method || !library.restored.value) {
+        await chooseFeature(target.method, false)
+      }
+      if (token!==generation||!allowed.value||!supported('getBanner')||props.section!=='home') return
+      try{const response=await library.call('getBanner');if(token===generation)banners.value=pluginItems(response.data)}catch{ /* An unavailable banner does not hide the library. */ }
+      return
+    }
+  }
+  if(library.restored.value)return
   if(props.integrated&&allowed.value){
     const preference=props.section==='home'?discoveryMethods:props.section==='library'?libraryMethods:[]
     const first=preference.map(method=>sectionFeatures.value.find(row=>row.method===method)).find(Boolean)
@@ -581,7 +627,7 @@ onUnmounted(() => { ++generation;++videoGeneration;++progressGeneration;cancelOr
       <div :key="String(detail?.id || '') + ':' + library.method.value" class="plugin-library-content">
       <div v-if="banners.length&&rootTools" class="plugin-banners"><template v-for="banner in banners" :key="String(banner.id)"><a v-if="banner.type==='activity'&&/^https?:\/\//.test(String(banner.url||''))" :href="String(banner.url)" target="_blank" rel="noopener noreferrer" class="plugin-banner"><PluginArtwork :plugin-id="pluginId" :uri="banner.picUrl" :source-context="banner.sourceContext" /><span>{{ banner.typeTitle }}</span></a><button v-else type="button" class="plugin-banner" :aria-label="String(banner.typeTitle||$t('mobile.plugins.banner'))" @click="openBanner(banner)"><PluginArtwork :plugin-id="pluginId" :uri="banner.picUrl" :source-context="banner.sourceContext" /><span>{{ banner.typeTitle }}</span></button></template></div>
       <form v-if="rootTools&&supported('search')&&(!integrated||section==='search')" class="remote-search-box plugin-search" @submit.prevent="search"><span><OriginalIcon name="search" /></span><input v-model="keywords" type="search" :placeholder="$t('mobile.plugins.searchHint')" :aria-label="$t('mobile.plugins.searchHint')" /><button type="submit" :disabled="loading || !keywords.trim()">{{ $t('mobile.plugins.search') }}</button></form>
-      <section v-if="rootTools&&supported('search')&&(!integrated||section==='search')" class="plugin-section"><div class="plugin-section-title"><span class="eyebrow">{{ $t('mobile.plugins.searchType') }}</span></div><div ref="searchTabs" class="search-categories navigation-tabs plugin-search-tabs" :data-swiping="swipeSearch && localSwipe.holding.value ? '' : undefined" role="group" :aria-label="$t('mobile.plugins.searchType')"><span class="navigation-tab-indicator" :style="searchIndicator" aria-hidden="true"></span><button v-for="value in searchKinds" :key="value" type="button" :class="{selected:searchTab===value}" :aria-pressed="searchTab===value" @click="searchTab=value">{{ $t('mobile.plugins.' + value) }}</button></div></section>
+      <section v-if="rootTools&&supported('search')&&(!integrated||section==='search')" class="plugin-section"><div class="plugin-section-title"><span class="eyebrow">{{ $t('mobile.plugins.searchType') }}</span></div><div ref="searchTabs" class="search-categories navigation-tabs plugin-search-tabs" :data-swiping="swipeSearch && localSwipe.holding.value ? '' : undefined" role="group" :aria-label="$t('mobile.plugins.searchType')"><span class="navigation-tab-indicator" :style="searchIndicator" aria-hidden="true"></span><button v-for="value in searchKinds" :key="value" type="button" :class="{selected:searchTab===value}" :aria-pressed="searchTab===value" @click="selectSearchTab(value)">{{ $t('mobile.plugins.' + value) }}</button></div></section>
       <section v-if="rootTools&&sectionFeatures.length" class="plugin-section"><div class="plugin-section-title"><span class="eyebrow">{{ $t('mobile.plugins.browse') }}</span></div><div ref="featureTabs" class="search-categories navigation-tabs plugin-feature-tabs" :data-swiping="!swipeSearch && localSwipe.holding.value ? '' : undefined" role="group" :aria-label="$t('mobile.plugins.browse')"><span class="navigation-tab-indicator" :style="featureIndicator" aria-hidden="true"></span><button v-for="item in sectionFeatures" :key="item.method" type="button" :class="{selected:(selectedFeature||library.method.value)===item.method}" :aria-pressed="(selectedFeature||library.method.value)===item.method" :disabled="loading" @click="chooseFeature(item.method)">{{ $t('mobile.plugins.'+item.label) }}</button><button v-if="supported('createPlaylist')&&(!integrated||section==='library')" type="button" :disabled="busy" @click="editPlaylist('create')">{{ $t('mobile.plugins.createPlaylist') }}</button></div></section>
       <section v-if="discoveryTools&&(supported('catlist')||supported('getTrackCatlist')||supported('getAlbumCatlist')||supported('getArtistCatlist'))" class="plugin-section"><div class="plugin-section-title"><span class="eyebrow">{{ $t('mobile.plugins.category') }}</span></div><div class="search-categories" role="group" :aria-label="$t('mobile.plugins.category')"><button v-if="supported('catlist')" type="button" :disabled="loading" @click="loadCategories('playlists')">{{ $t('mobile.plugins.playlistCategories') }}</button><button v-if="supported('getTrackCatlist')" type="button" :disabled="loading" @click="loadCategories('tracks')">{{ $t('mobile.plugins.trackCategories') }}</button><button v-if="supported('getAlbumCatlist')" type="button" :disabled="loading" @click="loadCategories('albums')">{{ $t('mobile.plugins.albumCategories') }}</button><button v-if="supported('getArtistCatlist')" type="button" :disabled="loading" @click="loadCategories('artists')">{{ $t('mobile.plugins.artistCategories') }}</button></div></section><div v-if="discoveryTools&&categories.length" class="plugin-filter-card"><AppSelect :model-value="category" :label="$t('mobile.plugins.category')" :options="categories.map((item,index)=>({value:index,label:item.label}))" @update:model-value="selectCategory" /></div>
       <div v-if="discoveryTools&&artistGroups.length" class="plugin-filter-card"><AppSelect v-for="(group,index) in artistGroups" :key="group.code" :model-value="artistSelection[index]" :label="group.name" :options="group.sub.map(item=>({value:item.code,label:item.name}))" @update:model-value="artistSelection[index]=$event;selectArtistCategory()" /></div>

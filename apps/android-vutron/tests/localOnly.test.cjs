@@ -79,6 +79,8 @@ function fixture({ nativeMode = false, preference = false, sessionProfile, conne
     if (handlers[name]) native[name] = method(name, handlers[name])
   }
   const modules = new Map()
+  const motionPreference = vue.ref('full')
+  const motionStub = { motionPreference, reducedMotion: vue.computed(() => motionPreference.value === 'reduced') }
   const globals = {
     Error, Date, console, setTimeout, clearTimeout,
     setInterval(callback, interval) { const id = ++nextTimer; timers.set(id, { callback, interval }); return id },
@@ -94,6 +96,7 @@ function fixture({ nativeMode = false, preference = false, sessionProfile, conne
   function load(filename) {
     if (filename === path.join(appRoot, 'src/platform/i18n.ts')) return mobileI18n
     if (filename === path.join(appRoot, 'src/platform/vutronPlugin.ts')) return { vutronPlugin: native }
+    if (filename === path.join(appRoot, 'src/platform/motion.ts')) return motionStub
     if (modules.has(filename)) return modules.get(filename).exports
     const module = { exports: {} }
     modules.set(filename, module)

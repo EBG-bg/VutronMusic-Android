@@ -6,7 +6,7 @@ import {
 } from '../../platform/vutronPlugin'
 import { createLiveSettingWriter } from '../../platform/liveSettingWrites'
 import { flushRegisteredLiveSettings } from '../../platform/liveSettingsLifecycle'
-import { reducedMotion } from '../../platform/motion'
+import { motionPreference, reducedMotion } from '../../platform/motion'
 
 export interface ShellOverlayOptions {
   playback: Ref<VutronPlaybackState>
@@ -51,7 +51,7 @@ export function createShellOverlay(options: ShellOverlayOptions) {
 
   // --- Draft-protection counters (plain `let`, not reactive) ----------------
 
-  type OverlayValue = boolean | number
+  type OverlayValue = boolean | number | NonNullable<VutronLyricOverlaySettings['motionPreference']>
   let overlayRevision = 0
   let overlayReadRequest = 0
   let overlayTrackKey = ''
@@ -94,7 +94,11 @@ export function createShellOverlay(options: ShellOverlayOptions) {
     onError: cause => { error.value = formatError(cause, t('mobile.runtimeText.overlaySaveFailed')) },
   })
 
-  watch(reducedMotion, value => { void updateOverlayField('reducedMotion', value) })
+  async function syncOverlayMotion() {
+    await updateOverlayPatch({ motionPreference: motionPreference.value, reducedMotion: reducedMotion.value })
+  }
+
+  watch([motionPreference, reducedMotion], () => { void syncOverlayMotion() })
 
   // --- Overlay read ---------------------------------------------------------
 
@@ -124,7 +128,7 @@ export function createShellOverlay(options: ShellOverlayOptions) {
         }
         overlayTrackKey = trackKey
       }
-      await updateOverlayField('reducedMotion', reducedMotion.value)
+      await syncOverlayMotion()
     } catch (cause) {
       error.value = formatError(cause, t('mobile.runtimeText.overlayReadFailed'))
     }
@@ -136,13 +140,38 @@ export function createShellOverlay(options: ShellOverlayOptions) {
     await updateOverlayField('enabled', !overlaySettings.value.enabled)
   }
 
-  async function updateOverlayField(key: keyof VutronLyricOverlaySettings, value: boolean | number) {
+  async function updateOverlayField(key: keyof VutronLyricOverlaySettings, value: OverlayValue) {
     if (key === 'currentLyricOffsetMs') { await updateCurrentLyricOffset(Number(value)); return }
-    const current = overlaySettings.value[key]
-    const unchanged = current === value || ['playedColor','unplayedColor','backgroundColor','shadowColor'].includes(key) && typeof current === 'number' && typeof value === 'number' && (current >>> 0) === (value >>> 0)
-    if (unchanged) { if (overlayDrafts.has(key)) await overlayWriter.flush(); return }
-    const patch = { [key]: value } as Partial<VutronLyricOverlaySettings>
-    overlayDrafts.set(key, { value, revision: ++overlayRevision })
+    if (key === 'motionPreference') {
+      if (value !== 'full' && value !== 'system' && value !== 'reduced') return
+      motionPreference.value = value
+      await syncOverlayMotion()
+      return
+    }
+    await updateOverlayPatch({ [key]: value } as Partial<VutronLyricOverlaySettings>)
+  }
+
+  async function updateOverlayPatch(values: Partial<VutronLyricOverlaySettings>) {
+    const patch: Partial<VutronLyricOverlaySettings> = {}
+    let pending = false
+    for (const key of Object.keys(values) as (keyof VutronLyricOverlaySettings)[]) {
+      const value = values[key]
+      if (value === undefined) continue
+      const current = overlaySettings.value[key]
+      const unchanged = current === value || ['playedColor','unplayedColor','backgroundColor','shadowColor'].includes(key) && typeof current === 'number' && typeof value === 'number' && (current >>> 0) === (value >>> 0)
+      pending ||= overlayDrafts.has(key)
+      if (unchanged) continue
+      Object.assign(patch, { [key]: value })
+    }
+    if (!Object.keys(patch).length) { if (pending) await overlayWriter.flush(); return }
+    // Send the pair atomically, including an unchanged mode when its system-resolved flag changes.
+    if (values.motionPreference !== undefined && values.reducedMotion !== undefined) {
+      patch.motionPreference = values.motionPreference
+      patch.reducedMotion = values.reducedMotion
+    }
+    for (const key of Object.keys(patch) as (keyof VutronLyricOverlaySettings)[]) {
+      overlayDrafts.set(key, { value: patch[key]!, revision: ++overlayRevision })
+    }
     overlaySettings.value = { ...overlaySettings.value, ...patch }
     await overlayWriter.queue(patch)
   }

@@ -14,10 +14,11 @@ import { finishNavigationSwipeEnter } from '../composables/mainNavigationSwipe'
 const props = defineProps<{
   cover: string; remoteCover?: string; pluginId?: string; pluginContext?: Record<string, unknown>
   swipeStyle?: Record<string, string>; swiping?: boolean; swipePosition?: number; direction?: 'next' | 'previous'
-  neighbor?: string; peekStyle?: Record<string, string>; prepareEnter?: (element: Element) => void; prepareLeave?: (element: Element) => void
+  neighbor?: string; peekStyle?: Record<string, string>; prepareEnter?: (element: Element) => void; prepareLeave?: (element: Element) => void; previewLyrics?: boolean
 }>()
 const store = useAndroidShellStore()
 const preview = inject(navigationPreviewKey, false)
+const showingLyrics = computed(() => preview && props.previewLyrics !== undefined ? props.previewLyrics : playerLyrics.value)
 const lyricLoop = computed(() => store.playback.abLoop?.enabled && store.playback.abLoop.trackId === store.playback.trackId ? store.playback.abLoop : undefined)
 const wideQuery = window.matchMedia('(min-width: 840px) and (orientation: landscape)')
 const wide = ref(wideQuery.matches)
@@ -39,21 +40,21 @@ if (!preview) {
 </script>
 <template>
   <div class="player-visual" :class="{ 'player-visual-wide': wide, 'player-visual-preview': preview }">
-    <div v-if="!wide" ref="viewTabs" class="player-view-tabs navigation-tabs" :data-swiping="swiping ? '' : undefined" role="group" :aria-label="$t('mobile.refinements.playerView')"><span v-if="!preview" class="navigation-tab-indicator" :style="indicatorStyle" aria-hidden="true"></span><button type="button" :aria-pressed="!playerLyrics" @click="!preview && (playerLyrics = false)">{{ $t('mobile.refinements.cover') }}</button><button type="button" :aria-pressed="playerLyrics" @click="!preview && (playerLyrics = true)">{{ $t('mobile.refinements.lyrics') }}</button></div>
+    <div v-if="!wide" ref="viewTabs" class="player-view-tabs navigation-tabs" :data-swiping="swiping ? '' : undefined" role="group" :aria-label="$t('mobile.refinements.playerView')"><span v-if="!preview" class="navigation-tab-indicator" :style="indicatorStyle" aria-hidden="true"></span><button type="button" :aria-pressed="!showingLyrics" @click="!preview && (playerLyrics = false)">{{ $t('mobile.refinements.cover') }}</button><button type="button" :aria-pressed="showingLyrics" @click="!preview && (playerLyrics = true)">{{ $t('mobile.refinements.lyrics') }}</button></div>
     <div ref="swipeViewport" class="swipe-deck player-viewport">
     <Transition :name="wide ? 'player-visual-switch' : 'surface-' + (direction ?? 'next')" @before-leave="beforeLeave" @before-enter="beforeEnter" @after-enter="finishNavigationSwipeEnter">
-      <div v-if="wide || !playerLyrics || neighbor === 'cover'" key="cover" class="swipe-surface player-visual-pane" :data-slide-active="!wide && !playerLyrics ? '' : undefined" :data-player-peek="!wide && playerLyrics ? '' : undefined" :data-peek-tab="!wide && playerLyrics ? 'cover' : undefined" :style="!wide ? playerLyrics ? peekStyle : swipeStyle : undefined" :data-swiping="!wide && swiping ? '' : undefined" :inert="!wide && playerLyrics">
-        <button class="player-artwork artwork-toggle" type="button" :aria-label="$t(wide ? 'mobile.refinements.cover' : 'mobile.refinements.showLyrics')" :disabled="wide" @click="!preview && (playerLyrics = true)"><PluginArtwork v-if="pluginId" :plugin-id="pluginId" :uri="props.cover" :source-context="pluginContext" eager size="large" /><CoverImage v-else-if="props.cover" :src="props.cover" :remote-src="remoteCover" :loading="playerLyrics && !wide ? 'lazy' : 'eager'" size="large" alt="" /><span v-else class="cover-fallback large-cover"><OriginalIcon name="library" /></span><span class="artwork-glow"></span></button>
+      <div v-if="wide || !showingLyrics || neighbor === 'cover'" key="cover" class="swipe-surface player-visual-pane" :data-slide-active="!wide && !showingLyrics ? '' : undefined" :data-player-peek="!wide && showingLyrics ? '' : undefined" :data-peek-tab="!wide && showingLyrics ? 'cover' : undefined" :style="!wide ? showingLyrics ? peekStyle : swipeStyle : undefined" :data-swiping="!wide && swiping ? '' : undefined" :inert="!wide && showingLyrics">
+        <button class="player-artwork artwork-toggle" type="button" :aria-label="$t(wide ? 'mobile.refinements.cover' : 'mobile.refinements.showLyrics')" :disabled="wide" @click="!preview && (playerLyrics = true)"><PluginArtwork v-if="pluginId" :plugin-id="pluginId" :uri="props.cover" :source-context="pluginContext" eager size="large" /><CoverImage v-else-if="props.cover" :src="props.cover" :remote-src="remoteCover" :loading="showingLyrics && !wide ? 'lazy' : 'eager'" size="large" alt="" /><span v-else class="cover-fallback large-cover"><OriginalIcon name="library" /></span><span class="artwork-glow"></span></button>
       </div>
     </Transition>
     <Transition :name="wide ? 'player-visual-switch' : 'surface-' + (direction ?? 'next')" @before-leave="beforeLeave" @before-enter="beforeEnter" @after-enter="finishNavigationSwipeEnter">
-      <div v-if="wide || playerLyrics || neighbor === 'lyrics'" key="lyrics" class="swipe-surface player-visual-pane" :data-slide-active="!wide && playerLyrics ? '' : undefined" :data-player-peek="!wide && !playerLyrics ? '' : undefined" :data-peek-tab="!wide && !playerLyrics ? 'lyrics' : undefined" :style="!wide ? playerLyrics ? swipeStyle : peekStyle : undefined" :data-swiping="!wide && swiping ? '' : undefined" :inert="!wide && !playerLyrics">
+      <div v-if="wide || showingLyrics || neighbor === 'lyrics'" key="lyrics" class="swipe-surface player-visual-pane" :data-slide-active="!wide && showingLyrics ? '' : undefined" :data-player-peek="!wide && !showingLyrics ? '' : undefined" :data-peek-tab="!wide && !showingLyrics ? 'lyrics' : undefined" :style="!wide ? showingLyrics ? swipeStyle : peekStyle : undefined" :data-swiping="!wide && swiping ? '' : undefined" :inert="!wide && !showingLyrics">
         <section class="lyrics-panel player-lyrics-view" @click.self="!preview && !wide && (playerLyrics = false)">
           <div v-if="store.lyricsLoading || !store.lyrics.original.length" class="lyrics-empty">{{ $t(store.lyricsLoading ? 'mobile.refinements.lyricsLoading' : 'mobile.refinements.noLyrics') }}</div>
           <div v-else class="player-lyrics-content">
-            <OriginalLyricsView :family="store.lyrics" :position="store.playback.position" :playing="!preview && (wide || playerLyrics) && store.playback.playing && !store.playback.buffering" :rate="store.playback.rate ?? 1" :offset-ms="store.overlaySettings.currentLyricOffsetMs ?? 0" :duration="store.playback.duration" :display-settings="store.overlaySettings" :loop="lyricLoop" @seek="!preview && store.seek($event)" />
+            <OriginalLyricsView :family="store.lyrics" :position="store.playback.position" :playing="!preview && (wide || showingLyrics) && store.playback.playing && !store.playback.buffering" :rate="store.playback.rate ?? 1" :offset-ms="store.overlaySettings.currentLyricOffsetMs ?? 0" :duration="store.playback.duration" :display-settings="store.overlaySettings" :loop="lyricLoop" @seek="!preview && store.seek($event)" />
             <aside v-if="preview" class="preview-lyric-offset"><LyricOffsetControl orientation="vertical" compact :model-value="store.overlaySettings.currentLyricOffsetMs ?? 0" :disabled="!store.playback.trackId" /></aside>
-            <LandscapeLyricOffset v-else-if="wide || playerLyrics" />
+            <LandscapeLyricOffset v-else-if="wide || showingLyrics" />
           </div>
         </section>
       </div>

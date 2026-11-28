@@ -15,7 +15,8 @@ const indicator = useNavigationIndicator(navigation, computed(() => props.positi
 
 <template>
   <div class="section-heading"><div><h2>{{ $t('nav.library') }}</h2></div></div>
-  <p v-if="store.localOnly" class="library-mode-description" role="status">{{ $t(store.manualLocalOnly ? 'mobile.network.manualHint' : !store.networkConnected ? 'mobile.network.automaticHint' : 'mobile.network.guestHint') }} <button v-if="store.manualLocalOnly" class="text-button" type="button" :disabled="store.localModeLoading" @click="store.useAutomaticMode">{{ $t('mobile.network.useAutomatic') }}</button></p>
+  <p v-if="store.localOnly" class="library-mode-description" role="status">{{ $t(store.manualLocalOnly ? 'mobile.network.manualHint' : !store.networkConnected ? (store.networkReason === 'unreachable' ? 'mobile.network.unreachableHint' : 'mobile.network.automaticHint') : 'mobile.network.guestHint') }} <button v-if="store.manualLocalOnly" class="text-button" type="button" :disabled="store.localModeLoading" @click="store.useAutomaticMode">{{ $t('mobile.network.useAutomatic') }}</button><button v-else-if="!store.networkConnected" class="text-button" type="button" :disabled="store.connectivityRetrying" :aria-busy="store.connectivityRetrying" @click="store.retryConnectivity()">{{ $t(store.connectivityRetrying ? 'mobile.network.checkingConnectivity' : 'mobile.network.retryConnectivity') }}</button></p>
+  <p v-if="store.localOnly && !store.manualLocalOnly && !store.networkConnected && store.connectivityError" class="inline-error" role="alert">{{ store.connectivityError }}</p>
   <div class="library-shortcuts">
     <button v-if="store.onlineAvailable" class="shortcut-card favorite-shortcut" type="button" @click="emit('navigate', 'playlists')">
       <span class="shortcut-icon"><OriginalIcon name="library" /></span><span><b>{{ $t('mobile.library.myPlaylists') }}</b><small>{{ $t('mobile.shellUi.playlists', { count: store.playlists.length }) }}</small></span>

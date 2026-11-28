@@ -32,24 +32,35 @@ public class PluginMediaPlaybackTest {
     }
 
     @Test public void failedPrimaryRegistrationFallsThroughToBackupWithoutResolvingTheSongAgain() throws Exception {
-        List<String> calls = new ArrayList<>();
-        JSONObject resolved = PluginMedia.resolvePlaybackLocation(new JSONArray().put(PRIMARY).put(BACKUP).put(THIRD), url -> {
-            calls.add(url);
-            if (PRIMARY.equals(url)) throw new SocketTimeoutException("synthetic timeout");
-            return new JSONObject().put("url", "http://127.0.0.1/plugin-media/backup");
-        });
-        assertEquals(List.of(PRIMARY, BACKUP), calls);
-        assertEquals("http://127.0.0.1/plugin-media/backup", resolved.getString("url"));
-        assertEquals(List.of(THIRD), candidates(resolved));
-        assertEquals(2, resolved.getInt("pluginMediaAttempt"));
-        assertEquals(3, resolved.getInt("pluginMediaTotal"));
+        for (IOException failure : List.of(new IOException("synthetic address registration failure"),
+                new AndroidPluginManager.PluginFailure("PLUGIN_ERROR", "synthetic rejected address"),
+                new EmbeddedSources.LocalTransportFailure(new SocketTimeoutException("synthetic loopback timeout")))) {
+            assertFalse(MusicConnectivity.isUnreachable(failure));
+            List<String> calls = new ArrayList<>();
+            JSONObject resolved = PluginMedia.resolvePlaybackLocation(new JSONArray().put(PRIMARY).put(BACKUP).put(THIRD), url -> {
+                calls.add(url);
+                if (PRIMARY.equals(url)) throw failure;
+                return new JSONObject().put("url", "http://127.0.0.1/plugin-media/backup");
+            });
+            assertEquals(List.of(PRIMARY, BACKUP), calls);
+            assertEquals("http://127.0.0.1/plugin-media/backup", resolved.getString("url"));
+            assertEquals(List.of(THIRD), candidates(resolved));
+            assertEquals(2, resolved.getInt("pluginMediaAttempt"));
+            assertEquals(3, resolved.getInt("pluginMediaTotal"));
+        }
     }
 
-    @Test public void noBackupIsAttemptedAfterCancellationAccountChangeOrOfflinePolicy() {
+    @Test public void noBackupIsAttemptedAfterCancellationAccountChangeOfflinePolicyOrUnreachableNetwork() {
         JSONArray urls = new JSONArray().put(PRIMARY).put(BACKUP);
         for (IOException original : List.of(new PluginMedia.StaleAccount(), new InterruptedIOException("cancelled"),
                 new AndroidPluginManager.PluginFailure("PLUGIN_OFFLINE", "offline"),
-                new AndroidPluginManager.PluginFailure("PLUGIN_ACCOUNT_CHANGED", "cancelled"))) {
+                new AndroidPluginManager.PluginFailure("PLUGIN_ACCOUNT_CHANGED", "cancelled"),
+                new SocketTimeoutException("synthetic network timeout"),
+                new java.net.UnknownHostException("synthetic DNS failure"),
+                new java.net.ConnectException("synthetic connection failure"),
+                new java.net.NoRouteToHostException("synthetic unreachable network"),
+                new IOException("synthetic wrapped network timeout", new SocketTimeoutException("synthetic timeout")),
+                new AndroidPluginManager.PluginFailure("ETIMEDOUT", "synthetic plugin network timeout"))) {
             List<String> calls = new ArrayList<>();
             Exception actual = assertThrows(IOException.class, () -> PluginMedia.resolvePlaybackLocation(urls, url -> { calls.add(url); throw original; }));
             assertSame(original, actual);

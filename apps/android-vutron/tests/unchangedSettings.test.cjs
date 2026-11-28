@@ -1,12 +1,15 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),ts=require('typescript'),vue=require('vue')
 function loader(plugin,extra={}) {
  const cache=new Map()
+ const motionPreference=vue.ref('full')
+ const motionStub={motionPreference,reducedMotion:vue.computed(()=>motionPreference.value==='reduced')}
  function load(relative){
+  if(relative==='platform/motion.ts')return motionStub
   const filename=path.resolve(__dirname,'../src',relative)
   if(cache.has(filename))return cache.get(filename).exports
   const module={exports:{}};cache.set(filename,module)
   vm.runInNewContext(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{
-   module,exports:module.exports,require:name=>name==='vue'?vue:name.includes('vutronPlugin')?{vutronPlugin:plugin}:name.includes('/i18n')?{translate:key=>key}:name.includes('liveSettingsLifecycle')?{registerLiveSettingsFlusher(){},flushRegisteredLiveSettings:async()=>{}}:name.includes('androidShell')?{useAndroidShellStore:()=>({playback:{}})}:name.includes('sleepTimer')?{}:load(path.relative(path.resolve(__dirname,'../src'),path.resolve(path.dirname(filename),name+'.ts'))),
+   module,exports:module.exports,require:name=>name==='vue'?vue:name.includes('vutronPlugin')?{vutronPlugin:plugin}:name.includes('/i18n')?{translate:key=>key}:name.includes('liveSettingsLifecycle')?{registerLiveSettingsFlusher(){},flushRegisteredLiveSettings:async()=>{}}:name.includes('androidShell')?{useAndroidShellStore:()=>({playback:{}})}:name.includes('sleepTimer')?{}:name.includes('/motion')?motionStub:load(path.relative(path.resolve(__dirname,'../src'),path.resolve(path.dirname(filename),name+'.ts'))),
    console,setTimeout,clearTimeout,setInterval,clearInterval,document:{visibilityState:'visible'},...extra
   });return module.exports
  }
@@ -180,4 +183,25 @@ test('unchanged playback speed, pitch and prefetch preserve zero writes and fail
  state.update({speed:1.2});await state.flush();state.update({speed:1.2});await state.flush();assert.equal(writes,1)
  fail=true;state.update({pitch:1.3});await state.flush();assert.equal(writes,2);assert.equal(state.pending.value,true)
  state.update({pitch:1.3});await state.flush();assert.equal(writes,3);assert.equal(state.pending.value,false)
+})
+test('overlay motionPreference pairs atomically with computed reducedMotion and skips duplicate writes',async()=>{
+ const patches=[]
+ const plugin={
+  getLyricOverlaySettings:async()=>({enabled:false,locked:false,translation:true,nextLine:true,wifiValidation:true,estimatedWordTiming:false,fontSize:22,playedColor:0xff37cf88,unplayedColor:0xffd2d2d2,backgroundColor:0xff181920,shadowColor:0x99000000,shadowEnabled:true,shadowRadius:2,touchPassthroughPriority:true,permissionGranted:false,motionPreference:'full',reducedMotion:false}),
+  updateLyricOverlaySettings:async({settings})=>{patches.push({...settings});return settings}
+ }
+ const load=loader(plugin),motion=load('platform/motion.ts')
+ assert.equal(motion.motionPreference.value,'full')
+ const playback=vue.ref({trackId:1,title:'Track',track:{id:1,name:'Track'}}),error=vue.ref('')
+ const scope=vue.effectScope()
+ try{
+  const state=scope.run(()=>load('stores/domains/shellOverlay.ts').createShellOverlay({playback,error,t:key=>key,formatError:(_e,key)=>key,playbackTrackKey:()=>String(playback.value.trackId)}))
+  await state.loadOverlaySettings();assert.equal(patches.length,0)
+  await state.updateOverlayField('motionPreference','full');assert.equal(patches.length,0)
+  await state.updateOverlayField('motionPreference','system');await state.updateOverlayField('motionPreference','system')
+  assert.deepEqual(patches,[{motionPreference:'system',reducedMotion:false}])
+  await state.updateOverlayField('motionPreference','reduced')
+  assert.deepEqual(patches,[{motionPreference:'system',reducedMotion:false},{motionPreference:'reduced',reducedMotion:true}])
+  assert.equal(motion.reducedMotion.value,true)
+ }finally{scope.stop()}
 })

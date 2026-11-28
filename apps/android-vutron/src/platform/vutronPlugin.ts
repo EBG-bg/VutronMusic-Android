@@ -121,6 +121,8 @@ export interface VutronLyricOverlaySettings {
   shadowColor: number
   shadowEnabled: boolean
   reducedMotion?: boolean
+  /** Explicit preference wins over reducedMotion; system also uses the resolved accessibility flag. */
+  motionPreference?: 'full' | 'system' | 'reduced'
   shadowRadius: number
   touchPassthroughPriority: boolean
   permissionGranted?: boolean

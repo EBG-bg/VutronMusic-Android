@@ -36,7 +36,7 @@ const emit = defineEmits<{ requestLogin: []; localMode: []; openOffline: []; ope
           <div class="settings-account-copy"><b>{{ $t('mobile.login.localEntry') }}</b><small>{{ $t('mobile.settingsUi.guestHint') }}</small></div>
           <button type="button" class="text-button" @click="appNavigation.run(()=>emit('requestLogin'))">{{ $t('mobile.settingsUi.login') }}</button>
         </section>
-        <section class="settings-card network-settings"><div class="settings-detail"><div class="settings-network-copy"><b>{{ $t('mobile.network.manualSwitch') }}</b><small role="status">{{ $t(store.manualLocalOnly ? 'mobile.network.manualOffline' : store.localOnly ? !store.networkConnected ? 'mobile.network.automaticOffline' : 'mobile.network.localGuest' : 'mobile.network.online') }}</small></div><button class="switch" :class="{ on: store.manualLocalOnly }" type="button" role="switch" :aria-checked="store.manualLocalOnly" :aria-label="$t('mobile.network.manualSwitch')" :disabled="store.localModeLoading" @click="store.manualLocalOnly ? store.useAutomaticMode() : emit('localMode')"><i></i></button></div></section>
+        <section class="settings-card network-settings"><div class="settings-detail"><div class="settings-network-copy"><b>{{ $t('mobile.network.manualSwitch') }}</b><small role="status">{{ $t(store.manualLocalOnly ? 'mobile.network.manualOffline' : !store.networkConnected ? (store.networkReason === 'unreachable' ? 'mobile.network.unreachableOffline' : 'mobile.network.automaticOffline') : store.localOnly ? 'mobile.network.localGuest' : 'mobile.network.online') }}</small></div><button class="switch" :class="{ on: store.manualLocalOnly }" type="button" role="switch" :aria-checked="store.manualLocalOnly" :aria-label="$t('mobile.network.manualSwitch')" :disabled="store.localModeLoading" @click="store.manualLocalOnly ? store.useAutomaticMode() : emit('localMode')"><i></i></button></div><div v-if="!store.manualLocalOnly && (!store.networkConnected || store.connectivityError)" class="network-retry-row"><button type="button" class="secondary-button" :disabled="store.connectivityRetrying" :aria-busy="store.connectivityRetrying" @click="store.retryConnectivity()">{{ $t(store.connectivityRetrying ? 'mobile.network.checkingConnectivity' : 'mobile.network.retryConnectivity') }}</button><p v-if="store.connectivityError" class="inline-error" role="alert">{{ store.connectivityError }}</p></div></section>
         <h3 class="settings-group-label">{{ $t('mobile.refinements.interfaceGroup') }}</h3>
         <AppearanceSettings />
         <LanguageSettings />
@@ -69,6 +69,8 @@ const emit = defineEmits<{ requestLogin: []; localMode: []; openOffline: []; ope
 .settings-network-copy { display: grid; gap: 5px; min-width: 0; }
 .settings-network-copy b { font-weight: 650; }
 .settings-network-copy small { color: var(--muted); line-height: 1.4; }
+.network-retry-row { display: grid; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.network-retry-row .secondary-button { justify-self: start; }
 .settings-source-link { width: 100%; display: flex; align-items: center; gap: 12px; color: var(--ink); text-align: start; font-weight: 650; }
 .settings-source-link > span:nth-child(2) { flex: 1; min-width: 0; }
 .settings-link-chevron { transform: rotate(-90deg); color: var(--muted); }
